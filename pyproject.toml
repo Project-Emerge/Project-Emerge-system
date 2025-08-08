@@ -9,3 +9,81 @@ dependencies = [
     "opencv-python>=4.11.0.86",
     "paho-mqtt>=2.1.0",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.8.0",
+]
+
+[project.scripts]
+# Scripts for running linting and formatting
+ruff-check = "ruff:check"
+ruff-format = "ruff:format"
+
+[tool.ruff]
+# Exclude generated files and build artifacts
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "target",
+    ".pytest_cache",
+]
+
+# Set the maximum line length
+line-length = 120
+
+# Assume Python 3.13+
+target-version = "py313"
+
+[tool.ruff.lint]
+# Enable these rule categories
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings  
+    "F",      # Pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "PIE",    # flake8-pie
+    "SIM",    # flake8-simplify
+    "RET",    # flake8-return
+    "PTH",    # flake8-use-pathlib
+]
+
+# Ignore these specific rules
+ignore = [
+    "E501",   # Line too long (handled by line-length setting)
+    "B008",   # Do not perform function calls in argument defaults
+    "N806",   # Variable in function should be lowercase (conflicts with OpenCV conventions)
+    "N803",   # Argument name should be lowercase (conflicts with OpenCV conventions)
+]
+
+# Allow fix for all enabled rules (when using --fix)
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when they start with an underscore
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+# Ignore specific rules for specific files/patterns
+"__init__.py" = ["F401"]  # Allow unused imports in __init__.py
+"aruco-detector/__init__.py" = ["N999"]  # Ignore invalid module name for this package
+
+[tool.ruff.format]
+# Use double quotes for strings
+quote-style = "double"
+
+# Indent with spaces
+indent-style = "space"
+
+# Respect magic trailing commas
+skip-magic-trailing-comma = false
+
+# Automatically detect line ending
+line-ending = "auto"
