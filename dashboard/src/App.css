@@ -1,0 +1,66 @@
+#root {
+ width:100%;
+}
+
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  width:100%;
+  height: 100vh;
+}
+
+.top-bar {
+  padding: 10px;
+  background-color: #1a1a1a; /* Match top bar background */
+}
+
+.main-content {
+  display: flex;
+  flex: 1;
+}
+
+.map-container {
+  flex: 1;
+  background-color: #f0f0f0;
+}
+
+.control-panel {
+  width: 20%;
+  position: absolute;
+  right: 0px;
+  background-color: #1a1a1a; /* Match top bar background */
+  color: white;
+  padding: 10px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.arrows button {
+  margin: 5px;
+  padding: 10px;
+  font-size: 20px;
+}
+
+select {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  color: white;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+
+select:hover {
+  border-color: #646cff;
+}
+
+select:focus {
+  outline: 4px auto -webkit-focus-ring-color;
+}
