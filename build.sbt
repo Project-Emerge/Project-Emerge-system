@@ -14,7 +14,7 @@ ThisBuild / assemblyMergeStrategy := {
 
 val underlineJava = System.getProperty("java.version").split("\\.")(0)
 
-ThisBuild / scalaVersion := "3.7.1"
+ThisBuild / scalaVersion := "3.7.2"
 val slf4jVersion = "2.0.17"
 lazy val root = 
     project
