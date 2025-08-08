@@ -1,5 +1,5 @@
 # Dashboard Dockerfile
-FROM node:20-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
