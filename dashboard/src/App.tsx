@@ -44,9 +44,9 @@ function App() {
   };
 
   const handleRobotClick = (id: number | null) => {
-    console.log(`Robot clicked: ${id}`);
-    console.log(`Selected robot: ${robots}`)
-    console.log(`Selected robot ID: ${id}`);
+    console.warn(`Robot clicked: ${id}`);
+    console.warn(`Selected robot: ${robots}`)
+    console.warn(`Selected robot ID: ${id}`);
     setSelectedRobot((prevSelectedRobot) => (prevSelectedRobot === id ? null : id));
   };
 
@@ -57,8 +57,8 @@ function App() {
         <div className="map-container">
           <RobotScene robots={robots} trigger={resetCameraTrigger} onRobotClick={handleRobotClick} /> 
         </div>
-        {selectedRobot !== null && robots.find(r => r.id == selectedRobot) && (
-          <ControlPanel commandPublisher={commandPublisher} robot={robots.find(r => r.id == selectedRobot)!} />
+        {selectedRobot !== null && robots.find(r => r.id === selectedRobot) && (
+          <ControlPanel commandPublisher={commandPublisher} robot={robots.find(r => r.id === selectedRobot)!} />
         )}
       </div>
     </div>

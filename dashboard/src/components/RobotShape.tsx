@@ -49,7 +49,9 @@ function RobotShape({ data, onClick }: { data: RobotData; onClick?: (id : number
         child.receiveShadow = true;
         if (child.material instanceof THREE.Material) {
           child.material = child.material.clone();
-          (child.material as any).color = new THREE.Color(color);
+          if ('color' in child.material) {
+            (child.material as THREE.MeshStandardMaterial).color = new THREE.Color(color);
+          }
         }
       }
     });
@@ -78,7 +80,7 @@ function RobotShape({ data, onClick }: { data: RobotData; onClick?: (id : number
         receiveShadow 
         onClick={(event) => {
           event.stopPropagation(); // Prevent event bubbling
-          if (onClick) onClick(data.id);
+          if (onClick) {onClick(data.id);}
         }}
       >
         <primitive 

@@ -7,7 +7,7 @@ function NeighborLines({ robots }: { robots: RobotData[] }) {
   const groupRef = useRef<THREE.Group>(null);
 
   useFrame(() => {
-    if (!groupRef.current) return;
+    if (!groupRef.current) {return;}
     while (groupRef.current.children.length > 0) {
       groupRef.current.remove(groupRef.current.children[0]);
     }
@@ -16,7 +16,7 @@ function NeighborLines({ robots }: { robots: RobotData[] }) {
       const from = new THREE.Vector3(robot.position.x, 0, robot.position.y);
       robot.neighbors?.forEach(nid => {
         const neighbor = robots[nid];
-        if (!neighbor) return;
+        if (!neighbor) {return;}
         const to = new THREE.Vector3(neighbor.position.x, 0, neighbor.position.y);
 
         const points = [from, to];

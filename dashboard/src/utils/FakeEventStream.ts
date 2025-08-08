@@ -63,7 +63,7 @@ export class FakeEventStream {
   publishCommand(command: Vector2D): void {
     const leader = this.robots.find((robot) => robot.isLeader);
     if (leader) {
-      console.log(`Fake command sent to leader robot:`, command);
+      console.warn(`Fake command sent to leader robot:`, command);
     }
   }
 

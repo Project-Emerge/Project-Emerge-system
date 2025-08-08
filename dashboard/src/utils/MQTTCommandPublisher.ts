@@ -13,10 +13,10 @@ export class MQTTCommandPublisher implements CommandPublisher {
 
   publishCommand(command: Vector2D): void {
     // Implement MQTT publishing logic here
-    console.log(`MQTT command published to ${this.brokerUrl}:`, command);
+    console.warn(`MQTT command published to ${this.brokerUrl}:`, command);
   }
   publishMoveCommand(robotId: number, command: Vector2D): void {
-    console.log(`MQTT move command for robot ${robotId} to ${this.brokerUrl}:`, command);
+    console.warn(`MQTT move command for robot ${robotId} to ${this.brokerUrl}:`, command);
     
     const forward = command.y;  // Forward/backward speed
     const turn = command.x;     // Turn rate (positive = turn right)
@@ -30,13 +30,13 @@ export class MQTTCommandPublisher implements CommandPublisher {
     left = Math.max(-1, Math.min(1, left));
     right = Math.max(-1, Math.min(1, right));
     
-    console.log(`Motor values for robot ${robotId}:`, { left, right });
+    console.warn(`Motor values for robot ${robotId}:`, { left, right });
     
     this.client.publish(`robots/${robotId}/move`, JSON.stringify({left, right}));
   }
 
   publishLeaderCommand(robotId: number, isLeader: boolean): void {
-    console.log(`MQTT leader command for robot ${robotId} to ${this.brokerUrl}:`, isLeader);
+    console.warn(`MQTT leader command for robot ${robotId} to ${this.brokerUrl}:`, isLeader);
     // Implement MQTT logic for leader command
   }
 }

@@ -12,7 +12,7 @@ function CameraController({ trigger }: { trigger: number }) {
   useEffect(() => {
       camera.position.set(0, 30, 0); // Reset to default position
       camera.lookAt(0,0,0);
-  }, [trigger]);
+  }, [trigger, camera]);
 
   return null;
 }

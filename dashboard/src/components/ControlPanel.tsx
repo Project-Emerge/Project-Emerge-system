@@ -58,7 +58,7 @@ function ControlPanel({ commandPublisher, robot }: ControlPanelProps) {
       };
       commandPublisher.publishMoveCommand(robot.id, command);
     }
-  }, [joystickPosition, counter, commandPublisher, robot.id]);
+  }, [joystickPosition, counter, commandPublisher, robot.id, intervalId]);
 
   return (
     <div className="control-panel">

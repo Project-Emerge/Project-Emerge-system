@@ -5,10 +5,10 @@ import type { RobotData } from '../types/RobotData'; // Adjust the import path a
 
 export class MQTTEventStream implements EventStream {
   private client: mqtt.MqttClient;
-  private robots: { [key: string]: any } = {};
+  private robots: { [key: string]: RobotData } = {};
 
   constructor(brokerUrl: string) {
-    console.log(`Connecting to MQTT broker at ${brokerUrl}`);
+    console.warn(`Connecting to MQTT broker at ${brokerUrl}`);
     this.client = mqtt.connect(brokerUrl);
     this.client.on('error', (err) => {
       console.error('MQTT connection error:', err);
@@ -18,9 +18,9 @@ export class MQTTEventStream implements EventStream {
 
   subscribe(callback: (robots: RobotData[]) => void): void {
     this.client.on('connect', () => {
-      console.log('Connected to MQTT broker');
+      console.warn('Connected to MQTT broker');
       // print robots ids
-      console.log(this.robots)
+      console.warn(this.robots)
       this.client.subscribe(`robots/+/position`);
       this.client.subscribe(`robots/+/neighbors`);
       this.client.subscribe(`leader`);
