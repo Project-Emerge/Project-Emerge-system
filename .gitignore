@@ -1,5 +1,12 @@
-# Created by https://www.toptal.com/developers/gitignore/api/python,scala,sbt
-# Edit at https://www.toptal.com/developers/gitignore?templates=python,scala,sbt
+# Created by https://www.toptal.com/developers/gitignore/api/metals,sbt,bloop,python
+# Edit at https://www.toptal.com/developers/gitignore?templates=metals,sbt,bloop,python
+
+### Bloop ###
+.bloop/
+
+### Metals ###
+.metals/
+project/**/metals.sbt
 
 ### Python ###
 # Byte-compiled / optimized / DLL files
@@ -188,10 +195,4 @@ project/plugins/project/
 ### SBT Patch ###
 .bsp/
 
-### Scala ###
-*.class
-
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
-hs_err_pid*
-
-# End of https://www.toptal.com/developers/gitignore/api/python,scala,sbt
+# End of https://www.toptal.com/developers/gitignore/api/metals,sbt,bloop,python
