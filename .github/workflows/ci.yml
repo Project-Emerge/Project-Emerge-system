@@ -11,7 +11,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # TypeScript/React Dashboard CI
   dashboard:
     name: Dashboard (TypeScript/React)
     runs-on: ubuntu-latest
@@ -45,7 +44,6 @@ jobs:
         path: dashboard/dist/
         retention-days: 1
 
-  # Scala/SBT Runtime CI
   scala-runtime:
     name: Scala Runtime (SBT)
     runs-on: ubuntu-latest
@@ -80,7 +78,6 @@ jobs:
         path: aggregate-runtime/target/scala-*/*-assembly-*.jar
         retention-days: 1
 
-  # Python ArUco Detector CI
   python-detector:
     name: Python ArUco Detector
     runs-on: ubuntu-latest
@@ -130,7 +127,6 @@ jobs:
           cd aruco-detector && uv run python -c "import main, estimator"
         fi
 
-  # Docker Build Tests
   docker-builds:
     name: Docker Build Tests
     runs-on: ubuntu-latest
@@ -156,7 +152,6 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-  # Security Scanning
   security-scan:
     name: Security Scanning
     runs-on: ubuntu-latest
@@ -180,9 +175,7 @@ jobs:
       with:
         sarif_file: 'trivy-results.sarif'
 
-  # Status Check Job
-  ci-status:
-    name: CI Status
+  status:
     runs-on: ubuntu-latest
     needs: [dashboard, scala-runtime, python-detector, docker-builds]
     if: always()
