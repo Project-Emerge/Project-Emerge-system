@@ -26,7 +26,7 @@ lazy val root =
         libraryDependencies += "com.lihaoyi" %% "requests" % "0.9.0",
         libraryDependencies += "com.lihaoyi" %% "upickle" % "3.3.0",
         libraryDependencies += "org.slf4j" % "slf4j-simple" % slf4jVersion,
-        libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.5.7",
+        libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.5.18",
         libraryDependencies += "org.eclipse.paho" % "org.eclipse.paho.client.mqttv3" % "1.2.5",
         assembly / mainClass := Some("it.unibo.demo.HeadlessFormation"),
     )
