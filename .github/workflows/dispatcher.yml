@@ -1,0 +1,49 @@
+name: CI/CD
+
+on:
+  push:
+    branches-ignore:
+      - 'dependabot/**'
+    paths-ignore:
+      - 'CHANGELOG.md'
+      - 'LICENSE'
+      - 'README.md'
+      - 'renovate.json'
+      - '.gitignore'
+      - '.mergify.yml'
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number || github.ref }}
+  cancel-in-progress: ${{ !contains(github.ref, 'master') }}
+
+jobs:
+#  debug:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - run: |
+#          echo "github.event_name=${{github.event_name}}"
+#          echo "github.event.pull_request.head.repo.full_name=${{github.event.pull_request.head.repo.full_name}}"
+#          echo "github.repository=${{github.repository}}"
+#          echo "github.head_ref=${{github.head_ref}}"
+  dispatcher:
+#    needs:
+#      - debug
+    runs-on: ubuntu-24.04
+    # For PRs execute only on commit since the branch protection require the branch to be up-to-date (optimize the workflow).
+    # Triggers the executions if an external PR is opened.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name != github.repository
+      || startsWith(github.head_ref, 'dependabot/')
+    steps:
+      - run: 'true'
+  ci-cd:
+    needs: [ dispatcher ]
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: write
+      packages: write
+      security-events: write
+    secrets: inherit
