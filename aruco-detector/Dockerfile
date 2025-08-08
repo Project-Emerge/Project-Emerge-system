@@ -14,11 +14,15 @@ RUN apt-get update && apt-get install -y \
     v4l-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Change the working directory to the `app` directory
 WORKDIR /app
 
 # Copy requirements and install Python dependencies
 COPY pyproject.toml uv.lock ./
-RUN pip install uv && uv sync --frozen
+RUN uv sync --frozen
 
 # Copy source code
 COPY aruco-detector/ ./
@@ -28,4 +32,4 @@ ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
 # Command will be overridden in docker-compose
-CMD ["python", "main.py"]
+CMD ["uv", "run", "--", "python", "main.py"]

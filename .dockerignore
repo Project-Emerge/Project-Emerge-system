@@ -1,0 +1,31 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+*.md
+
+# IDE
+.vscode/
+.idea/
+
+# Build artifacts
+target/
+dist/
+build/
+node_modules/
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Dependencies cache (will be downloaded in container)
+.ivy2/
+.sbt/

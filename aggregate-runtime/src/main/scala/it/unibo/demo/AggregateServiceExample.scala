@@ -7,62 +7,49 @@ import it.unibo.demo.provider.MqttProvider
 import it.unibo.demo.robot.RobotUpdateMqtt
 import it.unibo.demo.scenarios.{BaseDemo, CircleFormation, LineFormation}
 import it.unibo.utils.Position.given
-import scalafx.application.JFXApp3
-import scalafx.scene.layout.Pane
-import scalafx.scene.paint.Color
-import view.fx.*
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.Random
+import it.unibo.core.Boundary
+import scala.concurrent.Future
+import it.unibo.core.Environment
 
-class BaseAggregateServiceExample(demoToLaunch: BaseDemo) extends JFXApp3:
+private final val BROKER_URL = System.getProperty("mqtt.broker.url", "tcp://localhost:1883")
+
+class BaseAggregateServiceExample(demoToLaunch: BaseDemo) extends App:
   private val agentsNeighborhoodRadius = 500
   private val nodeGuiSize = 10
-  override def start(): Unit =
 
-    val agents = 12
-    val provider = MqttProvider("tcp://localhost:1883")
-    provider.start()
-    val update = RobotUpdateMqtt(0.6)
-    val aggregateOrchestrator =
-      AggregateOrchestrator[Position, Info, Actuation](
-        (0 to agents).toSet,
-        demoToLaunch
-      )
-
-    val basePane = Pane()
-    val guiPane = Pane()
-    val neighborhoodPane = Pane()
-    basePane.children.addAll(neighborhoodPane, guiPane)
-    val worldPane = WorldPanel(guiPane, NodeStyle(nodeGuiSize, nodeGuiSize, Color.Blue))
-    val neighbouringPane = NeighborhoodPanel(guiPane, neighborhoodPane)
-    val render = SimpleRender(
-      worldPane,
-      neighbouringPane,
-      MagnifierPolicy.translateAndScale((400, 400), 10)
+  val agents = 12
+  val provider = MqttProvider("tcp://localhost:1883")
+  provider.start()
+  val update = RobotUpdateMqtt(0.6)
+  val aggregateOrchestrator =
+    AggregateOrchestrator[Position, Info, Actuation](
+      (0 to agents).toSet,
+      demoToLaunch
     )
 
-    UpdateLoop.loop(30)(
-      provider,
-      aggregateOrchestrator,
-      update,
-      render
-    )
+  val render = new Boundary[ID, Position, Info]:
+    override def output(environment: Environment[ID, Position, Info]): Future[Unit] =
+      Future.successful(())
 
-    stage = new JFXApp3.PrimaryStage:
-      title = "Aggregate Service Example"
-      scene = new scalafx.scene.Scene:
-        content = basePane
-      width = 800
-      height = 800
+  UpdateLoop.loop(30)(
+    provider,
+    aggregateOrchestrator,
+    update,
+    render
+  )
 
-  private def randomAgents(howMany: Int, maxPosition: Int): Map[ID, (Double, Double)] =
-    val random = new scala.util.Random
-    (1 to howMany).map { i =>
-      i -> (random.nextDouble() * maxPosition, random.nextDouble() * maxPosition)
-    }.toMap
-
+private def randomAgents(howMany: Int, maxPosition: Int): Map[ID, (Double, Double)] =
+  val random = new scala.util.Random
+  (1 to howMany).map { i =>
+    i -> (random.nextDouble() * maxPosition, random.nextDouble() * maxPosition)
+  }.toMap
 
 object LineFormationDemo extends BaseAggregateServiceExample(LineFormation(5, 5, 1, 4.5))
 
 object CircleFormationDemo extends BaseAggregateServiceExample(CircleFormation(15, 5, 1, 2.5))
+
+object HeadlessFormation extends App:
+  println("Starting headless formation demo...")

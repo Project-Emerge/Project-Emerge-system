@@ -1,0 +1,82 @@
+services:
+  mqtt-broker:
+    image: eclipse-mosquitto:2.0.22
+    container_name: mqtt-broker
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mqtt/config:/mosquitto/config:ro
+      - mqtt-data:/mosquitto/data
+      - mqtt-log:/mosquitto/log
+    command: mosquitto -c /mosquitto/config/mosquitto.conf
+    restart: unless-stopped
+    networks:
+      - project-emerge-network
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: ./dashboard/Dockerfile
+    container_name: project-emerge-dashboard
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./dashboard:/app/dashboard
+      - ./package.json:/app/package.json
+      - ./vite.config.ts:/app/vite.config.ts
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./tsconfig.app.json:/app/tsconfig.app.json
+      - ./tsconfig.node.json:/app/tsconfig.node.json
+      - /app/dashboard/node_modules
+    environment:
+      - VITE_MQTT_BROKER_URL=ws://mqtt-broker:9001
+    depends_on:
+      - mqtt-broker
+    restart: unless-stopped
+    networks:
+      - project-emerge-network
+    command: npm run dev -- --host 0.0.0.0
+
+  aruco-detector:
+    build:
+      context: .
+      dockerfile: ./aruco-detector/Dockerfile
+    container_name: project-emerge-aruco-detector
+    volumes:
+      - ./aruco-detector:/app/src
+      - /dev/video0:/dev/video0
+    devices:
+      - /dev/video0:/dev/video0
+    privileged: true
+    environment:
+      - DISPLAY=${DISPLAY}
+      - MQTT_URL=mqtt-broker
+      - PYTHONPATH=/app:/app/src
+    depends_on:
+      - mqtt-broker
+    restart: unless-stopped
+    networks:
+      - project-emerge-network
+    command: uv run -- python src/main.py --mqtt-url mqtt-broker
+
+  aggregate-runtime:
+    build:
+      context: .
+      dockerfile: ./aggregate-runtime/Dockerfile
+    container_name: project-emerge-aggregate-runtime
+    environment:
+      - MQTT_URL=tcp://mqtt-broker:1883
+    depends_on:
+      - mqtt-broker
+    restart: unless-stopped
+    networks:
+      - project-emerge-network
+
+networks:
+  project-emerge-network:
+    driver: bridge
+
+volumes:
+  mqtt-data:
+  mqtt-log:

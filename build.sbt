@@ -23,7 +23,6 @@ lazy val root =
         name := "researcher-night-demo",
         libraryDependencies += ("it.unibo.scafi" %% "scafi-core" % "1.3.0").cross(CrossVersion.for3Use2_13),
         libraryDependencies += ("it.unibo.scafi" %% "scafi-simulator" % "1.3.0").cross(CrossVersion.for3Use2_13),
-        // libraryDependencies += "org.scalafx" %% "scalafx" % "16.0.0-R24",
         libraryDependencies += "com.lihaoyi" %% "requests" % "0.9.0",
         libraryDependencies += "com.lihaoyi" %% "upickle" % "3.3.0",
         libraryDependencies += "org.slf4j" % "slf4j-simple" % slf4jVersion,
