@@ -129,7 +129,7 @@ class ArUcoRobotPoseEstimator:
 
         return math.degrees(x), math.degrees(y), math.degrees(z)
 
-    def smooth_pose(self, marker_id, pose):
+    def smooth_pose(self, marker_id, rotation_vector, transition_vector):
         """
         Apply smoothing to pose estimates to reduce noise.
 
@@ -140,19 +140,17 @@ class ArUcoRobotPoseEstimator:
         Returns:
             Smoothed pose
         """
-        if marker_id not in self.pose_histories:
+        if( marker_id not in self.pose_histories):
             self.pose_histories[marker_id] = []
-
-        self.pose_histories[marker_id].append(pose)
-
-        if len(self.pose_histories[marker_id]) > self.max_history:
-            self.pose_histories[marker_id].pop(0)
-
-        # Average the poses for this specific marker
-        avg_rotation_vector = np.mean([p[0] for p in self.pose_histories[marker_id]], axis=0)
-        avg_transition_vector = np.mean([p[1] for p in self.pose_histories[marker_id]], axis=0)
-
-        return avg_rotation_vector, avg_transition_vector
+        history = self.pose_histories[marker_id]
+        history.append((rotation_vector, transition_vector))
+        poses_history = history[-self.max_history:]
+        rotation_history = np.array([pose[0] for pose in poses_history])
+        transition_history = np.array([pose[1] for pose in poses_history])
+        rotations_history_abs = np.abs(rotation_history)
+        rotation_vector = np.mean(rotations_history_abs, axis=0)
+        transition_vector = np.mean(transition_history, axis=0)
+        return rotation_vector, transition_vector
 
     def draw_pose_info(self, frame, corners, ids, poses):
         """
@@ -207,9 +205,8 @@ class ArUcoRobotPoseEstimator:
             for i, (rotation_vector, transition_vector) in enumerate(poses):
                 # Apply smoothing for this specific marker
                 marker_id = ids[i][0]
-                smooth_rotation_vector, smooth_transition_vector = self.smooth_pose(
-                    marker_id, (rotation_vector, transition_vector)
-                )
+                smooth_rotation_vector, smooth_transition_vector = self.smooth_pose(marker_id, rotation_vector, transition_vector)
+                
 
                 # Convert to readable format
                 x, y, z = smooth_transition_vector[0][0], smooth_transition_vector[1][0], smooth_transition_vector[2][0]

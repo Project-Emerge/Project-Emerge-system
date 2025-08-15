@@ -10,16 +10,23 @@ from estimator import ArUcoRobotPoseEstimator
 
 def calibrate_camera():
     """
-    Example camera calibration function.
-    You should replace this with your actual camera calibration data.
+    Load camera calibration data from calibration.npz file.
     """
-    # Example camera matrix (you need to calibrate your specific camera)
-    camera_matrix = np.array([[800, 0, 320], [0, 800, 240], [0, 0, 1]], dtype=np.float32)
-
-    # Example distortion coefficients
-    dist_coeffs = np.array([0.1, -0.2, 0, 0, 0], dtype=np.float32)
-
-    return camera_matrix, dist_coeffs
+    try:
+        # Load calibration data
+        calib_data = np.load('camera_calibration.npz')
+        camera_matrix = calib_data['camera_matrix']
+        distortion_coefficients = calib_data['dist_coeffs']
+        print(f"Loaded calibration data (RMS Error: {calib_data.get('rms_error', 'N/A'):.4f})")
+        return camera_matrix, distortion_coefficients
+    except FileNotFoundError:
+        print("Warning: No calibration data found! Using default values.")
+        print("Run calibration.py first to generate proper calibration data.")
+        # Fallback to example values for Full HD (1920x1080)
+        camera_matrix = np.array([[1400, 0, 960], [0, 1400, 540], [0, 0, 1]], dtype=np.float32)
+        #distortion_coefficients = np.array([0.1, -0.2, 0, 0, 0], dtype=np.float32)
+        distortion_coefficients = np.array([0.0, -0.0, 0, 0, 0], dtype=np.float32)
+        return camera_matrix, distortion_coefficients
 
 
 def main(debug=False, mqtt_url="localhost", width=640, height=480):
@@ -43,10 +50,10 @@ def main(debug=False, mqtt_url="localhost", width=640, height=480):
     print(f"Camera initialized with resolution: {int(actual_width)}x{int(actual_height)} at {actual_fps} FPS")
 
     # Get camera calibration parameters
-    camera_matrix, dist_coeffs = calibrate_camera()
+    camera_matrix, distortion_coefficients = calibrate_camera()
 
     # Initialize pose estimator
-    pose_estimator = ArUcoRobotPoseEstimator(camera_matrix, dist_coeffs, marker_size=0.05)
+    pose_estimator = ArUcoRobotPoseEstimator(camera_matrix, distortion_coefficients, marker_size=0.067, smooting_history=10)
 
     # Initialize MQTT client
     print(f"Connecting to MQTT broker... {mqtt_url}")

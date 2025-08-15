@@ -56,7 +56,7 @@ export class MQTTEventStream implements EventStream {
     this.robots[id] = {
       ...this.robots[id],
       id: parseInt(id, 10),
-      position: { x: data.x, y: data.y },
+      position: { x: data.x * 100, y: data.y * 100 },
       orientation: data.orientation,
     };
   }

@@ -83,10 +83,17 @@ function RobotShape({ data, onClick }: { data: RobotData; onClick?: (id : number
           if (onClick) {onClick(data.id);}
         }}
       >
-        <primitive 
+        {/* cube as a mesh */}
+        <mesh 
+          geometry={new THREE.BoxGeometry(1, 1, 1)} 
+          material={new THREE.MeshStandardMaterial({ color: isLeader ? 'gold' : 'skyblue' })} 
+          position={[0, 0.5, 0]} // Position the cube above the ground
+          scale={[11, 7, 17]} // Scale
+        />
+        {/* <primitive 
           object={robotModel} 
           scale={[0.01, 0.01, 0.01]}
-        />
+        /> */}
       </group>
       <Text
         ref={textRef}
