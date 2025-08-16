@@ -11,7 +11,7 @@ import { MQTTEventStream } from './utils/MQTTEventStream';
 import { FakeCommandPublisher } from './utils/FakeCommandPublisher';
 import { MQTTCommandPublisher } from './utils/MQTTCommandPublisher';
 
-const MQTT_BROKER_URL = 'ws://localhost:8083/mqtt'; // Replace with actual broker
+const MQTT_BROKER_URL = import.meta.env.VITE_MQTT_BROKER_URL || 'ws://localhost:1883/mqtt'
 const USE_FAKE_DATA = false; // set to false to enable MQTT
 
 const eventStream: EventStream = USE_FAKE_DATA

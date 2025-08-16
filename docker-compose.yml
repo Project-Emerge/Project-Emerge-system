@@ -18,7 +18,7 @@ services:
     build:
       context: .
       dockerfile: ./dashboard/Dockerfile
-    container_name: project-emerge-dashboard
+  # container_name: project-emerge-dashboard (removed duplicate)
     ports:
       - "5173:5173"
     volumes:
