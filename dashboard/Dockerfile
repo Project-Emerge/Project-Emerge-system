@@ -15,7 +15,6 @@ RUN npm install
 COPY dashboard/ ./dashboard/
 
 # Expose the port
-ENV VITE_MQTT_BROKER_URL="ws://localhost:1883/mqtt"
 EXPOSE 5173
 
 # Start the development server

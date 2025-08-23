@@ -30,7 +30,7 @@ services:
       - ./tsconfig.node.json:/app/tsconfig.node.json
       - /app/dashboard/node_modules
     environment:
-      - VITE_MQTT_BROKER_URL=ws://mqtt-broker:9001
+      - VITE_MQTT_BROKER_URL=ws://localhost:9001/mqtt
     depends_on:
       - mqtt-broker
     restart: unless-stopped
