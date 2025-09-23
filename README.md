@@ -13,7 +13,7 @@
 
 **Project Emerge** is a modular, open-source toolchain for practical multi-robot demonstrations based on aggregate computing principles.
 
-The swarm of robots is coordinated using an _Aggregate Programming_ based framework: *ScaFi*, allowing for robust, scalable, and adaptive collective behaviors. This approach allows individual robots in a swarm to cooperate and coordinate tasks efficiently by focusing on high-level goals rather than low-level instructions. The system achieves this through decentralized algorithms, where each robot processes local information and communicates with its neighbors, resulting in robust and scalable collective behaviors suitable for dynamic and unpredictable environments.
+The swarm of robots is coordinated using an _[Aggregate Programming](https://ieeexplore.ieee.org/document/7274429)_ based framework: *[ScaFi](https://github.com/scafi/scafi)*, allowing for robust, scalable, and adaptive collective behaviors. This approach allows individual robots in a swarm to cooperate and coordinate tasks efficiently by focusing on high-level goals rather than low-level instructions. The system achieves this through decentralized algorithms, where each robot processes local information and communicates with its neighbors, resulting in robust and scalable collective behaviors suitable for dynamic and unpredictable environments.
 
 It features a real-time dashboard that visualizes and controls a swarm of robots, a Python backend for neighborhood logic, MQTT-based communication, and an ArUco marker detector for real-time robot localization.  
 The system is designed for research, demonstrations, and educational robotics.
