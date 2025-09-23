@@ -27,10 +27,10 @@ function NeighborLines({ robots }: { robots: RobotData[] }) {
     cache.forEach(entry => { entry.visible = false; });
 
     for (const robot of robots) {
-      if (!robot.neighbors) continue;
+      if (!robot.neighbors)  {continue }
       for (const nId of robot.neighbors) {
         const neighbor = robots.find(rb => rb.id === nId);
-        if (!neighbor) continue;
+        if (!neighbor) { continue }
         const robotA = Math.min(robot.id, nId);
         const robotB = Math.max(robot.id, nId);
         const hash = `${robotA}-${robotB}`;
@@ -102,7 +102,7 @@ const MemoLine = ({ positions, version, visible, color }: MemoLineProps) => {
   // Update positions when version changes
   useEffect(() => {
     const geom = geomRef.current;
-    if (!geom) return;
+    if (!geom) { return }
     const attr = geom.getAttribute('position') as Float32BufferAttribute | undefined;
     if (attr) {
       (attr.array as Float32Array).set(positions);
@@ -115,11 +115,11 @@ const MemoLine = ({ positions, version, visible, color }: MemoLineProps) => {
   useEffect(() => {
     if (lineRef.current) {
       const mat = lineRef.current.material as LineBasicMaterial;
-      if (mat.color.getStyle() !== color) mat.color.set(color);
+      if (mat.color.getStyle() !== color) { mat.color.set(color) }
     }
   }, [color]);
 
-  if (!lineRef.current) return null;
+  if (!lineRef.current) { return null }
   return <primitive object={lineRef.current} visible={visible} />;
 };
 
