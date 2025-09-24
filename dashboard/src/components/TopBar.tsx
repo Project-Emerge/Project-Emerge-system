@@ -1,13 +1,14 @@
 import { useState, useEffect } from "react";
 import FormationPopup, { FORMATION_TYPES } from "./FormationPopup";
+import Switch from "@mui/material/Switch";
 
 interface TopBarProps {
   onResetCamera: () => void;
+  showNeighbors: boolean;
+  setShowNeighbors: (show: boolean) => void;
 }
 
-function TopBar({ onResetCamera }: TopBarProps) {
-
-
+function TopBar({ onResetCamera, showNeighbors, setShowNeighbors }: TopBarProps) {
   // Neighborhood logic
   const [neighborhoodType, setNeighborhoodType] = useState<string>("FULL");
   const [radius, setRadius] = useState<number>(1.0);
@@ -71,8 +72,13 @@ function TopBar({ onResetCamera }: TopBarProps) {
       <div style={{ textAlign: "center", flex: 1, fontWeight: "bold", fontSize: "1.1em" }}>
         Current Formation: {currentFormationLabel}
       </div>
-      {/* Right: Neighborhood controls */}
+      {/* Right: Neighborhood controls and neighbor lines toggle */}
       <div style={{ display: "flex", alignItems: "center" }}>
+        <Switch
+          checked={showNeighbors}
+          onChange={(_, checked) => setShowNeighbors(checked)}
+          color="success"
+        />
         {neighborhoodType !== "FULL" && (
           <button onClick={() => updateNeighborhood("FULL")}>
             Set FULL Neighborhood
