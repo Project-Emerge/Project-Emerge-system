@@ -60,18 +60,18 @@ services:
       - project-emerge-network
     command: uv run -- python src/main.py --mqtt-url mqtt-broker --width 1920 --height 1080
 
-  # aggregate-runtime:
-  #   build:
-  #     context: .
-  #     dockerfile: ./aggregate-runtime/Dockerfile
-  #   container_name: project-emerge-aggregate-runtime
-  #   environment:
-  #     - MQTT_URL=tcp://mqtt-broker:1883
-  #   depends_on:
-  #     - mqtt-broker
-  #   restart: unless-stopped
-  #   networks:
-  #     - project-emerge-network
+  aggregate-runtime:
+    build:
+      context: .
+      dockerfile: ./aggregate-runtime/Dockerfile
+    container_name: project-emerge-aggregate-runtime
+    environment:
+      - MQTT_URL=tcp://mqtt-broker:1883
+    depends_on:
+      - mqtt-broker
+    restart: unless-stopped
+    networks:
+      - project-emerge-network
 
   neighborhood-system:
     build:
