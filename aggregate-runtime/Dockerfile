@@ -14,7 +14,7 @@ COPY build.sbt .
 COPY aggregate-runtime/ aggregate-runtime/
 RUN sbt clean assembly
 
-FROM openjdk:21-jdk-slim
+FROM openjdk:25-jdk-slim
 
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
