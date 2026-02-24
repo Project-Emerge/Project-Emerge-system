@@ -19,7 +19,7 @@ FROM amazoncorretto:25-alpine3.20-jdk
 #RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 WORKDIR /app
-COPY --from=builder /app/aggregate-runtime/target/scala-*//*-assembly-*.jar app.jar
+COPY --from=builder /app/aggregate-runtime/target/scala-*/*-assembly-*-*.jar app.jar
 #RUN chown -R appuser:appuser /app
 #USER appuser
 
