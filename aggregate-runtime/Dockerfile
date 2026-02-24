@@ -7,22 +7,21 @@ WORKDIR /app
 
 COPY project/build.properties project/
 COPY project/plugins.sbt project/
-COPY project/*.scala project/
+# COPY project/*.scala project/
 
 # Copy build.sbt
 COPY build.sbt .
 COPY aggregate-runtime/ aggregate-runtime/
 RUN sbt clean assembly
 
-FROM openjdk:25-jdk-slim
+FROM amazoncorretto:25-alpine3.20-jdk
 
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+#RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 WORKDIR /app
-
 COPY --from=builder /app/aggregate-runtime/target/scala-*//*-assembly-*.jar app.jar
-RUN chown -R appuser:appuser /app
-USER appuser
+#RUN chown -R appuser:appuser /app
+#USER appuser
 
 # Run the application
 CMD ["java", "-jar", "app.jar"]
