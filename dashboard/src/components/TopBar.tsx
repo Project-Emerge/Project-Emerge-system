@@ -12,7 +12,7 @@ function TopBar({ onResetCamera, showNeighbors, setShowNeighbors }: TopBarProps)
   // Neighborhood logic
   const [neighborhoodType, setNeighborhoodType] = useState<string>("FULL");
   const [radius, setRadius] = useState<number>(1.0);
-  const flaskUrl = "http://localhost:5000/neighborhood";
+  const flaskUrl = "http://localhost:5001/neighborhood";
 
   // Formation state
   const [showFormationPopup, setShowFormationPopup] = useState(false);

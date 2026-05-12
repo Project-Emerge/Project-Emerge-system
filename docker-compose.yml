@@ -87,7 +87,28 @@ services:
     networks:
       - project-emerge-network
     ports:
-      - "5000:5000"
+      - "5001:5000"
+
+  offloading-manager:
+      build:
+        context: ./offloading-manager
+        dockerfile: Dockerfile
+      container_name: project-emerge-offloading-manager
+      ports:
+        - "8000:8000"
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
+      networks:
+        - project-emerge-network
+      environment:
+        - DOCKER_NETWORK=project-emerge-network
+        - MONITOR_INTERVAL=5.0
+        - STRESS_THRESHOLD=80.0
+        - ROBOT_TIMEOUT=10.0
+      depends_on:
+        - mqtt-broker
+      restart: unless-stopped
+
 
 networks:
   project-emerge-network:
