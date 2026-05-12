@@ -18,3 +18,7 @@ trait EnvironmentProvider[ID, Position, Info, +E <: Environment[ID, Position, In
    * @return a Future that will be completed with the Environment
    */
   def provide(): Future[E]
+
+  def enableRobot(robot: ID): Future[Unit]
+
+  def disableRobot(robot: ID): Future[Unit]
