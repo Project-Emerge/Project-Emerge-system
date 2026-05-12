@@ -31,11 +31,27 @@ object MqttProtocol:
 class MqttProvider(var initialConfiguration: Map[String, Any])(using ExecutionContext, MqttContext) extends EnvironmentProvider[ID, Position, Info, Environment[ID, Position, Info]]:
   private val worldMap: ConcurrentMap[ID, (Position, Info)] = ConcurrentHashMap()
   private val neighborhood: ConcurrentMap[ID, Set[ID]] = ConcurrentHashMap()
+  private val disabledRobots = ConcurrentHashMap.newKeySet[ID]()
+
+  def enableRobot(robotId: ID): Future[Unit] = Future:
+    disabledRobots.remove(robotId)
+
+  def disableRobot(robotId: ID): Future[Unit] = Future:
+    disabledRobots.add(robotId)
+    worldMap.remove(robotId)
+    neighborhood.remove(robotId)
+    neighborhood.forEach: (currentRobotId, neighbors) =>
+      if neighbors.contains(robotId) then
+        neighborhood.put(currentRobotId, neighbors - robotId)
+
+  private def isRobotEnabled(robotId: ID): Boolean = !disabledRobots.contains(robotId)
+
   override def provide(): Future[Environment[ID, Position, Info]] = Future:
-    val newNeighborhood = neighborhood.asScala.toMap
-    val newWorldMap = worldMap.asScala.toMap
-    newNeighborhood.map:
-      case (id, neigh) => neigh.intersect(newWorldMap.keySet)
+    val newWorldMap = worldMap.asScala.toMap.filter: (robotId, _) =>
+      isRobotEnabled(robotId)
+    val newNeighborhood = neighborhood.asScala.toMap.collect:
+      case (robotId, neighbors) if isRobotEnabled(robotId) =>
+        robotId -> neighbors.filter(neighborId => isRobotEnabled(neighborId) && newWorldMap.contains(neighborId))
     val currentWorld = MqttEnvironment(newWorldMap, newNeighborhood)
     worldMap.clear()
     //neighborhood.clear()
@@ -45,7 +61,11 @@ class MqttProvider(var initialConfiguration: Map[String, Any])(using ExecutionCo
     client.connect()
     client.subscribeWithResponse(RobotPosition.topic, (topic: String, message: MqttMessage) => {
       val robot = read[MqttProtocol.RobotPosition](message.getPayload)
-      worldMap.put(robot.robot_id.toInt, ((robot.x, robot.y), initialConfiguration ++ Map("orientation" -> robot.orientation)))
+      val robotId = robot.robot_id.toInt
+      if isRobotEnabled(robotId) then
+        worldMap.put(robotId, ((robot.x, robot.y), initialConfiguration ++ Map("orientation" -> robot.orientation)))
+      else
+        worldMap.remove(robotId)
       ()
     })
     client.subscribeWithResponse(Programs.topic, (topic: String, message: MqttMessage) => {
@@ -64,7 +84,10 @@ class MqttProvider(var initialConfiguration: Map[String, Any])(using ExecutionCo
     })
     client.subscribeWithResponse(Neighborhood.topic, (topic: String, message: MqttMessage) => {
       val extractId = topic.split("/")(1).toInt
-      val robotNeighborhood = read[List[String]](message.getPayload).map(_.toInt).toSet + extractId
-      neighborhood.put(extractId, read[List[String]](message.getPayload).map(_.toInt).toSet)
+      if isRobotEnabled(extractId) then
+        val robotNeighborhood = read[List[String]](message.getPayload).map(_.toInt).toSet.filter(isRobotEnabled)
+        neighborhood.put(extractId, robotNeighborhood)
+      else
+        neighborhood.remove(extractId)
       ()
     })

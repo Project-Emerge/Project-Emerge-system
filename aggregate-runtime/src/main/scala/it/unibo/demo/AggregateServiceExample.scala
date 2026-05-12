@@ -3,6 +3,7 @@ package it.unibo.demo
 import it.unibo.core.aggregate.AggregateIncarnation.*
 import it.unibo.core.aggregate.AggregateOrchestrator
 import it.unibo.core.{Boundary, Environment, UpdateLoop}
+import it.unibo.demo.manager.OffloadingManagerWebSocketServer
 import it.unibo.demo.provider.MqttProvider
 import it.unibo.demo.robot.{Actuation, RobotUpdateMqtt}
 import it.unibo.demo.scenarios.*
@@ -29,6 +30,8 @@ class BaseAggregateServiceExample(demoToLaunch: BaseDemo) extends App:
       ++ SquareFormation.DEFAULTS
   )
   provider.start() // Start listening to MQTT topics
+  private val offloadingManagerServer = OffloadingManagerWebSocketServer.fromEnvironment(provider)
+  offloadingManagerServer.start()
   val update = RobotUpdateMqtt(angleThreshold = 10) // angle threshold in degrees, used to avoid oscillations when almost aligned
   val aggregateOrchestrator = AggregateOrchestrator[Position, Actuation](demoToLaunch)
 

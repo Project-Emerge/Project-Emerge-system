@@ -12,17 +12,17 @@
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
-    "@mui/material": "^7.3.2",
+    "@mui/material": "^9.0.0",
     "@react-three/drei": "^10.4.4",
     "@react-three/fiber": "^9.2.0",
     "@react-three/postprocessing": "^3.0.4",
-    "joystick-controller": "^1.1.1",
+    "joystick-controller": "^2.0.0",
     "mqtt": "^5.13.2",
     "rc-joystick": "^1.1.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-joystick-component": "^6.2.1",
-    "three": "^0.183.0",
+    "three": "^0.184.0",
     "zustand": "^5.0.8"
   },
   "devDependencies": {

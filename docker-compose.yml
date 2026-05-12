@@ -67,11 +67,15 @@ services:
     container_name: project-emerge-aggregate-runtime
     environment:
       - MQTT_URL=tcp://mqtt-broker:1883
+      - OFFLOADING_MANAGER_WS_HOST=0.0.0.0
+      - OFFLOADING_MANAGER_WS_PORT=8080
     depends_on:
       - mqtt-broker
     restart: unless-stopped
     networks:
       - project-emerge-network
+    ports:
+      - "8080:8080"
 
   neighborhood-system:
     build:
