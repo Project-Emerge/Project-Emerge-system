@@ -99,7 +99,7 @@ services:
         dockerfile: Dockerfile
       container_name: project-emerge-offloading-manager
       ports:
-        - "8000:8000"
+        - "8081:8000"
       volumes:
         - /var/run/docker.sock:/var/run/docker.sock
       networks:
