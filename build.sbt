@@ -16,7 +16,7 @@ ThisBuild / assemblyMergeStrategy := {
 val underlineJava = System.getProperty("java.version").split("\\.")(0)
 
 ThisBuild / scalaVersion := "3.8.3"
-val slf4jVersion = "2.0.17"
+val slf4jVersion = "2.0.18"
 lazy val root = 
     project
     .in(file("aggregate-runtime"))
