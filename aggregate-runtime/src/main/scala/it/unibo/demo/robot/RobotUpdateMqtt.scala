@@ -23,7 +23,7 @@ class RobotUpdateMqtt(angleThreshold: Double)(using ExecutionContext, MqttContex
   // Control parameters for smooth movement
   private val maxSpeed = 0.9
   private val rotationGain = 0.8 // Proportional gain (Kp)
-  private val speedScale = 0.6 // Scale factor for the calculated motor speeds
+  private val speedScale = 1 // Scale factor for the calculated motor speeds
 
   // State maps for PD control and noise filtering per robot ID
   private val previousErrors = TrieMap[ID, Double]()
@@ -194,8 +194,8 @@ class RobotUpdateMqtt(angleThreshold: Double)(using ExecutionContext, MqttContex
             val chosenDelta = if useForwardPlan then deltaForward else deltaBackward
 
             // Proportional slowdown factor when approaching the target to prevent oscillation
-            val slowdownRadius = 0.40 // 40 cm
-            val distanceFactor = math.max(0.25, math.min(1.0, distance / slowdownRadius))
+            val slowdownRadius = 0.20 // 20 cm
+            val distanceFactor = math.max(0.45, math.min(1.0, distance / slowdownRadius))
 
             if distance < distanceTolerance || distance.isNaN || chosenDelta.isNaN then
               // Goal reached: stop completely and reset state to avoid tiny corrections due to sensor noise
