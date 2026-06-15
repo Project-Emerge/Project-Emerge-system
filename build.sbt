@@ -24,9 +24,11 @@ lazy val root =
         name := "researcher-night-demo",
         libraryDependencies += ("it.unibo.scafi" %% "scafi-core" % "1.6.0").cross(CrossVersion.for3Use2_13),
         libraryDependencies += ("it.unibo.scafi" %% "scafi-simulator" % "1.6.0").cross(CrossVersion.for3Use2_13),
-        libraryDependencies += "io.javalin" % "javalin" % "6.7.0",
         libraryDependencies += "com.lihaoyi" %% "requests" % "0.9.3",
         libraryDependencies += "com.lihaoyi" %% "upickle" % "4.4.3",
+        // JSON serialization of scafi exports for MQTT exchange (same scheme scafi-distributed uses,
+        // without Akka). See it.unibo.core.aggregate.ExportJsonCodec.
+        libraryDependencies += ("com.typesafe.play" %% "play-json" % "2.10.6").cross(CrossVersion.for3Use2_13),
         libraryDependencies += "org.slf4j" % "slf4j-simple" % slf4jVersion,
         libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.5.32",
         libraryDependencies += "org.eclipse.paho" % "org.eclipse.paho.client.mqttv3" % "1.2.5",
