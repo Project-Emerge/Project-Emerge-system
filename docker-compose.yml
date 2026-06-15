@@ -31,6 +31,26 @@ services:
       - /app/dashboard/node_modules
     environment:
       - VITE_MQTT_BROKER_URL=ws://localhost:9001/mqtt
+      - VITE_OFFLOADING_MANAGER_URL=http://localhost:8081
+    depends_on:
+      - mqtt-broker
+    restart: unless-stopped
+    networks:
+      - project-emerge-network
+    command: npm run dev -- --host 0.0.0.0
+
+  edge-monitor:
+    build:
+      context: .
+      dockerfile: ./edge-monitor/Dockerfile
+    container_name: project-emerge-edge-monitor
+    ports:
+      - "5174:5174"
+    volumes:
+      - ./edge-monitor:/app
+      - /app/node_modules
+    environment:
+      - VITE_MQTT_BROKER_URL=ws://localhost:9001/mqtt
     depends_on:
       - mqtt-broker
     restart: unless-stopped
@@ -67,15 +87,14 @@ services:
     container_name: project-emerge-aggregate-runtime
     environment:
       - MQTT_URL=tcp://mqtt-broker:1883
-      - OFFLOADING_MANAGER_WS_HOST=0.0.0.0
-      - OFFLOADING_MANAGER_WS_PORT=8080
+      - OFFLOADING_MANAGER_HOST=offloading-manager
+      - OFFLOADING_MANAGER_PORT=8000
     depends_on:
       - mqtt-broker
+      - offloading-manager
     restart: unless-stopped
     networks:
       - project-emerge-network
-    ports:
-      - "8080:8080"
 
   neighborhood-system:
     build:
@@ -105,10 +124,17 @@ services:
       networks:
         - project-emerge-network
       environment:
-        - DOCKER_NETWORK=project-emerge-network
-        - MONITOR_INTERVAL=5.0
-        - STRESS_THRESHOLD=80.0
-        - ROBOT_TIMEOUT=10.0
+        - CONTAINERS_NETWORK=project-emerge-network
+        - CONTAINERS_POLLING_INTERVAL=5
+        - ROBOT_RESPONSE_TIMEOUT=10
+        # only_delete (default) handles the robot WebSocket handshake: a connected robot can request
+        # offloading (self), and the manager can ask the robot to (de)offload. The edge runtime
+        # connects as such a robot. `direct` is for MQTT-only robots that never open a robot socket.
+        - DECISION_MODULE=only_delete
+        # High thresholds keep the demo manual (the stress monitor won't auto-withdraw offloading);
+        # lower them to see the manager hand a robot back to its edge runtime under load.
+        - ONLY_DELETE_DECISION_MAX_CPU=100000
+        - ONLY_DELETE_DECISION_MAX_MEMORY=100000
       depends_on:
         - mqtt-broker
       restart: unless-stopped
@@ -116,6 +142,9 @@ services:
 
 networks:
   project-emerge-network:
+    # Stable, unprefixed name so standalone containers (e.g. the edge runtime image) can join with
+    # `--network project-emerge-network`.
+    name: project-emerge-network
     driver: bridge
 
 volumes:

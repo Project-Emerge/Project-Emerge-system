@@ -9,7 +9,8 @@ export class MQTTCommandPublisher implements CommandPublisher {
     this.client = client;
   }
   publishProgramCommand(program: object): void {
-    this.client.publish(`sensing`, JSON.stringify(program));
+    // Retained: a runtime that connects later (e.g. an edge runtime) immediately gets the current program.
+    this.client.publish(`sensing`, JSON.stringify(program), { retain: true });
   }
 
   publishMoveCommand(robotId: number, command: MoveCommand): void {
@@ -17,6 +18,7 @@ export class MQTTCommandPublisher implements CommandPublisher {
   }
 
   publishLeaderCommand(robotId: number): void {
-   this.client.publish(`leader`, JSON.stringify(robotId));
+   // Retained: the selected leader survives for runtimes that connect after it was chosen.
+   this.client.publish(`leader`, JSON.stringify(robotId), { retain: true });
   }
 }
