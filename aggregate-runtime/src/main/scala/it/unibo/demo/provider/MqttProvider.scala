@@ -36,22 +36,22 @@ class MqttProvider(var initialConfiguration: Map[String, Any])(using ExecutionCo
   def enableRobot(robotId: ID): Future[Unit] = Future:
     disabledRobots.remove(robotId)
 
+  // Disabling a robot only means THIS runtime must stop driving it. The robot stays in the
+  // environment (position + neighborhoods) so every other robot keeps perceiving it; the actuation
+  // filtering happens on the orchestrator output, not here. See `isEnabled`.
   def disableRobot(robotId: ID): Future[Unit] = Future:
     disabledRobots.add(robotId)
-    worldMap.remove(robotId)
-    neighborhood.remove(robotId)
-    neighborhood.forEach: (currentRobotId, neighbors) =>
-      if neighbors.contains(robotId) then
-        neighborhood.put(currentRobotId, neighbors - robotId)
 
-  private def isRobotEnabled(robotId: ID): Boolean = !disabledRobots.contains(robotId)
+  /** Whether this runtime should drive (actuate) the given robot. The environment is always complete
+    * regardless of this; it only gates the actuation output. */
+  def isEnabled(robotId: ID): Boolean = !disabledRobots.contains(robotId)
 
   override def provide(): Future[Environment[ID, Position, Info]] = Future:
-    val newWorldMap = worldMap.asScala.toMap.filter: (robotId, _) =>
-      isRobotEnabled(robotId)
-    val newNeighborhood = neighborhood.asScala.toMap.collect:
-      case (robotId, neighbors) if isRobotEnabled(robotId) =>
-        robotId -> neighbors.filter(neighborId => isRobotEnabled(neighborId) && newWorldMap.contains(neighborId))
+    // The environment is always complete: disabling a robot never hides it from the others.
+    val newWorldMap = worldMap.asScala.toMap
+    val newNeighborhood = neighborhood.asScala.toMap.view
+      .mapValues(neighbors => neighbors.filter(newWorldMap.contains))
+      .toMap
     val currentWorld = MqttEnvironment(newWorldMap, newNeighborhood)
     worldMap.clear()
     //neighborhood.clear()
@@ -62,10 +62,8 @@ class MqttProvider(var initialConfiguration: Map[String, Any])(using ExecutionCo
     client.subscribeWithResponse(RobotPosition.topic, (topic: String, message: MqttMessage) => {
       val robot = read[MqttProtocol.RobotPosition](message.getPayload)
       val robotId = robot.robot_id.toInt
-      if isRobotEnabled(robotId) then
-        worldMap.put(robotId, ((robot.x, robot.y), initialConfiguration ++ Map("orientation" -> robot.orientation)))
-      else
-        worldMap.remove(robotId)
+      // Always track every robot's position: a disabled robot must still be perceived by the others.
+      worldMap.put(robotId, ((robot.x, robot.y), initialConfiguration ++ Map("orientation" -> robot.orientation)))
       ()
     })
     client.subscribeWithResponse(Programs.topic, (topic: String, message: MqttMessage) => {
@@ -84,10 +82,8 @@ class MqttProvider(var initialConfiguration: Map[String, Any])(using ExecutionCo
     })
     client.subscribeWithResponse(Neighborhood.topic, (topic: String, message: MqttMessage) => {
       val extractId = topic.split("/")(1).toInt
-      if isRobotEnabled(extractId) then
-        val robotNeighborhood = read[List[String]](message.getPayload).map(_.toInt).toSet.filter(isRobotEnabled)
-        neighborhood.put(extractId, robotNeighborhood)
-      else
-        neighborhood.remove(extractId)
+      // Always store the full neighborhood: disabling a robot must not remove it from anyone's neighbors.
+      val robotNeighborhood = read[List[String]](message.getPayload).map(_.toInt).toSet
+      neighborhood.put(extractId, robotNeighborhood)
       ()
     })
