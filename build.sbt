@@ -15,8 +15,8 @@ ThisBuild / assemblyMergeStrategy := {
 
 val underlineJava = System.getProperty("java.version").split("\\.")(0)
 
-ThisBuild / scalaVersion := "3.8.3"
-val slf4jVersion = "2.0.17"
+ThisBuild / scalaVersion := "3.8.4"
+val slf4jVersion = "2.0.18"
 lazy val root = 
     project
     .in(file("aggregate-runtime"))
@@ -28,7 +28,7 @@ lazy val root =
         libraryDependencies += "com.lihaoyi" %% "requests" % "0.9.3",
         libraryDependencies += "com.lihaoyi" %% "upickle" % "4.4.3",
         libraryDependencies += "org.slf4j" % "slf4j-simple" % slf4jVersion,
-        libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.5.32",
+        libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.5.34",
         libraryDependencies += "org.eclipse.paho" % "org.eclipse.paho.client.mqttv3" % "1.2.5",
         assembly / mainClass := Some("it.unibo.demo.ResearchNightDemos"),
         mainClass := Some("it.unibo.demo.ResearchNightDemos")
