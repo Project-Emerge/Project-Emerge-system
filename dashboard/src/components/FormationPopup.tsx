@@ -14,6 +14,7 @@ export const FORMATION_TYPES: FormationType[] = [
   { value: "circleShape", label: "Circle Shape", defaultParams: { radius: 0.6, collisionArea: 0.3, stabilityThreshold: 0.1 } },
   { value: "squareShape", label: "Square Shape", defaultParams: { interDistanceSquare: 0.4, collisionArea: 0.3, stabilityThreshold: 0.1 } },
   { value: "verticalLineShape", label: "Vertical Line Shape", defaultParams: { interDistanceVertical: 0.4, collisionArea: 0.3, stabilityThreshold: 0.1 } },
+  { value: "heartShape", label: "Heart Shape", defaultParams: { scaleHeart: 0.06, collisionArea: 0.3, stabilityThreshold: 0.1 } },
   { value: "stop", label: "Stop", defaultParams: {} }
 ];
 

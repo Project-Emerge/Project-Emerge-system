@@ -90,6 +90,8 @@ class ArUcoRobotPoseEstimator:
         # Initialize ArUco detector
         self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
         self.aruco_params = cv2.aruco.DetectorParameters()
+        # Enable subpixel refinement for much better corner precision and pose stability
+        self.aruco_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
         self.detector = cv2.aruco.ArucoDetector(self.aruco_dict, self.aruco_params)
 
         # For smoothing pose estimates - separate history for each robot
@@ -265,7 +267,7 @@ class ArUcoRobotPoseEstimator:
         # Draw detected markers
         cv2.aruco.drawDetectedMarkers(result_frame, corners, ids)
 
-                # Draw pose axes and information
+        # Draw pose axes and information
         for rotation_vector, transition_vector in poses:
             # Draw coordinate axes
             cv2.drawFrameAxes(
@@ -277,9 +279,15 @@ class ArUcoRobotPoseEstimator:
                 self.marker_size,
             )
 
-            # Get position and rotation
-
         return result_frame
+
+    def draw_last_pose(self, frame):
+        """
+        Draw the most recently detected poses on the frame without re-detecting them.
+        """
+        if hasattr(self, 'last_corners') and self.last_ids is not None and len(self.last_ids) > 0:
+            return self.draw_pose_info(frame, self.last_corners, self.last_ids, getattr(self, 'last_poses', []))
+        return frame
 
     def get_robot_poses(self, frame):
         """
@@ -292,9 +300,16 @@ class ArUcoRobotPoseEstimator:
             List of RobotInformation objects
         """
         corners, ids, _ = self.detect_markers(frame)
+        
+        # Store for debug drawing to avoid redundant detection
+        self.last_corners = corners
+        self.last_ids = ids
+        self.last_poses = []
+        
         robots = []
         if ids is not None and len(ids) > 0:
             poses = self.estimate_pose(corners, ids)
+            self.last_poses = poses
             current_time = time.time()
             for i, (rotation_vector, transition_vector) in enumerate(poses):
                 marker_id = ids[i][0]

@@ -28,10 +28,11 @@ class BaseAggregateServiceExample(demoToLaunch: BaseDemo) extends App:
       ++ VerticalLineFormation.DEFAULTS 
       ++ CircleFormation.DEFAULTS
       ++ SquareFormation.DEFAULTS
+      ++ HeartFormation.DEFAULTS
   )
   provider.start() // Start listening to MQTT topics
-  private val offloadingManagerServer = OffloadingManagerWebSocketServer.fromEnvironment(provider)
-  offloadingManagerServer.start()
+  // private val offloadingManagerServer = OffloadingManagerWebSocketServer.fromEnvironment(provider)
+  // offloadingManagerServer.start()
   val update = RobotUpdateMqtt(angleThreshold = 10) // angle threshold in degrees, used to avoid oscillations when almost aligned
   val aggregateOrchestrator = AggregateOrchestrator[Position, Actuation](demoToLaunch)
 
@@ -75,6 +76,7 @@ object ResearchNightDemos extends BaseAggregateServiceExample(
     "circleShape" -> CircleFormation(),
     "lineShape" -> LineFormation(),
     "verticalLineShape" -> VerticalLineFormation(),
+    "heartShape" -> HeartFormation(),
     "stop" -> Stop()
   )
 )
