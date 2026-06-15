@@ -1,0 +1,38 @@
+# Standalone image for the EDGE runtime: one aggregate runtime dedicated to a single robot.
+#
+# It connects to the offloading-manager as the robot (/ws/robots/{id}) and on startup asks to
+# offload that robot; it drives the robot locally only while NOT offloaded. The robot id is passed
+# via the ROBOT_ID environment variable.
+#
+# Build (from the repository root, where build.sbt lives):
+#     docker build -f aggregate-runtime/Dockerfile.edge -t emerge-edge-runtime .
+#
+# Run (join the same network as the rest of the system):
+#     docker run --rm --network project-emerge-network \
+#       -e ROBOT_ID=5 \
+#       -e MQTT_URL=tcp://mqtt-broker:1883 \
+#       -e OFFLOADING_MANAGER_HOST=offloading-manager -e OFFLOADING_MANAGER_PORT=8000 \
+#       emerge-edge-runtime
+
+# Stage 1: build the fat jar (same as the central runtime image)
+FROM sbtscala/scala-sbt:eclipse-temurin-21.0.7_6_1.11.4_3.7.2 AS builder
+WORKDIR /app
+COPY project/build.properties project/
+COPY project/plugins.sbt project/
+COPY build.sbt .
+COPY aggregate-runtime/ aggregate-runtime/
+RUN sbt clean assembly
+
+# Stage 2: runtime image, but launch the EdgeRobotRuntime entry point
+FROM amazoncorretto:25-alpine3.20-jdk
+WORKDIR /app
+COPY --from=builder /app/aggregate-runtime/target/scala-*/*-assembly-*-*.jar app.jar
+
+# Robot this edge runtime is responsible for (override at run time with -e ROBOT_ID=...)
+ENV ROBOT_ID=0
+# Default wiring for the docker-compose network; override as needed.
+ENV MQTT_URL=tcp://mqtt-broker:1883
+ENV OFFLOADING_MANAGER_HOST=offloading-manager
+ENV OFFLOADING_MANAGER_PORT=8000
+
+CMD ["java", "-cp", "app.jar", "it.unibo.demo.EdgeRobotRuntime"]
