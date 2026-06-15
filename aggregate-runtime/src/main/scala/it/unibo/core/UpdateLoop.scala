@@ -28,7 +28,7 @@ object UpdateLoop:
           )
           .recover(e => println(s"Error updating environment: $e"))
       endTime <- Future(System.currentTimeMillis().toInt)
-      _ <- Future(println(s"Time: ${endTime - int}"))
+      // _ <- Future(println(s"Time: ${endTime - int}"))
     } yield ()
 
   /**

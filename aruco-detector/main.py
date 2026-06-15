@@ -65,18 +65,18 @@ class PosesInfo:
         return f"PosesInfo(poses={self.poses})"
 
 poses_info = PosesInfo()
-def main(debug=False, mqtt_url="localhost", width=640, height=480):
+def main(debug=False, mqtt_url="localhost", width=640, height=480, device=1, fps=30):
     """
     Main function to run the robot pose estimation system.
     """
 
     # Initialize camera
-    cap = cv2.VideoCapture(5) # cv2.VideoCapture(4, cv2.CAP_V4L2)  # Use 0 for default camera
+    cap = cv2.VideoCapture(device) # cv2.VideoCapture(4, cv2.CAP_V4L2)  # Use 0 for default camera
     fourcc = cv2.VideoWriter_fourcc(*"MJPG")
     cap.set(cv2.CAP_PROP_FOURCC, fourcc)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-    cap.set(cv2.CAP_PROP_FPS, 144)
+    cap.set(cv2.CAP_PROP_FPS, fps)
 
     # Check what we actually got
     actual_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
@@ -125,11 +125,10 @@ def main(debug=False, mqtt_url="localhost", width=640, height=480):
                 )
             poses_info.update_pose(pose_info.marker_id, pos, rot)
 
-            # Draw pose information on frame
-            if debug:
-                corners, ids, _ = pose_estimator.detect_markers(frame)
-                poses = pose_estimator.estimate_pose(corners, ids)
-                frame = pose_estimator.draw_pose_info(frame, corners, ids, poses)
+        # Draw pose information on frame using cached detection values to maximize FPS
+        if debug:
+            frame = pose_estimator.draw_last_pose(frame)
+
         # Remove poses not detected in this frame
         detected_ids = [pose_info.marker_id for pose_info in pose_infos]
         poses_info.remove_poses_not_in_list(detected_ids)
@@ -178,7 +177,10 @@ if __name__ == "__main__":
     parser.add_argument("--mqtt-url", default="localhost", help="MQTT broker URL")
     parser.add_argument("--width", type=int, default=640, help="Camera frame width")
     parser.add_argument("--height", type=int, default=480, help="Camera frame height")
+    parser.add_argument("--device", type=int, default=1, help="Device id")
+    parser.add_argument("--fps", type=int, default=30, help="Current FPS")
+
 
     args = parser.parse_args()
 
-    main(debug=args.debug, mqtt_url=args.mqtt_url, width=args.width, height=args.height)
+    main(debug=args.debug, mqtt_url=args.mqtt_url, width=args.width, height=args.height, device=args.device, fps=args.fps)
