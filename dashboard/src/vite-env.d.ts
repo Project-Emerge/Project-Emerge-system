@@ -9,6 +9,7 @@
 interface ImportMetaEnv {
   readonly VITE_APP_TITLE: string
   readonly VITE_MQTT_BROKER_URL: string
+  readonly VITE_OFFLOADING_MANAGER_URL: string
   // more env variables...
 }
 

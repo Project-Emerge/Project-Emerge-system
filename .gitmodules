@@ -1,0 +1,3 @@
+[submodule "offloading-manager"]
+	path = offloading-manager
+	url = https://github.com/llRosso/offloading-manager.git

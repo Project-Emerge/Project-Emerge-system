@@ -1,5 +1,6 @@
 import { Joystick } from "react-joystick-component";
 import { useMQTT } from "../mqtt/MQTTStore";
+import { useOffloading } from "../offloading/OffloadingStore";
 import type { RobotData } from "../types/RobotData";
 import { useRef, useState } from "react";
 
@@ -15,6 +16,7 @@ interface ControlPanelProps {
 function ControlPanel({ robotId, selectRobot }: ControlPanelProps) {
     const [intervalId, setIntervalId] = useState<NodeJS.Timeout | null>(null);
     const { robots, publisher } = useMQTT();
+    const { isCentral, hasEdge, setCompute } = useOffloading();
     const joystick = useRef<Joystick | null>(null);
     const [inputRobotId, setInputRobotId] = useState<number>(0);
 
@@ -112,6 +114,19 @@ function ControlPanel({ robotId, selectRobot }: ControlPanelProps) {
                     <button onClick={() => publisher.publishLeaderCommand(selectedRobot.id)}>
                         Make Leader
                     </button>
+                    {hasEdge(selectedRobot.id) && (
+                        <div className="offloading" style={{ marginTop: '12px' }}>
+                            <div>
+                                Compute:{" "}
+                                <b style={{ color: isCentral(selectedRobot.id) ? "#34d399" : "#f5c065" }}>
+                                    {isCentral(selectedRobot.id) ? "Central" : "Edge"}
+                                </b>
+                            </div>
+                            <button onClick={() => setCompute(selectedRobot!.id, !isCentral(selectedRobot!.id))}>
+                                {isCentral(selectedRobot.id) ? "Switch to Edge" : "Switch to Central"}
+                            </button>
+                        </div>
+                    )}
                 </>
             )}
         
