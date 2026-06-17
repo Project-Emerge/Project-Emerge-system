@@ -28,7 +28,7 @@ lazy val root =
         libraryDependencies += "com.lihaoyi" %% "upickle" % "4.4.3",
         // JSON serialization of scafi exports for MQTT exchange (same scheme scafi-distributed uses,
         // without Akka). See it.unibo.core.aggregate.ExportJsonCodec.
-        libraryDependencies += ("com.typesafe.play" %% "play-json" % "2.10.6").cross(CrossVersion.for3Use2_13),
+        libraryDependencies += ("com.typesafe.play" %% "play-json" % "2.10.8").cross(CrossVersion.for3Use2_13),
         libraryDependencies += "org.slf4j" % "slf4j-simple" % slf4jVersion,
         libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.5.34",
         libraryDependencies += "org.eclipse.paho" % "org.eclipse.paho.client.mqttv3" % "1.2.5",
