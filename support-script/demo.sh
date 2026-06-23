@@ -9,10 +9,10 @@
 # switch its compute to Edge and watch the edge runtime take over — the robot keeps moving across the
 # hand-off, on one coherent distributed field (exports exchanged over MQTT).
 #
-# Usage:   control-panel/demo.sh [ROBOT_ID] [N_ROBOTS]
-# Example: control-panel/demo.sh 5 6
+# Usage:   support-script/demo.sh [ROBOT_ID] [N_ROBOTS]
+# Example: support-script/demo.sh 5 6
 #
-# Stop with: control-panel/demo.sh --down
+# Stop with: support-script/demo.sh --down
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -72,6 +72,6 @@ Demo is up.
               docker logs -f project-emerge-aggregate-runtime   # the central runtime
               docker logs -f project-emerge-offloading-manager  # the manager
 
-  Stop      : control-panel/demo.sh --down
+  Stop      : support-script/demo.sh --down
 ================================================================================
 EOF

@@ -49,7 +49,7 @@ The manager uses the `only_delete` decision module, which handles the robot WebS
 ## Quick start
 
 ```bash
-control-panel/demo.sh 5 6      # edge runtime for robot 5, 6 emulated robots
+support-script/demo.sh 5 6      # edge runtime for robot 5, 6 emulated robots
 ```
 
 Brings up (via compose): broker, dashboard, edge-monitor, central runtime, offloading-manager,
@@ -58,7 +58,7 @@ neighborhood-system; then the robot emulation and an `emerge-edge` container for
 - open the **dashboard** (http://localhost:5173/), select robot 5, click **Switch to Edge**;
 - watch its card on the **edge monitor** (http://localhost:5174/) start computing.
 
-Tear down with `control-panel/demo.sh --down`.
+Tear down with `support-script/demo.sh --down`.
 
 ## Manual steps (instead of demo.sh)
 
