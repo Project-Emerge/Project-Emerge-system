@@ -30,7 +30,7 @@ lazy val root =
         // without Akka). See it.unibo.core.aggregate.ExportJsonCodec.
         libraryDependencies += ("com.typesafe.play" %% "play-json" % "2.10.8").cross(CrossVersion.for3Use2_13),
         libraryDependencies += "org.slf4j" % "slf4j-simple" % slf4jVersion,
-        libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.5.35",
+        libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.5.37",
         libraryDependencies += "org.eclipse.paho" % "org.eclipse.paho.client.mqttv3" % "1.2.5",
         assembly / mainClass := Some("it.unibo.demo.ResearchNightDemos"),
         mainClass := Some("it.unibo.demo.ResearchNightDemos")
