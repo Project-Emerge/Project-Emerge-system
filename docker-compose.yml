@@ -73,6 +73,27 @@ services:
     networks:
       - project-emerge-network
 
+  ota-server:
+    build:
+      context: .
+      dockerfile: ./ota-server/Dockerfile
+    container_name: project-emerge-ota-server
+    volumes:
+      - ./ota-server/data:/data
+    environment:
+      # Optional shared secret required on POST /api/firmware/publish.
+      # Leave OTA_PUBLISH_TOKEN unset on the host to keep publishing open.
+      - PUBLISH_TOKEN=${OTA_PUBLISH_TOKEN:-}
+    ports:
+      # No port suffix in the firmware's request URL means it always hits
+      # port 80 on OTA_SERVER_HOST - keep this mapped to host port 80, or
+      # change both this and OTA_SERVER_HOST (e.g. "192.168.8.1:8080")
+      # together. See ota-server/README.md.
+      - "80:80"
+    restart: unless-stopped
+    networks:
+      - project-emerge-network
+
   neighborhood-system:
     build:
       context: .
