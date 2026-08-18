@@ -1,5 +1,6 @@
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { StatusPill } from "./components/StatusPill";
+import { ThemeSwitcher } from "./components/ThemeSwitcher";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ConfigurationPage } from "./pages/ConfigurationPage";
 
@@ -15,7 +16,10 @@ export function App(): React.JSX.Element {
           <NavLink to="/" end>Dashboard</NavLink>
           <NavLink to="/config">Settings</NavLink>
         </nav>
-        <StatusPill />
+        <div className="header-actions">
+          <ThemeSwitcher />
+          <StatusPill />
+        </div>
       </header>
       <Routes>
         <Route path="/" element={<DashboardPage />} />

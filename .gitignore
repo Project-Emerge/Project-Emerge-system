@@ -206,6 +206,12 @@ logs
 **/*.back.*
 
 node_modules
+**/node_modules/
+**/dist/
+**/server-dist/
+**/.env
+**/firmware/
+.scala-build/
 bower_components
 
 *.sublime*

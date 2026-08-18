@@ -1,0 +1,50 @@
+name: project-emerge
+
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: apps/dashboard/Dockerfile
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+        restart: true
+    environment:
+      FIRMWARE_DIRECTORY: /var/lib/project-emerge/firmware
+      HTTP_PORT: "8787"
+      MQTT_URL: mqtt://mosquitto:1883
+    ports:
+      - "${DASHBOARD_PORT:-8787}:8787"
+    restart: unless-stopped
+    stop_grace_period: 15s
+    volumes:
+      - dashboard-firmware:/var/lib/project-emerge/firmware
+    networks:
+      - emerge-backplane
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    user: "1883:1883"
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-p", "1883", "-t", "project-emerge/healthcheck", "-m", "ping", "-q", "1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 5s
+      retries: 5
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+    restart: unless-stopped
+    stop_grace_period: 30s
+    volumes:
+      - ./infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+    networks:
+      - emerge-backplane
+
+networks:
+  emerge-backplane:
+    name: emerge-backplane
+
+volumes:
+  dashboard-firmware:
+  mosquitto-data:

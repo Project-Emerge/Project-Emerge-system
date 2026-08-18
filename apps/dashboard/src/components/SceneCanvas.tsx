@@ -2,6 +2,7 @@ import { Html, OrbitControls } from "@react-three/drei";
 import { Canvas, type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
+import { useTheme, type ResolvedTheme } from "../services/theme-context";
 import { useDashboardStore } from "../store/dashboard-store";
 
 export type SceneMode = "2d" | "3d";
@@ -56,10 +57,10 @@ function CameraControls({ mode, bounds, resetToken }: { mode: SceneMode; bounds:
 
 function trailColor(id: string): THREE.Color {
   const seed = [...id].reduce((total, character) => total + character.charCodeAt(0), 0);
-  return new THREE.Color().setHSL(0.42 + (seed % 18) / 100, 0.72, 0.57);
+  return new THREE.Color().setHSL(0.42 + (seed % 18) / 100, 0.52, 0.56);
 }
 
-function RobotTrail({ id }: { id: string }): React.JSX.Element {
+function RobotTrail({ id, theme }: { id: string; theme: ResolvedTheme }): React.JSX.Element {
   const geometry = useMemo(() => {
     const next = new THREE.BufferGeometry();
     next.setAttribute("position", new THREE.BufferAttribute(new Float32Array(MAX_TRAIL_POINTS * 3), 3));
@@ -70,7 +71,7 @@ function RobotTrail({ id }: { id: string }): React.JSX.Element {
   const samples = useRef<TrailSample[]>([]);
   const dirty = useRef(false);
   const trailTone = useMemo(() => trailColor(id), [id]);
-  const fadedTone = useMemo(() => new THREE.Color("#0b2637"), []);
+  const fadedTone = useMemo(() => new THREE.Color(theme === "dark" ? "#26313d" : "#cbd3dc"), [theme]);
   const line = useMemo(() => {
     const material = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.86, depthWrite: false });
     const next = new THREE.Line(geometry, material);
@@ -128,7 +129,7 @@ function RobotTrail({ id }: { id: string }): React.JSX.Element {
   return <primitive object={line} />;
 }
 
-function RobotMesh({ id }: { id: string }): React.JSX.Element | null {
+function RobotMesh({ id, theme }: { id: string; theme: ResolvedTheme }): React.JSX.Element | null {
   const group = useRef<THREE.Group>(null);
   const bodyMaterial = useRef<THREE.MeshStandardMaterial>(null);
   const statusMaterial = useRef<THREE.MeshStandardMaterial>(null);
@@ -152,7 +153,9 @@ function RobotMesh({ id }: { id: string }): React.JSX.Element | null {
     group.current.rotation.y += THREE.MathUtils.euclideanModulo(heading - group.current.rotation.y + Math.PI, Math.PI * 2) - Math.PI;
     const stale = !robot || Date.now() - robot.lastSeenAt > 3_000;
     const uncertain = pose.position_variance_m2 > 0.1;
-    const color = stale ? "#64748b" : uncertain ? "#f7b955" : "#42dfb0";
+    const color = stale
+      ? theme === "dark" ? "#647184" : "#8994a3"
+      : uncertain ? "#d39a4a" : "#45a487";
     bodyMaterial.current?.color.set(color);
     statusMaterial.current?.emissive.set(color);
   });
@@ -168,7 +171,7 @@ function RobotMesh({ id }: { id: string }): React.JSX.Element | null {
     <group ref={group} onClick={handleClick}>
       <mesh castShadow receiveShadow>
         <sphereGeometry args={[ROBOT_RADIUS_M, 20, 16]} />
-        <meshStandardMaterial ref={bodyMaterial} color="#42dfb0" roughness={0.42} metalness={0.2} />
+        <meshStandardMaterial ref={bodyMaterial} color="#45a487" roughness={0.48} metalness={0.12} />
       </mesh>
       <mesh position={[0, ROBOT_RADIUS_M + 0.003, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <circleGeometry args={[0.026, 3]} />
@@ -176,12 +179,12 @@ function RobotMesh({ id }: { id: string }): React.JSX.Element | null {
       </mesh>
       <mesh position={[-0.018, 0.028, 0.018]}>
         <sphereGeometry args={[0.008, 12, 12]} />
-        <meshStandardMaterial ref={statusMaterial} color="#42dfb0" emissive="#42dfb0" emissiveIntensity={2.5} />
+        <meshStandardMaterial ref={statusMaterial} color="#45a487" emissive="#45a487" emissiveIntensity={1.8} />
       </mesh>
       {selected && (
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -ROBOT_RADIUS_M + 0.002, 0]}>
           <ringGeometry args={[0.075, 0.085, 32]} />
-          <meshBasicMaterial color="#ffffff" transparent opacity={0.9} />
+          <meshBasicMaterial color={theme === "dark" ? "#e7e9ed" : "#3b4350"} transparent opacity={0.86} />
         </mesh>
       )}
       <Html position={[0, 0.15, 0]} center distanceFactor={11} style={{ pointerEvents: "none" }}>
@@ -191,31 +194,38 @@ function RobotMesh({ id }: { id: string }): React.JSX.Element | null {
   );
 }
 
-function SceneContents({ mode, bounds, resetToken }: { mode: SceneMode; bounds: Bounds; resetToken: number }): React.JSX.Element {
+function SceneContents({ mode, bounds, resetToken, theme }: { mode: SceneMode; bounds: Bounds; resetToken: number; theme: ResolvedTheme }): React.JSX.Element {
   const robotIds = useDashboardStore((state) => state.robotIds);
+  const sceneBackground = theme === "dark" ? "#111820" : "#edf0f4";
   return (
     <>
-      <color attach="background" args={["#07111f"]} />
-      <fog attach="fog" args={["#07111f", 10, 45]} />
+      <color attach="background" args={[sceneBackground]} />
+      <fog attach="fog" args={[sceneBackground, 10, 45]} />
       <ambientLight intensity={0.7} />
       <directionalLight position={[5, 8, 3]} intensity={1.8} castShadow />
-      <gridHelper args={[Math.max(12, bounds.span * 2.2), Math.max(12, Math.ceil(bounds.span * 2.2)), "#1f4a5a", "#122a3b"]} />
+      <gridHelper args={[
+        Math.max(12, bounds.span * 2.2),
+        Math.max(12, Math.ceil(bounds.span * 2.2)),
+        theme === "dark" ? "#3f5262" : "#aab4c0",
+        theme === "dark" ? "#252f39" : "#d6dce3",
+      ]} />
       <axesHelper args={[1]} />
       <CameraControls mode={mode} bounds={bounds} resetToken={resetToken} />
-      {robotIds.map((id) => <RobotTrail key={`${id}-trail`} id={id} />)}
-      {robotIds.map((id) => <RobotMesh key={id} id={id} />)}
+      {robotIds.map((id) => <RobotTrail key={`${id}-trail`} id={id} theme={theme} />)}
+      {robotIds.map((id) => <RobotMesh key={id} id={id} theme={theme} />)}
     </>
   );
 }
 
 export function SceneCanvas({ mode, resetToken }: SceneCanvasProps): React.JSX.Element {
   const bounds = DEFAULT_BOUNDS;
+  const { resolvedTheme } = useTheme();
   if (mode === "2d") {
     return <Canvas orthographic camera={{ position: [bounds.centerX, 18, bounds.centerY], zoom: 1 }} shadows dpr={[1, 2]} gl={{ antialias: true }}>
-      <SceneContents mode={mode} bounds={bounds} resetToken={resetToken} />
+      <SceneContents mode={mode} bounds={bounds} resetToken={resetToken} theme={resolvedTheme} />
     </Canvas>;
   }
   return <Canvas camera={{ position: [bounds.centerX + 6, 6, bounds.centerY + 6], fov: 45 }} shadows dpr={[1, 2]} gl={{ antialias: true }}>
-    <SceneContents mode={mode} bounds={bounds} resetToken={resetToken} />
+    <SceneContents mode={mode} bounds={bounds} resetToken={resetToken} theme={resolvedTheme} />
   </Canvas>;
 }

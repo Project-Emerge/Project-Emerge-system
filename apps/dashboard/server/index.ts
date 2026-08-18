@@ -10,13 +10,14 @@ import {
   type GatewayMqttMessage,
   type GatewayServerMessage,
   type GatewayStatus,
-  isOtaCheckTopic,
-  validateConfigurationPublication,
+  isMotorCommandTopic,
+  isTransientCommandTopic,
+  validateClientPublication,
 } from "../shared/protocol.js";
 import { FirmwareStore } from "./firmware-store.js";
 
 try {
-  process.loadEnvFile(".env");
+  process.loadEnvFile(join(process.cwd(), "../../.env"));
 } catch (error) {
   if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 }
@@ -220,7 +221,7 @@ webSocketServer.on("connection", (socket) => {
     }
 
     const { requestId, topic, payload } = parsed.data;
-    const validationError = isOtaCheckTopic(topic) ? null : validateConfigurationPublication(topic, payload);
+    const validationError = validateClientPublication(topic, payload);
     if (validationError) {
       send(socket, { type: "publish-result", requestId, ok: false, error: validationError });
       return;
@@ -230,7 +231,9 @@ webSocketServer.on("connection", (socket) => {
       return;
     }
 
-    mqttClient.publish(topic, JSON.stringify(payload), { qos: 1, retain: !isOtaCheckTopic(topic) }, (error) => {
+    const transient = isTransientCommandTopic(topic);
+    const isLiveMotion = isMotorCommandTopic(topic) && payload !== "Stop";
+    mqttClient.publish(topic, JSON.stringify(payload), { qos: isLiveMotion ? 0 : 1, retain: !transient }, (error) => {
       if (error) {
         send(socket, { type: "publish-result", requestId, ok: false, error: error.message });
       } else {

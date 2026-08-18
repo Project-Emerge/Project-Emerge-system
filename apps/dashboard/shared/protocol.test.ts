@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   isAllowedConfigurationTopic,
+  isMotorCommandTopic,
   isOtaCheckTopic,
+  isTransientCommandTopic,
+  motorCommandTopic,
   otaConfigurationTopic,
   otaCheckTopic,
   robotConfigurationTopic,
+  validateClientPublication,
   validateConfigurationPublication,
 } from "./protocol.js";
 
@@ -33,5 +37,22 @@ describe("contratti di configurazione MQTT", () => {
     expect(otaCheckTopic("A1B2C3")).toBe("/ota/check/A1B2C3");
     expect(isOtaCheckTopic("/ota/check/A1B2C3")).toBe(true);
     expect(isOtaCheckTopic("/ota/check/not-an-id")).toBe(false);
+  });
+
+  it("valida i comandi motore normalizzati come transitori", () => {
+    expect(motorCommandTopic("A1B2C3")).toBe("/motors/A1B2C3");
+    expect(isMotorCommandTopic("/motors/A1B2C3")).toBe(true);
+    expect(isTransientCommandTopic("/motors/A1B2C3")).toBe(true);
+    expect(validateClientPublication("/motors/A1B2C3", {
+      Move: { left: 0.8, right: -0.4 },
+    })).toBeNull();
+    expect(validateClientPublication("/motors/A1B2C3", "Stop")).toBeNull();
+    expect(validateClientPublication("/motors/A1B2C3", {
+      Move: { left: 1.2, right: 0 },
+    })).not.toBeNull();
+    expect(validateClientPublication("/motors/A1B2C3", "Stopped")).not.toBeNull();
+    expect(validateClientPublication("/motors/A1B2C3", {
+      Motoring: { left: 0.8, right: -0.4 },
+    })).not.toBeNull();
   });
 });

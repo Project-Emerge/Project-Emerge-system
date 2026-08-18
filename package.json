@@ -1,42 +1,17 @@
 {
-  "name": "project-emerge-dashboard",
+  "name": "project-emerge",
   "private": true,
   "version": "0.1.0",
-  "type": "module",
+  "workspaces": [
+    "apps/dashboard"
+  ],
   "scripts": {
-    "dev": "concurrently -k -n gateway,web -c magenta,cyan \"npm:dev:gateway\" \"npm:dev:web\"",
-    "dev:gateway": "tsx watch server/index.ts",
-    "dev:web": "vite",
-    "build": "tsc -b && vite build",
-    "start": "tsx server/index.ts",
-    "test": "vitest run",
-    "test:watch": "vitest"
-  },
-  "dependencies": {
-    "@react-three/drei": "^10.7.8",
-    "@react-three/fiber": "^9.7.0",
-    "mqtt": "^5.15.2",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "react-router-dom": "^7.18.2",
-    "three": "^0.185.1",
-    "ws": "^8.21.3",
-    "zod": "^4.4.3",
-    "zustand": "^5.0.15"
-  },
-  "devDependencies": {
-    "@testing-library/jest-dom": "^7.0.1",
-    "@testing-library/react": "^16.3.2",
-    "@types/node": "^26.2.0",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
-    "@types/ws": "^8.18.1",
-    "@vitejs/plugin-react": "^6.0.5",
-    "concurrently": "^10.0.4",
-    "jsdom": "^30.0.1",
-    "tsx": "^4.23.12",
-    "typescript": "^7.0.2",
-    "vite": "^8.2.1",
-    "vitest": "^4.1.10"
+    "dev": "npm run dev --workspace @project-emerge/dashboard",
+    "dev:gateway": "npm run dev:gateway --workspace @project-emerge/dashboard",
+    "dev:web": "npm run dev:web --workspace @project-emerge/dashboard",
+    "build": "npm run build --workspace @project-emerge/dashboard",
+    "start": "npm run start --workspace @project-emerge/dashboard",
+    "test": "npm run test --workspace @project-emerge/dashboard",
+    "test:watch": "npm run test:watch --workspace @project-emerge/dashboard"
   }
 }
