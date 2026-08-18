@@ -8,7 +8,6 @@ export function DashboardPage(): React.JSX.Element {
   const [resetToken, setResetToken] = useState(0);
   const robotIds = useDashboardStore((state) => state.robotIds);
   const posedRobotIds = useDashboardStore((state) => state.posedRobotIds);
-  const anchors = useDashboardStore((state) => state.anchorsConfiguration);
   const robotsWithoutPose = robotIds.length - posedRobotIds.length;
 
   return (
@@ -17,7 +16,7 @@ export function DashboardPage(): React.JSX.Element {
         <div className="scene-summary">
           <span className="eyebrow">Live arena</span>
           <strong>{robotIds.length} robots detected</strong>
-          <span>{anchors ? `${anchors.anchors.length} anchors configured` : "No anchors configured"}</span>
+          <span>{posedRobotIds.length} positions available</span>
         </div>
         <div className="toolbar-actions">
           <div className="segmented-control" aria-label="View mode">
@@ -27,7 +26,7 @@ export function DashboardPage(): React.JSX.Element {
           <button type="button" className="secondary-button" onClick={() => setResetToken((token) => token + 1)}>Center arena</button>
         </div>
       </section>
-      {robotsWithoutPose > 0 && <div className="scene-notice">{robotsWithoutPose} robot{robotsWithoutPose === 1 ? "" : "s"} without a UWB position. Details appear after the first position update.</div>}
+      {robotsWithoutPose > 0 && <div className="scene-notice">{robotsWithoutPose} robot{robotsWithoutPose === 1 ? "" : "s"} without a position. Details appear after the first position update.</div>}
       <section className="scene-panel">
         <SceneCanvas mode={mode} resetToken={resetToken} />
         <div className="scene-hint">Drag to pan · scroll to zoom{mode === "3d" ? " · right-click to orbit" : ""} · trails: 4 s</div>

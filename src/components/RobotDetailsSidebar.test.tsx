@@ -13,7 +13,7 @@ describe("sidebar robot", () => {
         A1B2C3: {
           id: "A1B2C3",
           lastSeenAt: Date.now(),
-          pose: { x_m: 1, y_m: 2, heading_rad: 0, speed_m_s: 0, position_variance_m2: 0.01, anchors_used: 4, timestamp_us: 1 },
+          pose: { x_m: 1, y_m: 2, heading_rad: 0, speed_m_s: 0, position_variance_m2: 0.01, timestamp_us: 1 },
         },
       },
       robotIds: ["A1B2C3"],

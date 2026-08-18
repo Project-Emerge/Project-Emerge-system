@@ -1,11 +1,7 @@
 import { z } from "zod";
 import {
-  AnchorsConfigurationSchema,
-  EstimationConfigurationSchema,
   RobotConfigurationSchema,
   isDeviceId,
-  type AnchorsConfiguration,
-  type EstimationConfiguration,
   type RobotConfiguration,
 } from "../../shared/protocol";
 
@@ -19,7 +15,6 @@ export const PoseSchema = z.object({
   heading_rad: finiteNumber,
   speed_m_s: finiteNumber,
   position_variance_m2: finiteNumber.nonnegative(),
-  anchors_used: z.number().int().min(0).max(255),
   timestamp_us: z.number().int().nonnegative(),
 });
 
@@ -70,14 +65,12 @@ export const TelemetrySchema = z.object({
 export type Pose = z.infer<typeof PoseSchema>;
 export type ImuTelemetry = z.infer<typeof ImuTelemetrySchema>;
 export type Telemetry = z.infer<typeof TelemetrySchema>;
-export type { AnchorsConfiguration, EstimationConfiguration, RobotConfiguration };
+export type { RobotConfiguration };
 
 export type InboundMessage =
   | { kind: "pose"; deviceId: string; payload: Pose }
   | { kind: "telemetry"; deviceId: string; payload: Telemetry }
   | { kind: "imu"; deviceId: string; payload: ImuTelemetry }
-  | { kind: "anchors"; payload: AnchorsConfiguration }
-  | { kind: "estimation"; payload: EstimationConfiguration }
   | { kind: "robot-config"; deviceId: string; payload: RobotConfiguration };
 
 function parseDeviceTopic(topic: string, prefix: "/pose/" | "/telemetry/" | "/imu/"): string | null {
@@ -105,16 +98,6 @@ export function parseInboundMqttMessage(topic: string, payload: unknown): Inboun
   if (imuId) {
     const parsed = ImuTelemetrySchema.safeParse(payload);
     return parsed.success ? { kind: "imu", deviceId: imuId, payload: parsed.data } : null;
-  }
-
-  if (topic === "/config/anchors") {
-    const parsed = AnchorsConfigurationSchema.safeParse(payload);
-    return parsed.success ? { kind: "anchors", payload: parsed.data } : null;
-  }
-
-  if (topic === "/config/estimation") {
-    const parsed = EstimationConfigurationSchema.safeParse(payload);
-    return parsed.success ? { kind: "estimation", payload: parsed.data } : null;
   }
 
   const robotConfigPrefix = "/config/robots/";

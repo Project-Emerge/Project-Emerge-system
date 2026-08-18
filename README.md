@@ -1,6 +1,6 @@
 # Project Emerge Fleet View
 
-Dashboard React per osservare una flotta Dropbot in 2D/3D e configurare la geometria UWB tramite MQTT.
+Dashboard React per osservare e configurare una flotta Dropbot tramite MQTT.
 
 ## Avvio
 
@@ -31,9 +31,9 @@ npm run start
 
 ## Topic supportati
 
-Il gateway sottoscrive `/pose/+`, `/telemetry/+`, `/imu/+`, `/config/anchors`, `/config/estimation` e `/config/robots/+`.
+Il gateway sottoscrive `/pose/+`, `/telemetry/+`, `/imu/+`, `/config/ota` e `/config/robots/+`.
 
-La configurazione ancore viene pubblicata con QoS 1 e retention su `/config/anchors`. La modalità di stima viene pubblicata con QoS 1 e retention su `/config/estimation` usando `{ "fusion_enabled": true | false }`: `false` espone la sola trilaterazione UWB. I parametri motore vengono pubblicati con QoS 1 e retention su `/config/robots/{id}`. Quest'ultimo è già disponibile nella dashboard ma non viene ancora applicato dal firmware corrente.
+I parametri motore vengono pubblicati con QoS 1 e retention su `/config/robots/{id}`. La configurazione è già disponibile nella dashboard ma non viene ancora applicata dal firmware corrente.
 
 ## Aggiornamenti OTA
 

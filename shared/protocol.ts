@@ -1,38 +1,14 @@
 import { z } from "zod";
 
 export const DEVICE_ID_PATTERN = /^[A-F0-9]{6}$/;
-export const ANCHOR_IDS = [0xa001, 0xa002, 0xa003, 0xa004] as const;
 
 const finiteNumber = z.number().finite();
-
-export const AnchorCalibrationSchema = z.object({
-  anchor_id: z.union(ANCHOR_IDS.map((id) => z.literal(id)) as [z.ZodLiteral<number>, ...z.ZodLiteral<number>[]]),
-  x: finiteNumber,
-  y: finiteNumber,
-  z: finiteNumber,
-  offset_mm: z.number().int(),
-  scale_ppm: z.number().int(),
-});
-
-export const AnchorsConfigurationSchema = z.object({
-  robot_antenna_height_m: finiteNumber.nonnegative(),
-  anchors: z.array(AnchorCalibrationSchema).length(4),
-}).superRefine((configuration, context) => {
-  const present = new Set(configuration.anchors.map((anchor) => anchor.anchor_id));
-  if (present.size !== ANCHOR_IDS.length || ANCHOR_IDS.some((anchorId) => !present.has(anchorId))) {
-    context.addIssue({ code: "custom", message: "The configuration must contain each of the four anchors exactly once." });
-  }
-});
 
 export const RobotConfigurationSchema = z.object({
   motors: z.object({
     ema_filter_alpha: finiteNumber.min(0).max(1).nullable(),
     max_speed: finiteNumber.nonnegative(),
   }),
-});
-
-export const EstimationConfigurationSchema = z.object({
-  fusion_enabled: z.boolean(),
 });
 
 export const OtaConfigurationSchema = z.object({
@@ -42,10 +18,7 @@ export const OtaConfigurationSchema = z.object({
   ),
 });
 
-export type AnchorCalibration = z.infer<typeof AnchorCalibrationSchema>;
-export type AnchorsConfiguration = z.infer<typeof AnchorsConfigurationSchema>;
 export type RobotConfiguration = z.infer<typeof RobotConfigurationSchema>;
-export type EstimationConfiguration = z.infer<typeof EstimationConfigurationSchema>;
 export type OtaConfiguration = z.infer<typeof OtaConfigurationSchema>;
 
 export const ClientPublishMessageSchema = z.object({
@@ -76,8 +49,6 @@ export const MQTT_SUBSCRIPTIONS = [
   "/pose/+",
   "/telemetry/+",
   "/imu/+",
-  "/config/anchors",
-  "/config/estimation",
   "/config/ota",
   "/config/robots/+",
 ] as const;
@@ -109,20 +80,10 @@ export function isOtaCheckTopic(topic: string): boolean {
 }
 
 export function isAllowedConfigurationTopic(topic: string): boolean {
-  return topic === "/config/anchors" || topic === "/config/estimation" || topic === "/config/ota" || /^\/config\/robots\/[A-F0-9]{6}$/.test(topic);
+  return topic === "/config/ota" || /^\/config\/robots\/[A-F0-9]{6}$/.test(topic);
 }
 
 export function validateConfigurationPublication(topic: string, payload: unknown): string | null {
-  if (topic === "/config/anchors") {
-    const result = AnchorsConfigurationSchema.safeParse(payload);
-    return result.success ? null : result.error.issues[0]?.message ?? "Invalid anchor configuration";
-  }
-
-  if (topic === "/config/estimation") {
-    const result = EstimationConfigurationSchema.safeParse(payload);
-    return result.success ? null : result.error.issues[0]?.message ?? "Invalid estimation configuration";
-  }
-
   if (topic === "/config/ota") {
     const result = OtaConfigurationSchema.safeParse(payload);
     return result.success ? null : result.error.issues[0]?.message ?? "Invalid OTA configuration";

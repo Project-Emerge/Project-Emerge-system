@@ -9,7 +9,6 @@ describe("normalizzazione della telemetria firmware", () => {
       heading_rad: 0.5,
       speed_m_s: 0.2,
       position_variance_m2: 0.01,
-      anchors_used: 4,
       timestamp_us: 1234,
     });
     expect(parsed).toMatchObject({ kind: "pose", deviceId: "A1B2C3", payload: { x_m: 1.2, y_m: 3.4 } });

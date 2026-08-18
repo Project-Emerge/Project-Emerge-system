@@ -17,30 +17,26 @@ afterEach(() => {
 });
 
 describe("pagina configurazione", () => {
-  it("precompila le ancore retained e le salva sul topic corretto", async () => {
+  it("precompila e salva la configurazione retained del robot", async () => {
     useDashboardStore.setState({
-      anchorsConfiguration: {
-        robot_antenna_height_m: 0.06,
-        anchors: [
-          { anchor_id: 0xa001, x: 0, y: 0, z: 2, offset_mm: 0, scale_ppm: 0 },
-          { anchor_id: 0xa002, x: 6, y: 0, z: 2, offset_mm: 0, scale_ppm: 0 },
-          { anchor_id: 0xa003, x: 6, y: 6, z: 2, offset_mm: 0, scale_ppm: 0 },
-          { anchor_id: 0xa004, x: 0, y: 6, z: 2, offset_mm: 0, scale_ppm: 0 },
-        ],
+      robots: {
+        A1B2C3: {
+          id: "A1B2C3",
+          lastSeenAt: Date.now(),
+          configuration: { motors: { ema_filter_alpha: 0.2, max_speed: 0.8 } },
+        },
       },
+      robotIds: ["A1B2C3"],
     });
     render(<ConfigurationPage />);
 
-    await waitFor(() => expect(screen.getByLabelText("A2 x")).toHaveValue(6));
-    fireEvent.click(screen.getByRole("button", { name: "Save anchors" }));
-    await waitFor(() => expect(gateway.publish).toHaveBeenCalledWith("/config/anchors", expect.objectContaining({
-      robot_antenna_height_m: 0.06,
-      anchors: expect.arrayContaining([expect.objectContaining({ anchor_id: 0xa001 })]),
-    })));
+    await waitFor(() => expect(screen.getByLabelText("Maximum speed")).toHaveValue(0.8));
+    fireEvent.change(screen.getByLabelText("Maximum speed"), { target: { value: "1.25" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Enable sensor fusion" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save position mode" }));
-    await waitFor(() => expect(gateway.publish).toHaveBeenCalledWith("/config/estimation", { fusion_enabled: false }));
+    await waitFor(() => expect(gateway.publish).toHaveBeenCalledWith("/config/robots/A1B2C3", {
+      motors: { ema_filter_alpha: 0.2, max_speed: 1.25 },
+    }));
   });
 
   it("carica il firmware e richiede l'aggiornamento OTA di tutti i robot", async () => {

@@ -10,8 +10,6 @@ import {
 
 describe("contratti di configurazione MQTT", () => {
   it("accetta soltanto i topic retained previsti", () => {
-    expect(isAllowedConfigurationTopic("/config/anchors")).toBe(true);
-    expect(isAllowedConfigurationTopic("/config/estimation")).toBe(true);
     expect(isAllowedConfigurationTopic("/config/ota")).toBe(true);
     expect(isAllowedConfigurationTopic("/config/robots/A1B2C3")).toBe(true);
     expect(isAllowedConfigurationTopic("/motors/A1B2C3")).toBe(false);
@@ -26,8 +24,6 @@ describe("contratti di configurazione MQTT", () => {
     expect(validateConfigurationPublication("/config/robots/A1B2C3", {
       motors: { ema_filter_alpha: 4, max_speed: -1 },
     })).not.toBeNull();
-    expect(validateConfigurationPublication("/config/estimation", { fusion_enabled: false })).toBeNull();
-    expect(validateConfigurationPublication("/config/estimation", { fusion_enabled: "false" })).not.toBeNull();
     expect(validateConfigurationPublication("/config/ota", { server: "192.168.8.1:8787" })).toBeNull();
     expect(validateConfigurationPublication("/config/ota", { server: "http://192.168.8.1" })).not.toBeNull();
   });

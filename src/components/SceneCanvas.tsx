@@ -2,7 +2,6 @@ import { Html, OrbitControls } from "@react-three/drei";
 import { Canvas, type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import type { AnchorsConfiguration } from "../domain/telemetry";
 import { useDashboardStore } from "../store/dashboard-store";
 
 export type SceneMode = "2d" | "3d";
@@ -19,21 +18,7 @@ type SceneCanvasProps = {
 };
 
 type Bounds = { centerX: number; centerY: number; span: number };
-
-function getBounds(configuration?: AnchorsConfiguration): Bounds {
-  if (!configuration?.anchors.length) return { centerX: 3, centerY: 3, span: 7 };
-  const xs = configuration.anchors.map((anchor) => anchor.x);
-  const ys = configuration.anchors.map((anchor) => anchor.y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  return {
-    centerX: (minX + maxX) / 2,
-    centerY: (minY + maxY) / 2,
-    span: Math.max(3, maxX - minX, maxY - minY) + 1.5,
-  };
-}
+const DEFAULT_BOUNDS: Bounds = { centerX: 3, centerY: 3, span: 7 };
 
 function CameraControls({ mode, bounds, resetToken }: { mode: SceneMode; bounds: Bounds; resetToken: number }): React.JSX.Element {
   const { camera, invalidate } = useThree();
@@ -66,25 +51,6 @@ function CameraControls({ mode, bounds, resetToken }: { mode: SceneMode; bounds:
       minPolarAngle={mode === "2d" ? 0 : Math.PI / 7}
       maxPolarAngle={mode === "2d" ? 0 : Math.PI / 2.05}
     />
-  );
-}
-
-function AnchorMarker({ anchor, index }: { anchor: AnchorsConfiguration["anchors"][number]; index: number }): React.JSX.Element {
-  const label = `A${index + 1}`;
-  return (
-    <group position={[anchor.x, anchor.z, anchor.y]}>
-      <mesh position={[0, -anchor.z / 2, 0]}>
-        <cylinderGeometry args={[0.015, 0.015, Math.max(anchor.z, 0.02), 10]} />
-        <meshBasicMaterial color="#53d5ff" transparent opacity={0.55} />
-      </mesh>
-      <mesh>
-        <octahedronGeometry args={[0.13, 0]} />
-        <meshStandardMaterial color="#a4f4ff" emissive="#0d7e9a" emissiveIntensity={1.8} />
-      </mesh>
-      <Html position={[0, 0.25, 0]} center distanceFactor={12} style={{ pointerEvents: "none" }}>
-        <span className="scene-label">{label}</span>
-      </Html>
-    </group>
   );
 }
 
@@ -185,7 +151,7 @@ function RobotMesh({ id }: { id: string }): React.JSX.Element | null {
     const heading = -pose.heading_rad;
     group.current.rotation.y += THREE.MathUtils.euclideanModulo(heading - group.current.rotation.y + Math.PI, Math.PI * 2) - Math.PI;
     const stale = !robot || Date.now() - robot.lastSeenAt > 3_000;
-    const uncertain = pose.anchors_used <= 2 || pose.position_variance_m2 > 0.1;
+    const uncertain = pose.position_variance_m2 > 0.1;
     const color = stale ? "#64748b" : uncertain ? "#f7b955" : "#42dfb0";
     bodyMaterial.current?.color.set(color);
     statusMaterial.current?.emissive.set(color);
@@ -226,7 +192,6 @@ function RobotMesh({ id }: { id: string }): React.JSX.Element | null {
 }
 
 function SceneContents({ mode, bounds, resetToken }: { mode: SceneMode; bounds: Bounds; resetToken: number }): React.JSX.Element {
-  const anchors = useDashboardStore((state) => state.anchorsConfiguration);
   const robotIds = useDashboardStore((state) => state.robotIds);
   return (
     <>
@@ -237,7 +202,6 @@ function SceneContents({ mode, bounds, resetToken }: { mode: SceneMode; bounds: 
       <gridHelper args={[Math.max(12, bounds.span * 2.2), Math.max(12, Math.ceil(bounds.span * 2.2)), "#1f4a5a", "#122a3b"]} />
       <axesHelper args={[1]} />
       <CameraControls mode={mode} bounds={bounds} resetToken={resetToken} />
-      {anchors?.anchors.map((anchor, index) => <AnchorMarker key={anchor.anchor_id} anchor={anchor} index={index} />)}
       {robotIds.map((id) => <RobotTrail key={`${id}-trail`} id={id} />)}
       {robotIds.map((id) => <RobotMesh key={id} id={id} />)}
     </>
@@ -245,8 +209,7 @@ function SceneContents({ mode, bounds, resetToken }: { mode: SceneMode; bounds: 
 }
 
 export function SceneCanvas({ mode, resetToken }: SceneCanvasProps): React.JSX.Element {
-  const anchors = useDashboardStore((state) => state.anchorsConfiguration);
-  const bounds = useMemo(() => getBounds(anchors), [anchors]);
+  const bounds = DEFAULT_BOUNDS;
   if (mode === "2d") {
     return <Canvas orthographic camera={{ position: [bounds.centerX, 18, bounds.centerY], zoom: 1 }} shadows dpr={[1, 2]} gl={{ antialias: true }}>
       <SceneContents mode={mode} bounds={bounds} resetToken={resetToken} />

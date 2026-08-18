@@ -90,7 +90,6 @@ export function RobotDetailsSidebar(): React.JSX.Element | null {
           <InfoRow label="Heading" value={robot.pose ? robot.pose.heading_rad * 180 / Math.PI : null} unit="°" />
           <InfoRow label="Speed" value={robot.pose?.speed_m_s} unit="m/s" />
           <InfoRow label="Variance" value={robot.pose?.position_variance_m2} unit="m²" />
-          <InfoRow label="Anchors used" value={robot.pose?.anchors_used} />
           <InfoRow label="Timestamp" value={robot.pose?.timestamp_us} unit="µs" />
         </section>
         <section className="detail-section">

@@ -3,8 +3,6 @@ import { subscribeWithSelector } from "zustand/middleware";
 import type { GatewayMqttMessage, GatewayStatus } from "../../shared/protocol";
 import {
   parseInboundMqttMessage,
-  type AnchorsConfiguration,
-  type EstimationConfiguration,
   type ImuTelemetry,
   type Pose,
   type RobotConfiguration,
@@ -26,8 +24,6 @@ type DashboardState = {
   robots: Record<string, RobotLiveState>;
   robotIds: string[];
   posedRobotIds: string[];
-  anchorsConfiguration?: AnchorsConfiguration;
-  estimationConfiguration?: EstimationConfiguration;
   selectedRobotId: string | null;
   lastProtocolError: string | null;
   setConnectionStatus: (status: GatewayStatus) => void;
@@ -43,8 +39,6 @@ const initialData = {
   robots: {} as Record<string, RobotLiveState>,
   robotIds: [] as string[],
   posedRobotIds: [] as string[],
-  anchorsConfiguration: undefined,
-  estimationConfiguration: undefined,
   selectedRobotId: null,
   lastProtocolError: null,
 };
@@ -77,10 +71,6 @@ export const useDashboardStore = create<DashboardState>()(
 
       set((state) => {
         switch (inbound.kind) {
-          case "anchors":
-            return { anchorsConfiguration: inbound.payload, lastProtocolError: null };
-          case "estimation":
-            return { estimationConfiguration: inbound.payload, lastProtocolError: null };
           case "pose":
             return {
               ...robotWithUpdate(state, inbound.deviceId, (robot) => ({
