@@ -134,6 +134,7 @@ celerybeat.pid
 
 # Environments
 .env
+firmware/
 .venv
 env/
 venv/

@@ -10,8 +10,10 @@ import {
   type GatewayMqttMessage,
   type GatewayServerMessage,
   type GatewayStatus,
+  isOtaCheckTopic,
   validateConfigurationPublication,
 } from "../shared/protocol.js";
+import { FirmwareStore } from "./firmware-store.js";
 
 try {
   process.loadEnvFile(".env");
@@ -22,6 +24,10 @@ try {
 const port = Number(process.env.HTTP_PORT ?? 8787);
 const mqttUrl = process.env.MQTT_URL ?? "mqtt://192.168.8.1:1883";
 const distDirectory = join(process.cwd(), "dist");
+const firmwareDirectory = process.env.FIRMWARE_DIRECTORY ?? join(process.cwd(), "firmware");
+const firmwareStore = new FirmwareStore(firmwareDirectory);
+// The Dropbot OTA slots are 0x1e0000 bytes each (see the firmware's partitions.csv).
+const maximumFirmwareSize = 0x1e0000;
 const snapshots = new Map<string, GatewayMqttMessage>();
 let brokerStatus: GatewayStatus = "connecting";
 
@@ -35,7 +41,61 @@ const mqttClient = mqtt.connect(mqttUrl, {
 });
 
 const server = createServer((request, response) => {
+  void handleHttpRequest(request, response);
+});
+
+async function handleHttpRequest(request: import("node:http").IncomingMessage, response: import("node:http").ServerResponse): Promise<void> {
   const requestPath = request.url?.split("?")[0] ?? "/";
+  if (request.method === "GET" && requestPath === "/api/firmware/latest") {
+    const manifest = await firmwareStore.latest();
+    if (!manifest) {
+      sendJson(response, 404, { error: "No firmware has been uploaded." });
+      return;
+    }
+    sendJson(response, 200, manifest);
+    return;
+  }
+
+  if (request.method === "POST" && requestPath === "/api/firmware/latest") {
+    if (!request.headers["content-type"]?.startsWith("application/octet-stream")) {
+      sendJson(response, 415, { error: "Upload a .bin file as application/octet-stream." });
+      return;
+    }
+    const version = request.headers["x-firmware-version"];
+    if (typeof version !== "string") {
+      sendJson(response, 400, { error: "A firmware version is required." });
+      return;
+    }
+    const declaredLength = Number(request.headers["content-length"]);
+    if (Number.isFinite(declaredLength) && declaredLength > maximumFirmwareSize) {
+      request.resume();
+      sendJson(response, 413, { error: "Firmware image exceeds the 1.875 MiB Dropbot OTA slot limit." });
+      return;
+    }
+    try {
+      const image = await readRequestBody(request, maximumFirmwareSize);
+      const manifest = await firmwareStore.save(version, image);
+      sendJson(response, 201, manifest);
+    } catch (error) {
+      sendJson(response, error instanceof RequestTooLargeError ? 413 : 400, {
+        error: error instanceof Error ? error.message : "Firmware upload failed.",
+      });
+    }
+    return;
+  }
+
+  if (request.method === "GET" && requestPath.startsWith("/firmware/")) {
+    const manifest = await firmwareStore.latest();
+    if (!manifest || requestPath !== manifest.url) {
+      response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+      response.end("Firmware not found.");
+      return;
+    }
+    response.writeHead(200, { "Content-Type": "application/octet-stream", "Content-Length": manifest.size });
+    response.end(readFileSync(join(firmwareDirectory, requestPath.slice("/firmware/".length))));
+    return;
+  }
+
   const safePath = normalize(requestPath).replace(/^\.\.(?:\/|\\|$)+/, "");
   const requestedFile = join(distDirectory, safePath === "/" ? "index.html" : safePath);
   const file = existsSync(requestedFile) && statSync(requestedFile).isFile()
@@ -58,7 +118,39 @@ const server = createServer((request, response) => {
         : "application/octet-stream";
   response.writeHead(200, { "Content-Type": contentType });
   response.end(readFileSync(file));
-});
+}
+
+class RequestTooLargeError extends Error {
+  constructor() {
+    super("Firmware image exceeds the 1.875 MiB Dropbot OTA slot limit.");
+  }
+}
+
+function readRequestBody(request: import("node:http").IncomingMessage, limit: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let exceededLimit = false;
+    request.on("data", (chunk: Buffer) => {
+      if (exceededLimit) return;
+      size += chunk.length;
+      if (size > limit) {
+        exceededLimit = true;
+        reject(new RequestTooLargeError());
+        request.resume();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on("end", () => resolve(Buffer.concat(chunks)));
+    request.on("error", reject);
+  });
+}
+
+function sendJson(response: import("node:http").ServerResponse, status: number, body: object): void {
+  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  response.end(JSON.stringify(body));
+}
 
 const webSocketServer = new WebSocketServer({ server, path: "/ws" });
 
@@ -128,7 +220,7 @@ webSocketServer.on("connection", (socket) => {
     }
 
     const { requestId, topic, payload } = parsed.data;
-    const validationError = validateConfigurationPublication(topic, payload);
+    const validationError = isOtaCheckTopic(topic) ? null : validateConfigurationPublication(topic, payload);
     if (validationError) {
       send(socket, { type: "publish-result", requestId, ok: false, error: validationError });
       return;
@@ -138,7 +230,7 @@ webSocketServer.on("connection", (socket) => {
       return;
     }
 
-    mqttClient.publish(topic, JSON.stringify(payload), { qos: 1, retain: true }, (error) => {
+    mqttClient.publish(topic, JSON.stringify(payload), { qos: 1, retain: !isOtaCheckTopic(topic) }, (error) => {
       if (error) {
         send(socket, { type: "publish-result", requestId, ok: false, error: error.message });
       } else {

@@ -3,7 +3,10 @@ import {
   ANCHOR_IDS,
   AnchorsConfigurationSchema,
   EstimationConfigurationSchema,
+  OtaConfigurationSchema,
   RobotConfigurationSchema,
+  otaConfigurationTopic,
+  otaCheckTopic,
   robotConfigurationTopic,
   type AnchorCalibration,
 } from "../../shared/protocol";
@@ -48,6 +51,13 @@ function numberValue(event: React.ChangeEvent<HTMLInputElement>): number {
   return Number(event.target.value);
 }
 
+function defaultOtaServer(): string {
+  const configured = import.meta.env.VITE_OTA_SERVER as string | undefined;
+  if (configured) return configured;
+  const port = window.location.port === "5173" ? "8787" : window.location.port;
+  return port ? `${window.location.hostname}:${port}` : window.location.hostname;
+}
+
 function StatusMessage({ state }: { state: SaveState }): React.JSX.Element | null {
   if (state.kind === "idle" || state.kind === "saving") return null;
   return <p className={`form-message ${state.kind}`}>{state.message}</p>;
@@ -73,6 +83,10 @@ export function ConfigurationPage(): React.JSX.Element {
   const [emaAlpha, setEmaAlpha] = useState(0.1);
   const [maxSpeed, setMaxSpeed] = useState(1);
   const [robotSave, setRobotSave] = useState<SaveState>({ kind: "idle" });
+  const [firmwareVersion, setFirmwareVersion] = useState("");
+  const [firmwareFile, setFirmwareFile] = useState<File | null>(null);
+  const [otaServer, setOtaServer] = useState(defaultOtaServer);
+  const [firmwareUpdate, setFirmwareUpdate] = useState<SaveState>({ kind: "idle" });
 
   useEffect(() => {
     if (!retainedAnchors) return;
@@ -170,6 +184,34 @@ export function ConfigurationPage(): React.JSX.Element {
     }
   }
 
+  async function uploadAndUpdateFirmware(): Promise<void> {
+    const otaConfiguration = OtaConfigurationSchema.safeParse({ server: otaServer.trim() });
+    if (!firmwareFile || !firmwareVersion.trim() || robotIds.length === 0 || !otaConfiguration.success) {
+      setFirmwareUpdate({ kind: "error", message: "Choose a reachable OTA server, a version, a .bin firmware file, and wait for at least one robot." });
+      return;
+    }
+    setFirmwareUpdate({ kind: "saving" });
+    try {
+      const response = await fetch("/api/firmware/latest", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "X-Firmware-Version": firmwareVersion.trim(),
+        },
+        body: firmwareFile,
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(body?.error ?? "Firmware upload failed.");
+      }
+      await gateway.publish(otaConfigurationTopic(), otaConfiguration.data);
+      await Promise.all(robotIds.map((robotId) => gateway.publish(otaCheckTopic(robotId), {})));
+      setFirmwareUpdate({ kind: "success", message: `Firmware uploaded; update requested for all ${robotIds.length} robot${robotIds.length === 1 ? "" : "s"}.` });
+    } catch (error) {
+      setFirmwareUpdate({ kind: "error", message: error instanceof Error ? error.message : "Firmware update failed." });
+    }
+  }
+
   return (
     <main className="configuration-page">
       <section className="page-heading">
@@ -243,6 +285,17 @@ export function ConfigurationPage(): React.JSX.Element {
             <div className="save-row"><button type="button" className="primary-button" disabled={robotSave.kind === "saving"} onClick={saveRobotConfiguration}>{robotSave.kind === "saving" ? "Saving…" : "Save settings"}</button><StatusMessage state={robotSave} /></div>
           </div>
         )}
+      </section>
+
+      <section className="panel firmware-update-panel">
+        <div className="panel-heading"><div><span className="eyebrow">5 · Firmware</span><h2>OTA update</h2></div><span className="retained-tag">FLEET ROLLOUT</span></div>
+        <p className="muted">Upload a compiled Dropbot <code>.bin</code>, set the dashboard address reachable by robots, then request the update on every discovered robot. The address is retained so each robot can check for future releases.</p>
+        <div className="firmware-form-grid">
+          <label className="field-label">OTA server<input aria-label="OTA server" type="text" placeholder="192.168.8.1:8787" value={otaServer} onChange={(event) => setOtaServer(event.target.value)} /></label>
+          <label className="field-label">Firmware version<input aria-label="Firmware version" type="text" placeholder="0.3.1" value={firmwareVersion} onChange={(event) => setFirmwareVersion(event.target.value)} /></label>
+          <label className="field-label">Firmware image<input aria-label="Firmware image" type="file" accept=".bin,application/octet-stream" onChange={(event) => setFirmwareFile(event.target.files?.[0] ?? null)} /></label>
+          <div className="save-row"><button type="button" className="primary-button" disabled={firmwareUpdate.kind === "saving" || robotIds.length === 0} onClick={uploadAndUpdateFirmware}>{firmwareUpdate.kind === "saving" ? "Updating…" : "Upload & update fleet"}</button><StatusMessage state={firmwareUpdate} /></div>
+        </div>
       </section>
     </main>
   );

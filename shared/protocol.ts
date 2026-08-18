@@ -35,10 +35,18 @@ export const EstimationConfigurationSchema = z.object({
   fusion_enabled: z.boolean(),
 });
 
+export const OtaConfigurationSchema = z.object({
+  server: z.string().min(1).max(96).refine(
+    (server) => !/[\s/#?]/.test(server),
+    "OTA server must be a host or host:port without a URL path.",
+  ),
+});
+
 export type AnchorCalibration = z.infer<typeof AnchorCalibrationSchema>;
 export type AnchorsConfiguration = z.infer<typeof AnchorsConfigurationSchema>;
 export type RobotConfiguration = z.infer<typeof RobotConfigurationSchema>;
 export type EstimationConfiguration = z.infer<typeof EstimationConfigurationSchema>;
+export type OtaConfiguration = z.infer<typeof OtaConfigurationSchema>;
 
 export const ClientPublishMessageSchema = z.object({
   type: z.literal("publish"),
@@ -70,6 +78,7 @@ export const MQTT_SUBSCRIPTIONS = [
   "/imu/+",
   "/config/anchors",
   "/config/estimation",
+  "/config/ota",
   "/config/robots/+",
 ] as const;
 
@@ -84,8 +93,23 @@ export function robotConfigurationTopic(deviceId: string): string {
   return `/config/robots/${deviceId}`;
 }
 
+export function otaCheckTopic(deviceId: string): string {
+  if (!isDeviceId(deviceId)) {
+    throw new Error("Invalid robot ID");
+  }
+  return `/ota/check/${deviceId}`;
+}
+
+export function otaConfigurationTopic(): "/config/ota" {
+  return "/config/ota";
+}
+
+export function isOtaCheckTopic(topic: string): boolean {
+  return /^\/ota\/check\/[A-F0-9]{6}$/.test(topic);
+}
+
 export function isAllowedConfigurationTopic(topic: string): boolean {
-  return topic === "/config/anchors" || topic === "/config/estimation" || /^\/config\/robots\/[A-F0-9]{6}$/.test(topic);
+  return topic === "/config/anchors" || topic === "/config/estimation" || topic === "/config/ota" || /^\/config\/robots\/[A-F0-9]{6}$/.test(topic);
 }
 
 export function validateConfigurationPublication(topic: string, payload: unknown): string | null {
@@ -97,6 +121,11 @@ export function validateConfigurationPublication(topic: string, payload: unknown
   if (topic === "/config/estimation") {
     const result = EstimationConfigurationSchema.safeParse(payload);
     return result.success ? null : result.error.issues[0]?.message ?? "Invalid estimation configuration";
+  }
+
+  if (topic === "/config/ota") {
+    const result = OtaConfigurationSchema.safeParse(payload);
+    return result.success ? null : result.error.issues[0]?.message ?? "Invalid OTA configuration";
   }
 
   if (/^\/config\/robots\/[A-F0-9]{6}$/.test(topic)) {
