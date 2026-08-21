@@ -35,6 +35,39 @@ services:
     networks:
       - emerge-backplane
 
+  simulator:
+    profiles:
+      - simulator
+      - dev
+    build:
+      context: apps/robot-emulator
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+        restart: true
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+    restart: unless-stopped
+    networks:
+      - emerge-backplane
+
+  neighborhood-system:
+    build:
+      context: apps/neighborhood-system
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+        restart: true
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+    networks:
+      - emerge-backplane
+
   mosquitto:
     image: eclipse-mosquitto:2.0
     user: "1883:1883"

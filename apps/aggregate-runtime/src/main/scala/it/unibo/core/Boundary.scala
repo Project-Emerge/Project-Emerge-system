@@ -1,6 +1,6 @@
 package it.unibo.core
 
-import scala.concurrent.Future
+import cats.effect.IO
 
 /**
  * A boundary is a component that interacts with the external world.
@@ -10,4 +10,4 @@ import scala.concurrent.Future
  * @tparam Info The type of the information associated with the entities in the environment
  */
 trait Boundary[ID, Position, Info]:
-  def output(environment: Environment[ID, Position, Info]): Future[Unit]
+  def output(environment: Environment[ID, Position, Info]): IO[Unit]

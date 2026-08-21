@@ -8,6 +8,7 @@ import { useDashboardStore } from "../store/dashboard-store";
 export type SceneMode = "2d" | "3d";
 const ROBOT_DIAMETER_M = 0.11;
 const ROBOT_RADIUS_M = ROBOT_DIAMETER_M / 2;
+const ROBOT_HEIGHT_M = 0.04;
 const TRAIL_DURATION_MS = 4_000;
 const MAX_TRAIL_POINTS = 96;
 
@@ -169,15 +170,15 @@ function RobotMesh({ id, theme }: { id: string; theme: ResolvedTheme }): React.J
 
   return (
     <group ref={group} onClick={handleClick}>
-      <mesh castShadow receiveShadow>
-        <sphereGeometry args={[ROBOT_RADIUS_M, 20, 16]} />
+      <mesh castShadow receiveShadow position={[0, -ROBOT_RADIUS_M + ROBOT_HEIGHT_M / 2, 0]} rotation={[0, -Math.PI / 2, 0]}>
+        <cylinderGeometry args={[ROBOT_RADIUS_M, ROBOT_RADIUS_M, ROBOT_HEIGHT_M, 3]} />
         <meshStandardMaterial ref={bodyMaterial} color="#45a487" roughness={0.48} metalness={0.12} />
       </mesh>
-      <mesh position={[0, ROBOT_RADIUS_M + 0.003, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh position={[0, -ROBOT_RADIUS_M + ROBOT_HEIGHT_M + 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <circleGeometry args={[0.026, 3]} />
         <meshBasicMaterial color="#f8fcff" side={THREE.DoubleSide} />
       </mesh>
-      <mesh position={[-0.018, 0.028, 0.018]}>
+      <mesh position={[-0.018, -ROBOT_RADIUS_M + ROBOT_HEIGHT_M + 0.004, 0.018]}>
         <sphereGeometry args={[0.008, 12, 12]} />
         <meshStandardMaterial ref={statusMaterial} color="#45a487" emissive="#45a487" emissiveIntensity={1.8} />
       </mesh>

@@ -1,0 +1,14 @@
+[tool.poetry]
+name = "robot-emulator"
+version = "0.1.0"
+description = "Robot Emulation System for Project Emerge"
+authors = ["Gianluca Aguzzi <gianluca.aguzzi@unibo.it>", "Davide Domini <davide.domini@unibo.it>"]
+packages = [{include = "robot_emulator", from = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+paho-mqtt = "^2.1.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

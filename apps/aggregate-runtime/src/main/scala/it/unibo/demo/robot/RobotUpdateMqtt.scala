@@ -1,11 +1,10 @@
 package it.unibo.demo.robot
 
+import cats.effect.IO
 import it.unibo.core.{Environment, EnvironmentUpdate}
 import it.unibo.demo.robot.Actuation.{Forward, NoOp, Rotation, Stop}
 import it.unibo.demo.{ID, Info, Position}
 import it.unibo.mqtt.MqttContext
-
-import scala.concurrent.{ExecutionContext, Future}
 
 enum Actuation:
   case Rotation(rotationVector: (Double, Double))
@@ -13,7 +12,7 @@ enum Actuation:
   case NoOp
   case Stop
 
-class RobotUpdateMqtt(angleThreshold: Double)(using ExecutionContext, MqttContext)
+class RobotUpdateMqtt(angleThreshold: Double)(using MqttContext)
     extends EnvironmentUpdate[ID, Position, Actuation, Info, Environment[ID, Position, Info]]:
 
   // Small angular tolerance to avoid oscillations when almost aligned (in radians)
@@ -44,14 +43,23 @@ class RobotUpdateMqtt(angleThreshold: Double)(using ExecutionContext, MqttContex
     
     (leftSpeed * speedScale, rightSpeed * speedScale)
 
-  override def update(world: Environment[ID, Position, Info], id: ID, actuation: Actuation): Future[Unit] =
+  private def getOrientation(world: Environment[ID, Position, Info], id: ID): Double =
+    world.sensing(id).get("orientation") match {
+      case Some(d: Double) => d
+      case Some(d: java.lang.Double) => d.doubleValue()
+      case Some(f: Float) => f.toDouble
+      case Some(s: String) => s.toDoubleOption.getOrElse(0.0)
+      case _ => 0.0
+    }
+
+  override def update(world: Environment[ID, Position, Info], id: ID, actuation: Actuation): IO[Unit] =
     actuation match
-      case _ if !world.nodes.contains(id) => Future(RobotMqttProtocol.nop(id))
-      case NoOp => Future(RobotMqttProtocol.nop(id))
-      case Stop => Future(RobotMqttProtocol.stop(id))
+      case _ if !world.nodes.contains(id) => IO(RobotMqttProtocol.nop(id))
+      case NoOp => IO(RobotMqttProtocol.nop(id))
+      case Stop => IO(RobotMqttProtocol.stop(id))
       case Rotation(actuation) =>
-        Future:
-          val orientation = world.sensing(id)("orientation").asInstanceOf[Double] // current heading angle (robot frame)
+        IO {
+          val orientation = getOrientation(world, id) // current heading angle (robot frame)
           val currentVector = (-Math.sin(orientation), Math.cos(orientation))
           val targetVector = (actuation._1, actuation._2)
           val rotationEuclideanDistance = Math.sqrt(
@@ -64,11 +72,12 @@ class RobotUpdateMqtt(angleThreshold: Double)(using ExecutionContext, MqttContex
           if (math.abs(deltaAngle) < angleTolerance) then
             RobotMqttProtocol.stop(id)
           else if deltaAngle > 0 then RobotMqttProtocol.spinLeft(id) else RobotMqttProtocol.spinRight(id)
+        }
 
       case Forward(desired) =>
-        Future:
+        IO {
           // Current heading (transform from stored angle to unit vector)
-          val orientation = world.sensing(id)("orientation").asInstanceOf[java.lang.Double]
+          val orientation = getOrientation(world, id)
           val currentVector = (-Math.sin(orientation), Math.cos(orientation))
           val currentAngle = math.atan2(currentVector._2, currentVector._1)
           val targetVector = (desired._1, desired._2)
@@ -84,4 +93,4 @@ class RobotUpdateMqtt(angleThreshold: Double)(using ExecutionContext, MqttContex
           if math.abs(chosenDelta) < angleTolerance then
             if useForwardPlan then RobotMqttProtocol.forward(id) else RobotMqttProtocol.backward(id)
           else if chosenDelta > 0 then RobotMqttProtocol.spinLeft(id) else RobotMqttProtocol.spinRight(id)
-
+        }

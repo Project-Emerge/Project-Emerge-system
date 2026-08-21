@@ -1,6 +1,6 @@
 package it.unibo.core
 
-import scala.concurrent.Future
+import cats.effect.IO
 
 /**
  * EnvironmentProvider is a trait that provides an Environment.
@@ -13,8 +13,8 @@ import scala.concurrent.Future
 trait EnvironmentProvider[ID, Position, Info, +E <: Environment[ID, Position, Info]]:
   /**
    * This method provides an Environment.
-   * It returns a Future since the computation of the Environment could be time-consuming and it could be
+   * It returns an IO since the computation of the Environment could be time-consuming and it could be
    * performed asynchronously.
-   * @return a Future that will be completed with the Environment
+   * @return an IO that will be completed with the Environment
    */
-  def provide(): Future[E]
+  def provide(): IO[E]

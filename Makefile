@@ -17,6 +17,9 @@ compose-config:
 up:
 	docker compose up --build -d
 
+up-simulator:
+	docker compose --profile simulator up --build -d
+
 down:
 	docker compose down
 

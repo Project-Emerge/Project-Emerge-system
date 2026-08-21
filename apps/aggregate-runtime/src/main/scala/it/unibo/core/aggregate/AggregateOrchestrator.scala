@@ -18,37 +18,53 @@ class AggregateOrchestrator[Position, Actuation](
   import sensorsNames.*
   var exports: Map[Int, EXPORT] = Map.empty
   override def tick(world: Environment[Int, Position, Map[String, Any]]): Map[Int, Actuation] =
-    exports = (for
-      currentAgent <- world.nodes
-      ctx = contextFromAgent(currentAgent, world)
-      agentExport = adaptExport(program.round(ctx))
-    yield currentAgent -> agentExport).toMap
+    val nodes = world.nodes
+    val exportsBuilder = Map.newBuilder[Int, EXPORT]
+    nodes.foreach { currentAgent =>
+      val ctx = contextFromAgent(currentAgent, world)
+      val agentExport = adaptExport(program.round(ctx))
+      exportsBuilder += (currentAgent -> agentExport)
+    }
+    exports = exportsBuilder.result()
     exports.map((agent, ex) => agent -> ex.root[Actuation]())
 
   private def contextFromAgent(agent: Int, world: Environment[Int, Position, Map[String, Any]]): CONTEXT =
-    val neighbours = world.neighbors(agent) + agent
-    val neighboursPosition = neighbours.intersect(world.nodes)
-      .map(n => n -> world.position(n)).toMap
     val myPosition = world.position(agent)
     val myInfo = world.sensing(agent)
+    val estimator = summon[DistanceEstimator[Position]]
+
+    val neighboursPositionBuilder = Map.newBuilder[Int, Position]
+    val neighboursExportsBuilder = Map.newBuilder[Int, EXPORT]
+    val neighboursDistancesBuilder = Map.newBuilder[Int, Double]
+    val neighboursDistancesVectorBuilder = Map.newBuilder[Int, Position]
+
+    val activeNodes = world.nodes
+
+    def processNode(n: Int): Unit =
+      if activeNodes.contains(n) then
+        val pos = world.position(n)
+        neighboursPositionBuilder += (n -> pos)
+        val exp = exports.getOrElse(n, factory.emptyExport())
+        neighboursExportsBuilder += (n -> exp)
+        neighboursDistancesBuilder += (n -> estimator.distance(myPosition, pos))
+        neighboursDistancesVectorBuilder += (n -> estimator.distanceVector(myPosition, pos))
+
+    val ns = world.neighbors(agent)
+    ns.foreach(processNode)
+    processNode(agent)
 
     val localSensors = myInfo + (
       LSNS_POSITION -> myPosition
     )
-    val neighboursExports = neighbours.intersect(world.nodes)
-      .map(n => n -> exports.getOrElse(n, factory.emptyExport()))
-      .toMap + (agent -> exports.getOrElse(agent, factory.emptyExport()))
-    val neighboursDistances =
-      neighboursPosition.map((n, p) => n -> summon[DistanceEstimator[Position]].distance(myPosition, p))
-    val neighboursDistancesVector =
-      neighboursPosition
-        .map((n, p) => n -> summon[DistanceEstimator[Position]].distanceVector(myPosition, p))
 
     factory.context(
       selfId = agent,
-      exports = neighboursExports,
+      exports = neighboursExportsBuilder.result(),
       lsens = localSensors,
-      nbsens = Map(NBR_RANGE -> neighboursDistances, NBR_VECTOR -> neighboursDistancesVector)
+      nbsens = Map(
+        NBR_RANGE -> neighboursDistancesBuilder.result(),
+        NBR_VECTOR -> neighboursDistancesVectorBuilder.result()
+      )
     )
 
   private def adaptExport(exp: EXPORT): EXPORT =
