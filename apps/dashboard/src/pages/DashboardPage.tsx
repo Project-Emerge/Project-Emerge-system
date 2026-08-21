@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { SceneCanvas, type SceneMode } from "../components/SceneCanvas";
 import { RobotDetailsSidebar } from "../components/RobotDetailsSidebar";
+import { FormationPanel } from "../components/FormationPanel";
 import { useDashboardStore } from "../store/dashboard-store";
 
 export function DashboardPage(): React.JSX.Element {
@@ -28,6 +29,7 @@ export function DashboardPage(): React.JSX.Element {
             <button type="button" className="secondary-button" onClick={() => setResetToken((token) => token + 1)}>Center arena</button>
           </div>
         </section>
+        <FormationPanel />
         {robotsWithoutPose > 0 && <div className="scene-notice">{robotsWithoutPose} robot{robotsWithoutPose === 1 ? "" : "s"} without a position. Details appear after the first position update.</div>}
         <section className="scene-panel">
           <SceneCanvas mode={mode} resetToken={resetToken} />

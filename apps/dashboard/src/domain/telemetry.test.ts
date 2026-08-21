@@ -59,4 +59,20 @@ describe("normalizzazione della telemetria firmware", () => {
     expect(parseInboundMqttMessage("/config/aruco-map", { "50": "A1B2C3" })).toBeNull();
     expect(parseInboundMqttMessage("/config/aruco-map", { "0": "not-an-id" })).toBeNull();
   });
+
+  it("interpreta il comando di formazione dello sciame", () => {
+    expect(parseInboundMqttMessage("/config/formation", {
+      program: "vShape",
+      leaderId: "A1B2C3",
+      params: { interDistanceV: 0.4, angleV: -0.78 },
+    })).toMatchObject({
+      kind: "formation",
+      payload: { program: "vShape", leaderId: "A1B2C3", params: { interDistanceV: 0.4 } },
+    });
+    expect(parseInboundMqttMessage("/config/formation", {
+      program: "unknownShape",
+      leaderId: null,
+      params: {},
+    })).toBeNull();
+  });
 });

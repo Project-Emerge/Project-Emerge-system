@@ -45,10 +45,29 @@ export const ArucoMapSchema = z
     { message: "Each robot can only be mapped to one ArUco marker." },
   );
 
+export const FORMATION_PROGRAMS = [
+  "pointToLeader",
+  "vShape",
+  "lineShape",
+  "circleShape",
+  "squareShape",
+  "verticalLineShape",
+  "stop",
+] as const;
+
+export type FormationProgram = (typeof FORMATION_PROGRAMS)[number];
+
+export const FormationCommandSchema = z.object({
+  program: z.enum(FORMATION_PROGRAMS),
+  leaderId: z.string().regex(DEVICE_ID_PATTERN, "Robot ID must be 6 uppercase hex characters.").nullable(),
+  params: z.record(z.string(), finiteNumber),
+});
+
 export type RobotConfiguration = z.infer<typeof RobotConfigurationSchema>;
 export type OtaConfiguration = z.infer<typeof OtaConfigurationSchema>;
 export type MotorCommand = z.infer<typeof MotorCommandSchema>;
 export type ArucoMap = z.infer<typeof ArucoMapSchema>;
+export type FormationCommand = z.infer<typeof FormationCommandSchema>;
 
 export const ClientPublishMessageSchema = z.object({
   type: z.literal("publish"),
@@ -81,6 +100,7 @@ export const MQTT_SUBSCRIPTIONS = [
   "/config/ota",
   "/config/robots/+",
   "/config/aruco-map",
+  "/config/formation",
 ] as const;
 
 export function isDeviceId(value: string): boolean {
@@ -116,6 +136,10 @@ export function arucoMapTopic(): "/config/aruco-map" {
   return "/config/aruco-map";
 }
 
+export function formationTopic(): "/config/formation" {
+  return "/config/formation";
+}
+
 export function isOtaCheckTopic(topic: string): boolean {
   return /^\/ota\/check\/[A-F0-9]{6}$/.test(topic);
 }
@@ -129,7 +153,10 @@ export function isTransientCommandTopic(topic: string): boolean {
 }
 
 export function isAllowedConfigurationTopic(topic: string): boolean {
-  return topic === "/config/ota" || topic === "/config/aruco-map" || /^\/config\/robots\/[A-F0-9]{6}$/.test(topic);
+  return topic === "/config/ota"
+    || topic === "/config/aruco-map"
+    || topic === "/config/formation"
+    || /^\/config\/robots\/[A-F0-9]{6}$/.test(topic);
 }
 
 export function validateConfigurationPublication(topic: string, payload: unknown): string | null {
@@ -141,6 +168,11 @@ export function validateConfigurationPublication(topic: string, payload: unknown
   if (topic === "/config/aruco-map") {
     const result = ArucoMapSchema.safeParse(payload);
     return result.success ? null : result.error.issues[0]?.message ?? "Invalid ArUco marker mapping";
+  }
+
+  if (topic === "/config/formation") {
+    const result = FormationCommandSchema.safeParse(payload);
+    return result.success ? null : result.error.issues[0]?.message ?? "Invalid formation command";
   }
 
   if (/^\/config\/robots\/[A-F0-9]{6}$/.test(topic)) {

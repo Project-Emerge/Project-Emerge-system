@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
-import type { GatewayMqttMessage, GatewayStatus } from "../../shared/protocol";
+import type { FormationCommand, GatewayMqttMessage, GatewayStatus } from "../../shared/protocol";
 import {
   parseInboundMqttMessage,
   type ImuTelemetry,
@@ -26,6 +26,7 @@ type DashboardState = {
   posedRobotIds: string[];
   selectedRobotId: string | null;
   arucoMap: Record<string, string>;
+  formation: FormationCommand | null;
   lastProtocolError: string | null;
   setConnectionStatus: (status: GatewayStatus) => void;
   ingestMqttMessage: (message: GatewayMqttMessage) => void;
@@ -42,6 +43,7 @@ const initialData = {
   posedRobotIds: [] as string[],
   selectedRobotId: null,
   arucoMap: {} as Record<string, string>,
+  formation: null as FormationCommand | null,
   lastProtocolError: null,
 };
 
@@ -115,6 +117,8 @@ export const useDashboardStore = create<DashboardState>()(
             };
           case "aruco-map":
             return { arucoMap: inbound.payload, lastProtocolError: null };
+          case "formation":
+            return { formation: inbound.payload, lastProtocolError: null };
         }
       });
     },

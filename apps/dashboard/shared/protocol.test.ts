@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   arucoMapTopic,
+  formationTopic,
   isAllowedConfigurationTopic,
   isMotorCommandTopic,
   isOtaCheckTopic,
@@ -18,8 +19,38 @@ describe("contratti di configurazione MQTT", () => {
     expect(isAllowedConfigurationTopic("/config/ota")).toBe(true);
     expect(isAllowedConfigurationTopic("/config/robots/A1B2C3")).toBe(true);
     expect(isAllowedConfigurationTopic("/config/aruco-map")).toBe(true);
+    expect(isAllowedConfigurationTopic("/config/formation")).toBe(true);
     expect(isAllowedConfigurationTopic("/motors/A1B2C3")).toBe(false);
     expect(isAllowedConfigurationTopic("/config/robots/not-an-id")).toBe(false);
+  });
+
+  it("costruisce e valida il comando di formazione dello sciame", () => {
+    expect(formationTopic()).toBe("/config/formation");
+    expect(validateConfigurationPublication("/config/formation", {
+      program: "vShape",
+      leaderId: "A1B2C3",
+      params: { interDistanceV: 0.4, angleV: -0.78, collisionArea: 0.3, stabilityThreshold: 0.1 },
+    })).toBeNull();
+    expect(validateConfigurationPublication("/config/formation", {
+      program: "stop",
+      leaderId: null,
+      params: {},
+    })).toBeNull();
+    expect(validateConfigurationPublication("/config/formation", {
+      program: "octagonShape",
+      leaderId: null,
+      params: {},
+    })).not.toBeNull();
+    expect(validateConfigurationPublication("/config/formation", {
+      program: "vShape",
+      leaderId: "not-an-id",
+      params: {},
+    })).not.toBeNull();
+    expect(validateConfigurationPublication("/config/formation", {
+      program: "vShape",
+      leaderId: null,
+      params: { angleV: "fast" },
+    })).not.toBeNull();
   });
 
   it("costruisce e valida la mappatura marker ArUco -> robot", () => {
