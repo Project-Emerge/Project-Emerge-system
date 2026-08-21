@@ -1,0 +1,52 @@
+[project]
+name = "vision-system"
+version = "0.1.0"
+description = "Four-camera ArUco indoor localization with guided ChArUco calibration and MQTT output"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "numpy>=2.0,<3",
+    "opencv-contrib-python>=4.10,<5",
+    "paho-mqtt>=2.1,<3",
+    "pydantic>=2.8,<3",
+    "reportlab>=4.2,<5",
+    "scipy>=1.14,<2",
+]
+
+[project.scripts]
+vision-calibrate = "vision_system.apps.calibrate_cli:calibration_main"
+vision-calibrate-folder = "vision_system.calibration.folder:folder_calibration_main"
+vision-localizer = "vision_system.apps.calibrate_cli:runtime_main"
+vision-select-cameras = "vision_system.apps.camera_selector:camera_selector_main"
+vision-configure-cameras = "vision_system.apps.camera_configurator:camera_configurator_main"
+vision-reference-map = "vision_system.apps.reference_mapper:reference_mapper_main"
+vision-select-origin = "vision_system.apps.origin_selector:origin_selector_main"
+vision-node = "vision_system.apps.node:node_main"
+vision-server = "vision_system.apps.coordinator:coordinator_main"
+vision-simulate = "vision_system.apps.simulator:simulator_main"
+vision-aruco-view = "vision_system.apps.aruco_viewer:viewer_main"
+vision-reference-stitch = "vision_system.apps.reference_stitcher:reference_stitcher_main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<10",
+    "ruff>=0.9,<1",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vision_system"]
