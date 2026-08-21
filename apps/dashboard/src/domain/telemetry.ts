@@ -2,10 +2,12 @@ import { z } from "zod";
 import {
   ArucoMapSchema,
   FormationCommandSchema,
+  NeighborsSchema,
   RobotConfigurationSchema,
   isDeviceId,
   type ArucoMap,
   type FormationCommand,
+  type Neighbors,
   type RobotConfiguration,
 } from "../../shared/protocol";
 
@@ -69,17 +71,18 @@ export const TelemetrySchema = z.object({
 export type Pose = z.infer<typeof PoseSchema>;
 export type ImuTelemetry = z.infer<typeof ImuTelemetrySchema>;
 export type Telemetry = z.infer<typeof TelemetrySchema>;
-export type { RobotConfiguration, ArucoMap };
+export type { RobotConfiguration, ArucoMap, Neighbors };
 
 export type InboundMessage =
   | { kind: "pose"; deviceId: string; payload: Pose }
   | { kind: "telemetry"; deviceId: string; payload: Telemetry }
   | { kind: "imu"; deviceId: string; payload: ImuTelemetry }
+  | { kind: "neighbors"; deviceId: string; payload: Neighbors }
   | { kind: "robot-config"; deviceId: string; payload: RobotConfiguration }
   | { kind: "aruco-map"; payload: ArucoMap }
   | { kind: "formation"; payload: FormationCommand };
 
-function parseDeviceTopic(topic: string, prefix: "/pose/" | "/telemetry/" | "/imu/"): string | null {
+function parseDeviceTopic(topic: string, prefix: "/pose/" | "/telemetry/" | "/imu/" | "/neighbors/"): string | null {
   if (!topic.startsWith(prefix)) {
     return null;
   }
@@ -104,6 +107,15 @@ export function parseInboundMqttMessage(topic: string, payload: unknown): Inboun
   if (imuId) {
     const parsed = ImuTelemetrySchema.safeParse(payload);
     return parsed.success ? { kind: "imu", deviceId: imuId, payload: parsed.data } : null;
+  }
+
+  const neighborsId = parseDeviceTopic(topic, "/neighbors/");
+  if (neighborsId) {
+    const parsed = NeighborsSchema.safeParse(payload);
+    // The neighborhood service echoes the sender back in some modes; keep the list about the others.
+    return parsed.success
+      ? { kind: "neighbors", deviceId: neighborsId, payload: parsed.data.filter((id) => id !== neighborsId) }
+      : null;
   }
 
   const robotConfigPrefix = "/config/robots/";

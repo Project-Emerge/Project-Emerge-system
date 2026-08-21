@@ -1,7 +1,9 @@
 import { Html, OrbitControls } from "@react-three/drei";
 import { Canvas, type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { computeSceneBounds, DEFAULT_SCENE_BOUNDS, type SceneBounds } from "../domain/bounds";
+import { neighborLinks } from "../domain/neighborhood";
 import { useTheme, type ResolvedTheme } from "../services/theme-context";
 import { useDashboardStore } from "../store/dashboard-store";
 
@@ -11,6 +13,11 @@ const ROBOT_RADIUS_M = ROBOT_DIAMETER_M / 2;
 const ROBOT_HEIGHT_M = 0.04;
 const TRAIL_DURATION_MS = 4_000;
 const MAX_TRAIL_POINTS = 96;
+const LINK_HEIGHT_M = 0.03;
+
+// Links read the rendered meshes instead of the raw store poses so they stay glued to the
+// robots while RobotMesh eases each body towards its latest position.
+const robotNodes = new Map<string, THREE.Object3D>();
 
 type TrailSample = { x: number; y: number; receivedAt: number };
 
@@ -19,8 +26,7 @@ type SceneCanvasProps = {
   resetToken: number;
 };
 
-type Bounds = { centerX: number; centerY: number; span: number };
-const DEFAULT_BOUNDS: Bounds = { centerX: 3, centerY: 3, span: 7 };
+type Bounds = SceneBounds;
 
 function CameraControls({ mode, bounds, resetToken }: { mode: SceneMode; bounds: Bounds; resetToken: number }): React.JSX.Element {
   const { camera, invalidate } = useThree();
@@ -53,6 +59,97 @@ function CameraControls({ mode, bounds, resetToken }: { mode: SceneMode; bounds:
       minPolarAngle={mode === "2d" ? 0 : Math.PI / 7}
       maxPolarAngle={mode === "2d" ? 0 : Math.PI / 2.05}
     />
+  );
+}
+
+function leaderColor(theme: ResolvedTheme): string {
+  return theme === "dark" ? "#e3b25f" : "#b57f22";
+}
+
+function NeighborhoodLinks({ theme }: { theme: ResolvedTheme }): React.JSX.Element | null {
+  const neighbors = useDashboardStore((state) => state.neighbors);
+  const leaderId = useDashboardStore((state) => state.formation?.leaderId ?? null);
+  const links = useMemo(() => neighborLinks(neighbors), [neighbors]);
+  const capacity = Math.max(links.length, 1);
+
+  const geometry = useMemo(() => {
+    const next = new THREE.BufferGeometry();
+    next.setAttribute("position", new THREE.BufferAttribute(new Float32Array(capacity * 6), 3));
+    next.setAttribute("color", new THREE.BufferAttribute(new Float32Array(capacity * 6), 3));
+    next.setDrawRange(0, 0);
+    return next;
+  }, [capacity]);
+
+  const segments = useMemo(() => {
+    const material = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.62, depthWrite: false });
+    const next = new THREE.LineSegments(geometry, material);
+    next.frustumCulled = false;
+    return next;
+  }, [geometry]);
+
+  const linkTone = useMemo(() => new THREE.Color(theme === "dark" ? "#5f7f95" : "#93a6b6"), [theme]);
+  const leaderTone = useMemo(() => new THREE.Color(leaderColor(theme)), [theme]);
+
+  useEffect(() => () => {
+    geometry.dispose();
+    segments.material.dispose();
+  }, [geometry, segments]);
+
+  useFrame(() => {
+    const positions = geometry.getAttribute("position") as THREE.BufferAttribute;
+    const colors = geometry.getAttribute("color") as THREE.BufferAttribute;
+    let vertex = 0;
+    for (const [from, to] of links) {
+      const first = robotNodes.get(from);
+      const second = robotNodes.get(to);
+      // A neighbor without a pose has no mesh to anchor to yet.
+      if (!first || !second) continue;
+      const tone = leaderId === from || leaderId === to ? leaderTone : linkTone;
+      positions.setXYZ(vertex, first.position.x, LINK_HEIGHT_M, first.position.z);
+      colors.setXYZ(vertex, tone.r, tone.g, tone.b);
+      vertex += 1;
+      positions.setXYZ(vertex, second.position.x, LINK_HEIGHT_M, second.position.z);
+      colors.setXYZ(vertex, tone.r, tone.g, tone.b);
+      vertex += 1;
+    }
+    positions.needsUpdate = true;
+    colors.needsUpdate = true;
+    geometry.setDrawRange(0, vertex);
+  });
+
+  if (links.length === 0) return null;
+  return <primitive object={segments} />;
+}
+
+function LeaderMarker({ theme }: { theme: ResolvedTheme }): React.JSX.Element {
+  const ring = useRef<THREE.Mesh>(null);
+  const beacon = useRef<THREE.Mesh>(null);
+  const tone = useMemo(() => leaderColor(theme), [theme]);
+
+  useFrame((state) => {
+    const pulse = (Math.sin(state.clock.elapsedTime * 2.4) + 1) / 2;
+    if (ring.current) {
+      const scale = 1 + pulse * 0.16;
+      ring.current.scale.set(scale, scale, 1);
+      (ring.current.material as THREE.MeshBasicMaterial).opacity = 0.88 - pulse * 0.44;
+    }
+    if (beacon.current) {
+      beacon.current.position.y = 0.098 + pulse * 0.014;
+      beacon.current.rotation.y = state.clock.elapsedTime * 1.2;
+    }
+  });
+
+  return (
+    <>
+      <mesh ref={ring} rotation={[-Math.PI / 2, 0, 0]} position={[0, -ROBOT_RADIUS_M + 0.003, 0]}>
+        <ringGeometry args={[0.094, 0.108, 40]} />
+        <meshBasicMaterial color={tone} transparent opacity={0.88} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+      <mesh ref={beacon} position={[0, 0.098, 0]} rotation={[Math.PI, 0, 0]}>
+        <coneGeometry args={[0.02, 0.042, 4]} />
+        <meshStandardMaterial color={tone} emissive={tone} emissiveIntensity={0.7} roughness={0.34} />
+      </mesh>
+    </>
   );
 }
 
@@ -136,7 +233,15 @@ function RobotMesh({ id, theme }: { id: string; theme: ResolvedTheme }): React.J
   const statusMaterial = useRef<THREE.MeshStandardMaterial>(null);
   const target = useRef(useDashboardStore.getState().robots[id]?.pose);
   const selected = useDashboardStore((state) => state.selectedRobotId === id);
+  const isLeader = useDashboardStore((state) => state.formation?.leaderId === id);
   const hasPose = useDashboardStore((state) => Boolean(state.robots[id]?.pose));
+
+  useEffect(() => {
+    const node = group.current;
+    if (!node) return;
+    robotNodes.set(id, node);
+    return () => { robotNodes.delete(id); };
+  }, [id, hasPose]);
 
   useEffect(() => useDashboardStore.subscribe(
     (state) => state.robots[id]?.pose,
@@ -188,8 +293,14 @@ function RobotMesh({ id, theme }: { id: string; theme: ResolvedTheme }): React.J
           <meshBasicMaterial color={theme === "dark" ? "#e7e9ed" : "#3b4350"} transparent opacity={0.86} />
         </mesh>
       )}
-      <Html position={[0, 0.15, 0]} center distanceFactor={11} style={{ pointerEvents: "none" }}>
-        <span className="scene-label robot-label" style={{ padding: "2px 4px", fontSize: "8px", opacity: 0.9 }}>{id}</span>
+      {isLeader && <LeaderMarker theme={theme} />}
+      <Html position={[0, isLeader ? 0.198 : 0.15, 0]} center distanceFactor={11} zIndexRange={[10, 0]} style={{ pointerEvents: "none" }}>
+        <span
+          className={isLeader ? "scene-label robot-label leader" : "scene-label robot-label"}
+          style={{ padding: "1px 3px", fontSize: "5px", opacity: 0.9 }}
+        >
+          {isLeader ? `\u2605 ${id}` : id}
+        </span>
       </Html>
     </group>
   );
@@ -212,14 +323,40 @@ function SceneContents({ mode, bounds, resetToken, theme }: { mode: SceneMode; b
       ]} />
       <axesHelper args={[1]} />
       <CameraControls mode={mode} bounds={bounds} resetToken={resetToken} />
+      <NeighborhoodLinks theme={theme} />
       {robotIds.map((id) => <RobotTrail key={`${id}-trail`} id={id} theme={theme} />)}
       {robotIds.map((id) => <RobotMesh key={id} id={id} theme={theme} />)}
     </>
   );
 }
 
+/**
+ * Frames the arena around the robots that actually have a position, recomputed on mount,
+ * the first time any pose arrives, and whenever "Center arena" bumps resetToken. Deliberately
+ * not reactive to every pose update, or the view would fight the user's pan/zoom as robots move.
+ */
+function useFramingBounds(resetToken: number): Bounds {
+  const posedRobotIds = useDashboardStore((state) => state.posedRobotIds);
+  const hasFramed = useRef(false);
+  const [bounds, setBounds] = useState<Bounds>(DEFAULT_SCENE_BOUNDS);
+
+  useEffect(() => {
+    if (posedRobotIds.length === 0 && !hasFramed.current) return;
+    hasFramed.current = true;
+    const state = useDashboardStore.getState();
+    const poses = posedRobotIds
+      .map((id) => state.robots[id]?.pose)
+      .filter((pose): pose is NonNullable<typeof pose> => Boolean(pose));
+    setBounds(computeSceneBounds(poses));
+    // Re-frame on an explicit reset or the fleet's first-ever pose, not on every pose update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetToken, posedRobotIds.length > 0]);
+
+  return bounds;
+}
+
 export function SceneCanvas({ mode, resetToken }: SceneCanvasProps): React.JSX.Element {
-  const bounds = DEFAULT_BOUNDS;
+  const bounds = useFramingBounds(resetToken);
   const { resolvedTheme } = useTheme();
   if (mode === "2d") {
     return <Canvas orthographic camera={{ position: [bounds.centerX, 18, bounds.centerY], zoom: 1 }} shadows dpr={[1, 2]} gl={{ antialias: true }}>

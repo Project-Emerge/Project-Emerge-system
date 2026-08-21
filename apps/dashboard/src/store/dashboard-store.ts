@@ -26,6 +26,7 @@ type DashboardState = {
   posedRobotIds: string[];
   selectedRobotId: string | null;
   arucoMap: Record<string, string>;
+  neighbors: Record<string, string[]>;
   formation: FormationCommand | null;
   lastProtocolError: string | null;
   setConnectionStatus: (status: GatewayStatus) => void;
@@ -43,9 +44,14 @@ const initialData = {
   posedRobotIds: [] as string[],
   selectedRobotId: null,
   arucoMap: {} as Record<string, string>,
+  neighbors: {} as Record<string, string[]>,
   formation: null as FormationCommand | null,
   lastProtocolError: null,
 };
+
+function sameNeighbors(left: string[] | undefined, right: string[]): boolean {
+  return left !== undefined && left.length === right.length && left.every((id, index) => id === right[index]);
+}
 
 function robotWithUpdate(
   state: DashboardState,
@@ -115,6 +121,15 @@ export const useDashboardStore = create<DashboardState>()(
               })),
               lastProtocolError: null,
             };
+          case "neighbors":
+            // The neighborhood service republishes unchanged lists periodically; keep the
+            // reference stable so the scene does not rebuild its link geometry for nothing.
+            return sameNeighbors(state.neighbors[inbound.deviceId], inbound.payload)
+              ? { lastProtocolError: null }
+              : {
+                neighbors: { ...state.neighbors, [inbound.deviceId]: inbound.payload },
+                lastProtocolError: null,
+              };
           case "aruco-map":
             return { arucoMap: inbound.payload, lastProtocolError: null };
           case "formation":

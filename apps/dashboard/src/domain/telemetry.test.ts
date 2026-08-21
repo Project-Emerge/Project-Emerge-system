@@ -14,6 +14,21 @@ describe("normalizzazione della telemetria firmware", () => {
     expect(parsed).toMatchObject({ kind: "pose", deviceId: "A1B2C3", payload: { x_m: 1.2, y_m: 3.4 } });
   });
 
+  it("estrae la lista dei vicini escludendo il mittente", () => {
+    const parsed = parseInboundMqttMessage("/neighbors/A1B2C3", ["A1B2C3", "D4E5F6"]);
+    expect(parsed).toEqual({ kind: "neighbors", deviceId: "A1B2C3", payload: ["D4E5F6"] });
+  });
+
+  it("accetta un vicinato vuoto ma rifiuta ID vicini malformati", () => {
+    expect(parseInboundMqttMessage("/neighbors/A1B2C3", [])).toEqual({
+      kind: "neighbors",
+      deviceId: "A1B2C3",
+      payload: [],
+    });
+    expect(parseInboundMqttMessage("/neighbors/A1B2C3", ["nope"])).toBeNull();
+    expect(parseInboundMqttMessage("/neighbors/invalid", ["A1B2C3"])).toBeNull();
+  });
+
   it("rifiuta ID e payload non validi", () => {
     expect(parseInboundMqttMessage("/pose/invalid", {})).toBeNull();
     expect(parseInboundMqttMessage("/telemetry/A1B2C3", { battery_telemetry: {} })).toBeNull();

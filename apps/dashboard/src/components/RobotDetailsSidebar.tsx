@@ -107,6 +107,7 @@ function RobotTelemetry({ robot, now }: { robot: RobotLiveState; now: number }):
 
 function RobotCard({ robot, expanded, now }: { robot: RobotLiveState; expanded: boolean; now: number }): React.JSX.Element {
   const toggleSelectedRobot = useDashboardStore((state) => state.toggleSelectedRobot);
+  const isLeader = useDashboardStore((state) => state.formation?.leaderId === robot.id);
   const stale = isRobotStale(robot, now);
   const battery = robot.telemetry?.battery_telemetry.state_of_charge;
   const detailsId = `robot-${robot.id}-telemetry`;
@@ -120,9 +121,12 @@ function RobotCard({ robot, expanded, now }: { robot: RobotLiveState; expanded: 
         aria-controls={detailsId}
         onClick={() => toggleSelectedRobot(robot.id)}
       >
-        <span className="robot-avatar" aria-hidden="true"><i /></span>
+        <span className={isLeader ? "robot-avatar leader" : "robot-avatar"} aria-hidden="true"><i /></span>
         <span className="robot-card-copy">
-          <strong>{robot.id}</strong>
+          <span className="robot-card-name">
+            <strong>{robot.id}</strong>
+            {isLeader && <span className="robot-leader-badge">★ Leader</span>}
+          </span>
           <span className={stale ? "robot-reachability stale" : "robot-reachability"}>
             <i />{stale ? "Unavailable" : "Reachable"}
           </span>

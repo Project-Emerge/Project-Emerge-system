@@ -11,6 +11,7 @@ export function DashboardPage(): React.JSX.Element {
   const robotIds = useDashboardStore((state) => state.robotIds);
   const posedRobotIds = useDashboardStore((state) => state.posedRobotIds);
   const activeFormation = useDashboardStore((state) => state.formation);
+  const hasNeighborhood = useDashboardStore((state) => Object.keys(state.neighbors).length > 0);
   const robotsWithoutPose = robotIds.length - posedRobotIds.length;
 
   return (
@@ -31,6 +32,7 @@ export function DashboardPage(): React.JSX.Element {
             >
               <span className={`formation-status-dot ${activeFormation ? "active" : "inactive"}`} />
               Formation: <strong>{activeFormation ? getFormationLabel(activeFormation.program) : "None"}</strong>
+              {activeFormation?.leaderId && <span className="formation-leader-chip">★ {activeFormation.leaderId}</span>}
             </button>
             <div className="segmented-control" aria-label="View mode">
               <button type="button" className={mode === "2d" ? "active" : ""} onClick={() => setMode("2d")}>2D</button>
@@ -43,7 +45,7 @@ export function DashboardPage(): React.JSX.Element {
         {robotsWithoutPose > 0 && <div className="scene-notice">{robotsWithoutPose} robot{robotsWithoutPose === 1 ? "" : "s"} without a position. Details appear after the first position update.</div>}
         <section className="scene-panel">
           <SceneCanvas mode={mode} resetToken={resetToken} />
-          <div className="scene-hint">Drag to pan · scroll to zoom{mode === "3d" ? " · right-click to orbit" : ""} · trails: 4 s</div>
+          <div className="scene-hint">Drag to pan · scroll to zoom{mode === "3d" ? " · right-click to orbit" : ""} · trails: 4 s{hasNeighborhood ? " · lines: neighborhood" : ""}</div>
         </section>
       </div>
     </main>

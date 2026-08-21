@@ -45,6 +45,10 @@ export const ArucoMapSchema = z
     { message: "Each robot can only be mapped to one ArUco marker." },
   );
 
+export const NeighborsSchema = z.array(
+  z.string().regex(DEVICE_ID_PATTERN, "Robot ID must be 6 uppercase hex characters."),
+);
+
 export const FORMATION_PROGRAMS = [
   "pointToLeader",
   "vShape",
@@ -68,6 +72,7 @@ export type RobotConfiguration = z.infer<typeof RobotConfigurationSchema>;
 export type OtaConfiguration = z.infer<typeof OtaConfigurationSchema>;
 export type MotorCommand = z.infer<typeof MotorCommandSchema>;
 export type ArucoMap = z.infer<typeof ArucoMapSchema>;
+export type Neighbors = z.infer<typeof NeighborsSchema>;
 export type FormationCommand = z.infer<typeof FormationCommandSchema>;
 
 export const ClientPublishMessageSchema = z.object({
@@ -98,6 +103,7 @@ export const MQTT_SUBSCRIPTIONS = [
   "/pose/+",
   "/telemetry/+",
   "/imu/+",
+  "/neighbors/+",
   "/config/ota",
   "/config/robots/+",
   "/config/aruco-map",
@@ -127,6 +133,13 @@ export function motorCommandTopic(deviceId: string): string {
     throw new Error("Invalid robot ID");
   }
   return `/motors/${deviceId}`;
+}
+
+export function neighborsTopic(deviceId: string): string {
+  if (!isDeviceId(deviceId)) {
+    throw new Error("Invalid robot ID");
+  }
+  return `/neighbors/${deviceId}`;
 }
 
 export function otaConfigurationTopic(): "/config/ota" {
