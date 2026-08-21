@@ -52,6 +52,7 @@ export const FORMATION_PROGRAMS = [
   "circleShape",
   "squareShape",
   "verticalLineShape",
+  "heartShape",
   "stop",
 ] as const;
 

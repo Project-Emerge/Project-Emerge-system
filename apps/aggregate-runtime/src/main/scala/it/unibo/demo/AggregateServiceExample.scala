@@ -48,6 +48,7 @@ object ResearchNightDemos extends IOApp.Simple:
       ++ VerticalLineFormation.DEFAULTS 
       ++ CircleFormation.DEFAULTS
       ++ SquareFormation.DEFAULTS
+      ++ HeartFormation.DEFAULTS
 
     val makeResources: Resource[IO, (MqttContext, Dispatcher[IO], Ref[IO, Map[String, Any]], Ref[IO, Map[ID, (Position, Info)]], Ref[IO, Map[ID, Set[ID]]])] =
       for {
@@ -77,6 +78,7 @@ object ResearchNightDemos extends IOApp.Simple:
         "circleShape" -> CircleFormation(),
         "lineShape" -> LineFormation(),
         "verticalLineShape" -> VerticalLineFormation(),
+        "heartShape" -> HeartFormation(),
         "stop" -> Stop()
       )
       val aggregateOrchestrator = AggregateOrchestrator[Position, Actuation](demoToLaunch)

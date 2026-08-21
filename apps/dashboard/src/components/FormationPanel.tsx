@@ -101,6 +101,16 @@ const FORMATION_DEFINITIONS: FormationDefinition[] = [
     ],
   },
   {
+    value: "heartShape",
+    label: "Heart",
+    description: "Robots trace a heart outline around the leader.",
+    params: [
+      { key: "scaleHeart", label: "Heart size", unit: "m", min: 0.02, max: 0.2, step: 0.01, defaultValue: 0.06 },
+      COLLISION_AREA,
+      STABILITY_THRESHOLD,
+    ],
+  },
+  {
     value: "stop",
     label: "Stop",
     description: "Every robot holds position.",
