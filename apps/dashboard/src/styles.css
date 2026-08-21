@@ -47,6 +47,96 @@ nav { display: flex; align-self: stretch; align-items: stretch; gap: 8px; } nav 
 @media (max-width: 860px) { .formation-form-grid { grid-template-columns: 1fr; }.formation-form-grid .save-row { justify-self: start; }.formation-param-row { grid-template-columns: 1fr; gap: 4px; } }
 @media (max-width: 540px) { .formation-panel { padding: 14px; } }
 
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(4, 11, 20, 0.75);
+  backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fadeIn 0.18s ease-out;
+}
+
+.modal-container {
+  width: 100%;
+  max-width: 650px;
+  background: var(--surface);
+  border: 1px solid rgba(123, 203, 235, 0.22);
+  border-radius: 16px;
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.45);
+  padding: 24px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 90vh;
+  overflow-y: auto;
+  animation: slideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.modal-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  color: var(--text-soft);
+  border-radius: 50%;
+  font-size: 13px;
+  transition: all 0.15s ease;
+}
+
+.modal-close:hover {
+  background: var(--surface-raised);
+  border-color: var(--border-strong);
+  color: var(--text);
+  transform: scale(1.05);
+}
+
+.formation-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.formation-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 6px currentColor;
+  transition: background-color 0.2s ease;
+}
+
+.formation-status-dot.active {
+  background: #55dbac;
+  color: #55dbac;
+}
+
+.formation-status-dot.inactive {
+  background: #72899a;
+  color: #72899a;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
 /* Theme palette */
 :root {
   color-scheme: dark;

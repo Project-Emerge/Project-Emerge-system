@@ -18,7 +18,7 @@ afterEach(() => {
 describe("pannello di formazione dello sciame", () => {
   it("pubblica il comando di formazione con leader e parametri di default", () => {
     useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3", "D4E5F6"] });
-    render(<FormationPanel />);
+    render(<FormationPanel onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "V formation" }));
     fireEvent.change(screen.getByLabelText("Formation leader"), { target: { value: "A1B2C3" } });
@@ -33,7 +33,7 @@ describe("pannello di formazione dello sciame", () => {
 
   it("richiede un leader prima di poter applicare una formazione che lo prevede", () => {
     useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3"] });
-    render(<FormationPanel />);
+    render(<FormationPanel onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "V formation" }));
     expect(screen.getByRole("button", { name: "Apply formation" })).toBeDisabled();
@@ -43,7 +43,7 @@ describe("pannello di formazione dello sciame", () => {
 
   it("non richiede un leader per la formazione stop", () => {
     useDashboardStore.setState({ connectionStatus: "connected", robotIds: [] });
-    render(<FormationPanel />);
+    render(<FormationPanel onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Stop" }));
     fireEvent.click(screen.getByRole("button", { name: "Apply formation" }));
@@ -65,10 +65,38 @@ describe("pannello di formazione dello sciame", () => {
         params: { radius: 0.8, collisionArea: 0.3, stabilityThreshold: 0.1 },
       },
     });
-    render(<FormationPanel />);
+    render(<FormationPanel onClose={vi.fn()} />);
 
     expect(screen.getByText("ACTIVE · CIRCLE")).toBeInTheDocument();
     expect(screen.getByLabelText("Formation leader")).toHaveValue("D4E5F6");
     expect(screen.getByLabelText("Circle radius")).toHaveValue(0.8);
+  });
+
+  it("chiama onClose quando si fa clic sul pulsante di chiusura (X)", () => {
+    const onClose = vi.fn();
+    render(<FormationPanel onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("chiama onClose quando si fa clic sull'overlay di sfondo", () => {
+    const onClose = vi.fn();
+    const { container } = render(<FormationPanel onClose={onClose} />);
+
+    const overlay = container.querySelector(".modal-overlay");
+    expect(overlay).toBeTruthy();
+    if (overlay) {
+      fireEvent.click(overlay);
+    }
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("chiama onClose quando si preme il tasto Escape", () => {
+    const onClose = vi.fn();
+    render(<FormationPanel onClose={onClose} />);
+
+    fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

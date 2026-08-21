@@ -121,7 +121,11 @@ function StatusMessage({ state }: { state: SaveState }): React.JSX.Element | nul
   return <p className={`form-message ${state.kind}`}>{state.message}</p>;
 }
 
-export function FormationPanel(): React.JSX.Element {
+export function getFormationLabel(program: string): string {
+  return FORMATION_DEFINITIONS.find((definition) => definition.value === program)?.label ?? program;
+}
+
+export function FormationPanel({ onClose }: { onClose: () => void }): React.JSX.Element {
   const gateway = useGatewayClient();
   const connectionStatus = useDashboardStore((state) => state.connectionStatus);
   const robotIds = useDashboardStore((state) => state.robotIds);
@@ -132,6 +136,16 @@ export function FormationPanel(): React.JSX.Element {
   const [leaderId, setLeaderId] = useState<string | null>(null);
   const [params, setParams] = useState<Record<string, number>>({});
   const [saveState, setSaveState] = useState<SaveState>({ kind: "idle" });
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   useEffect(() => {
     if (!activeFormation) return;
@@ -178,11 +192,13 @@ export function FormationPanel(): React.JSX.Element {
   const activeLabel = activeFormation ? definitionFor(activeFormation.program).label : null;
 
   return (
-    <section className="panel formation-panel">
-      <div className="panel-heading">
-        <div><span className="eyebrow">Swarm</span><h2>Formation &amp; parameters</h2></div>
-        <span className="retained-tag">{activeLabel ? `ACTIVE · ${activeLabel.toUpperCase()}` : "NO FORMATION YET"}</span>
-      </div>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-container formation-panel" onClick={(event) => event.stopPropagation()}>
+        <button type="button" className="modal-close" onClick={onClose} aria-label="Close dialog">✕</button>
+        <div className="panel-heading">
+          <div><span className="eyebrow">Swarm</span><h2>Formation &amp; parameters</h2></div>
+          <span className="retained-tag">{activeLabel ? `ACTIVE · ${activeLabel.toUpperCase()}` : "NO FORMATION YET"}</span>
+        </div>
 
       <div className="formation-picker" role="group" aria-label="Formation program">
         {FORMATION_DEFINITIONS.map((option) => (
@@ -261,6 +277,7 @@ export function FormationPanel(): React.JSX.Element {
           )}
         </div>
       )}
-    </section>
+    </div>
+  </div>
   );
 }
