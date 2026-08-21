@@ -25,6 +25,7 @@ type DashboardState = {
   robotIds: string[];
   posedRobotIds: string[];
   selectedRobotId: string | null;
+  arucoMap: Record<string, string>;
   lastProtocolError: string | null;
   setConnectionStatus: (status: GatewayStatus) => void;
   ingestMqttMessage: (message: GatewayMqttMessage) => void;
@@ -40,6 +41,7 @@ const initialData = {
   robotIds: [] as string[],
   posedRobotIds: [] as string[],
   selectedRobotId: null,
+  arucoMap: {} as Record<string, string>,
   lastProtocolError: null,
 };
 
@@ -111,6 +113,8 @@ export const useDashboardStore = create<DashboardState>()(
               })),
               lastProtocolError: null,
             };
+          case "aruco-map":
+            return { arucoMap: inbound.payload, lastProtocolError: null };
         }
       });
     },

@@ -37,6 +37,10 @@ nav { display: flex; align-self: stretch; align-items: stretch; gap: 8px; } nav 
 @media (max-width: 860px) { .firmware-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.firmware-form-grid .save-row { grid-column: 1 / -1; } }
 @media (max-width: 540px) { .firmware-form-grid { grid-template-columns: 1fr; }.firmware-update-panel { padding: 16px; } }
 
+.aruco-map-panel { padding: 21px; margin-top: 16px; }.aruco-map-form-grid { display: grid; grid-template-columns: 140px minmax(160px, 260px) auto 1fr; align-items: end; gap: 14px; margin-top: 17px; }.aruco-map-form-grid .save-row { margin: 0; }.aruco-map-list { display: grid; gap: 6px; margin-top: 18px; }.aruco-map-row { display: grid; grid-template-columns: 90px 1fr auto; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-solid); }.aruco-map-row-marker { font: 700 12px/1 "SFMono-Regular", Consolas, monospace; color: var(--text); }.aruco-map-row-robot { font: 12px/1.3 "SFMono-Regular", Consolas, monospace; color: var(--text-soft); }.aruco-map-row .secondary-button { padding: 5px 10px; font-size: 11px; }.aruco-map-collision-hint { margin: 8px 0 0; font-size: 11px; color: var(--warning); }
+@media (max-width: 860px) { .aruco-map-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.aruco-map-form-grid .save-row { grid-column: 1 / -1; } }
+@media (max-width: 540px) { .aruco-map-form-grid { grid-template-columns: 1fr; }.aruco-map-panel { padding: 16px; } }
+
 /* Theme palette */
 :root {
   color-scheme: dark;

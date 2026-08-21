@@ -50,4 +50,13 @@ describe("normalizzazione della telemetria firmware", () => {
       motor_telemetry: { Move: { left: 0.6, right: 0.4 } },
     })).toBeNull();
   });
+
+  it("interpreta la mappatura marker ArUco -> robot", () => {
+    expect(parseInboundMqttMessage("/config/aruco-map", { "0": "A1B2C3", "12": "D4E5F6" })).toMatchObject({
+      kind: "aruco-map",
+      payload: { "0": "A1B2C3", "12": "D4E5F6" },
+    });
+    expect(parseInboundMqttMessage("/config/aruco-map", { "50": "A1B2C3" })).toBeNull();
+    expect(parseInboundMqttMessage("/config/aruco-map", { "0": "not-an-id" })).toBeNull();
+  });
 });

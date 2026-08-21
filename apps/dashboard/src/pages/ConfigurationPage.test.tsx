@@ -59,4 +59,9 @@ describe("pagina configurazione", () => {
     expect(gateway.publish).toHaveBeenCalledWith("/ota/check/D4E5F6", {});
     expect(screen.getByText("Firmware uploaded; update requested for all 2 robots.")).toBeInTheDocument();
   });
+
+  it("compone il pannello di mappatura marker ArUco", () => {
+    render(<ConfigurationPage />);
+    expect(screen.getByText("Marker mapping")).toBeInTheDocument();
+  });
 });

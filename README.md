@@ -75,8 +75,10 @@ make down
 
 ## MQTT and OTA behavior
 
-The gateway subscribes to `/pose/+`, `/telemetry/+`, `/imu/+`, `/config/ota`, and `/config/robots/+`. Motor configuration is published with QoS 1 and retention on `/config/robots/{id}`.
+The gateway subscribes to `/pose/+`, `/telemetry/+`, `/imu/+`, `/config/ota`, `/config/robots/+`, and `/config/aruco-map`. Motor configuration is published with QoS 1 and retention on `/config/robots/{id}`.
 
 Manual dashboard driving publishes normalized differential-wheel commands to `/motors/{id}` while the joystick is held. Moving commands use the payload `{"Move":{"left":-1..1,"right":-1..1}}` at 10 Hz with QoS 0; release and safety stops use `"Stop"` with QoS 1. Motor commands are never retained. Robot telemetry separately reports motor state as `Motoring` or `Stopped`. Robot firmware should independently stop both wheels when fresh commands have not arrived for 300 ms so a broken browser or network connection cannot leave the robot moving.
 
 For OTA updates, provide a dashboard `host:port` reachable by the robots, the firmware version, and the compiled `.bin` file in **Settings → OTA update**. Use the dashboard's LAN address rather than `localhost`. The gateway stores the image, retains the OTA server on `/config/ota`, and publishes a non-retained `/ota/check/{id}` command to each discovered robot.
+
+**Settings → Marker mapping** lets an operator register which ArUco marker ID (0-49) corresponds to which robot device ID. The mapping is retained as a single JSON object (`{"<markerId>": "<deviceId>", ...}`) on `/config/aruco-map` with QoS 1, so it survives broker restarts and is immediately available to any subscriber, including a future computer-vision service that should publish robot positions on `/pose/{deviceId}` keyed by device ID rather than the raw marker ID it detects.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  arucoMapTopic,
   isAllowedConfigurationTopic,
   isMotorCommandTopic,
   isOtaCheckTopic,
@@ -16,8 +17,30 @@ describe("contratti di configurazione MQTT", () => {
   it("accetta soltanto i topic retained previsti", () => {
     expect(isAllowedConfigurationTopic("/config/ota")).toBe(true);
     expect(isAllowedConfigurationTopic("/config/robots/A1B2C3")).toBe(true);
+    expect(isAllowedConfigurationTopic("/config/aruco-map")).toBe(true);
     expect(isAllowedConfigurationTopic("/motors/A1B2C3")).toBe(false);
     expect(isAllowedConfigurationTopic("/config/robots/not-an-id")).toBe(false);
+  });
+
+  it("costruisce e valida la mappatura marker ArUco -> robot", () => {
+    expect(arucoMapTopic()).toBe("/config/aruco-map");
+    expect(validateConfigurationPublication("/config/aruco-map", {
+      "0": "A1B2C3",
+      "12": "D4E5F6",
+    })).toBeNull();
+    expect(validateConfigurationPublication("/config/aruco-map", {
+      "50": "A1B2C3",
+    })).not.toBeNull();
+    expect(validateConfigurationPublication("/config/aruco-map", {
+      "07": "A1B2C3",
+    })).not.toBeNull();
+    expect(validateConfigurationPublication("/config/aruco-map", {
+      "0": "not-an-id",
+    })).not.toBeNull();
+    expect(validateConfigurationPublication("/config/aruco-map", {
+      "0": "A1B2C3",
+      "1": "A1B2C3",
+    })).not.toBeNull();
   });
 
   it("costruisce e valida la configurazione futura del robot", () => {

@@ -29,9 +29,26 @@ export const OtaConfigurationSchema = z.object({
   ),
 });
 
+export const ARUCO_MARKER_ID_MIN = 0;
+export const ARUCO_MARKER_ID_MAX = 49; // cv2.aruco.DICT_4X4_50
+
+// Matches canonical (no leading-zero) stringified integers 0-49.
+const ARUCO_MARKER_KEY_PATTERN = /^([0-9]|[1-4][0-9])$/;
+
+export const ArucoMapSchema = z
+  .record(
+    z.string().regex(ARUCO_MARKER_KEY_PATTERN, "Marker ID must be an integer between 0 and 49."),
+    z.string().regex(DEVICE_ID_PATTERN, "Robot ID must be 6 uppercase hex characters."),
+  )
+  .refine(
+    (map) => new Set(Object.values(map)).size === Object.values(map).length,
+    { message: "Each robot can only be mapped to one ArUco marker." },
+  );
+
 export type RobotConfiguration = z.infer<typeof RobotConfigurationSchema>;
 export type OtaConfiguration = z.infer<typeof OtaConfigurationSchema>;
 export type MotorCommand = z.infer<typeof MotorCommandSchema>;
+export type ArucoMap = z.infer<typeof ArucoMapSchema>;
 
 export const ClientPublishMessageSchema = z.object({
   type: z.literal("publish"),
@@ -63,6 +80,7 @@ export const MQTT_SUBSCRIPTIONS = [
   "/imu/+",
   "/config/ota",
   "/config/robots/+",
+  "/config/aruco-map",
 ] as const;
 
 export function isDeviceId(value: string): boolean {
@@ -94,6 +112,10 @@ export function otaConfigurationTopic(): "/config/ota" {
   return "/config/ota";
 }
 
+export function arucoMapTopic(): "/config/aruco-map" {
+  return "/config/aruco-map";
+}
+
 export function isOtaCheckTopic(topic: string): boolean {
   return /^\/ota\/check\/[A-F0-9]{6}$/.test(topic);
 }
@@ -107,13 +129,18 @@ export function isTransientCommandTopic(topic: string): boolean {
 }
 
 export function isAllowedConfigurationTopic(topic: string): boolean {
-  return topic === "/config/ota" || /^\/config\/robots\/[A-F0-9]{6}$/.test(topic);
+  return topic === "/config/ota" || topic === "/config/aruco-map" || /^\/config\/robots\/[A-F0-9]{6}$/.test(topic);
 }
 
 export function validateConfigurationPublication(topic: string, payload: unknown): string | null {
   if (topic === "/config/ota") {
     const result = OtaConfigurationSchema.safeParse(payload);
     return result.success ? null : result.error.issues[0]?.message ?? "Invalid OTA configuration";
+  }
+
+  if (topic === "/config/aruco-map") {
+    const result = ArucoMapSchema.safeParse(payload);
+    return result.success ? null : result.error.issues[0]?.message ?? "Invalid ArUco marker mapping";
   }
 
   if (/^\/config\/robots\/[A-F0-9]{6}$/.test(topic)) {

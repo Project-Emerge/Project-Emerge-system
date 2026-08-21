@@ -6,6 +6,7 @@ import {
   otaCheckTopic,
   robotConfigurationTopic,
 } from "../../shared/protocol";
+import { ArucoMapPanel } from "../components/ArucoMapPanel";
 import { useGatewayClient } from "../services/gateway-context";
 import { useDashboardStore } from "../store/dashboard-store";
 
@@ -132,6 +133,8 @@ export function ConfigurationPage(): React.JSX.Element {
           <div className="save-row"><button type="button" className="primary-button" disabled={firmwareUpdate.kind === "saving" || robotIds.length === 0} onClick={uploadAndUpdateFirmware}>{firmwareUpdate.kind === "saving" ? "Updating…" : "Upload & update fleet"}</button><StatusMessage state={firmwareUpdate} /></div>
         </div>
       </section>
+
+      <ArucoMapPanel />
     </main>
   );
 }

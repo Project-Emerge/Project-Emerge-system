@@ -1,7 +1,9 @@
 import { z } from "zod";
 import {
+  ArucoMapSchema,
   RobotConfigurationSchema,
   isDeviceId,
+  type ArucoMap,
   type RobotConfiguration,
 } from "../../shared/protocol";
 
@@ -65,13 +67,14 @@ export const TelemetrySchema = z.object({
 export type Pose = z.infer<typeof PoseSchema>;
 export type ImuTelemetry = z.infer<typeof ImuTelemetrySchema>;
 export type Telemetry = z.infer<typeof TelemetrySchema>;
-export type { RobotConfiguration };
+export type { RobotConfiguration, ArucoMap };
 
 export type InboundMessage =
   | { kind: "pose"; deviceId: string; payload: Pose }
   | { kind: "telemetry"; deviceId: string; payload: Telemetry }
   | { kind: "imu"; deviceId: string; payload: ImuTelemetry }
-  | { kind: "robot-config"; deviceId: string; payload: RobotConfiguration };
+  | { kind: "robot-config"; deviceId: string; payload: RobotConfiguration }
+  | { kind: "aruco-map"; payload: ArucoMap };
 
 function parseDeviceTopic(topic: string, prefix: "/pose/" | "/telemetry/" | "/imu/"): string | null {
   if (!topic.startsWith(prefix)) {
@@ -107,6 +110,11 @@ export function parseInboundMqttMessage(topic: string, payload: unknown): Inboun
     return isDeviceId(deviceId) && parsed.success
       ? { kind: "robot-config", deviceId, payload: parsed.data }
       : null;
+  }
+
+  if (topic === "/config/aruco-map") {
+    const parsed = ArucoMapSchema.safeParse(payload);
+    return parsed.success ? { kind: "aruco-map", payload: parsed.data } : null;
   }
 
   return null;
