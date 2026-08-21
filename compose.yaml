@@ -22,6 +22,19 @@ services:
     networks:
       - emerge-backplane
 
+  aggregate-runtime:
+    build:
+      context: apps/aggregate-runtime
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+        restart: true
+    environment:
+      MQTT_URL: tcp://mosquitto:1883
+    restart: unless-stopped
+    networks:
+      - emerge-backplane
+
   mosquitto:
     image: eclipse-mosquitto:2.0
     user: "1883:1883"

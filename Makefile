@@ -5,9 +5,11 @@ bootstrap:
 
 test:
 	npm test
+	cd apps/aggregate-runtime && sbt test
 
 build:
 	npm run build
+	cd apps/aggregate-runtime && sbt assembly
 
 compose-config:
 	docker compose config --quiet

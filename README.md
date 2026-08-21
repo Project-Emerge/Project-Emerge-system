@@ -7,8 +7,8 @@ Polyglot monorepo for the Project Emerge services. Deployable applications live 
 ```text
 apps/
   dashboard/          React dashboard and Node MQTT/WebSocket gateway
+  aggregate-runtime/  Scala/ScaFi aggregate-computing runtime, publishes robot actuation over MQTT
   <python-service>/   Future Python deployables
-  <scala-service>/    Future Scala deployables
 packages/             Optional language-specific shared libraries
 infra/mosquitto/      MQTT broker configuration
 compose.yaml          Local/edge service orchestration
@@ -75,10 +75,14 @@ make down
 
 ## MQTT and OTA behavior
 
-The gateway subscribes to `/pose/+`, `/telemetry/+`, `/imu/+`, `/config/ota`, `/config/robots/+`, and `/config/aruco-map`. Motor configuration is published with QoS 1 and retention on `/config/robots/{id}`.
+The gateway subscribes to `/pose/+`, `/telemetry/+`, `/imu/+`, `/config/ota`, `/config/robots/+`, `/config/aruco-map`, and `/config/formation`. Motor configuration is published with QoS 1 and retention on `/config/robots/{id}`.
 
 Manual dashboard driving publishes normalized differential-wheel commands to `/motors/{id}` while the joystick is held. Moving commands use the payload `{"Move":{"left":-1..1,"right":-1..1}}` at 10 Hz with QoS 0; release and safety stops use `"Stop"` with QoS 1. Motor commands are never retained. Robot telemetry separately reports motor state as `Motoring` or `Stopped`. Robot firmware should independently stop both wheels when fresh commands have not arrived for 300 ms so a broken browser or network connection cannot leave the robot moving.
+
+The `aggregate-runtime` service publishes the same `/motors/{id}` topic and `{"Move":{...}}`/`"Stop"` payload shape when it drives a robot swarm through an aggregate-computing program, using the robot's device ID formatted as 6 uppercase hex digits.
 
 For OTA updates, provide a dashboard `host:port` reachable by the robots, the firmware version, and the compiled `.bin` file in **Settings → OTA update**. Use the dashboard's LAN address rather than `localhost`. The gateway stores the image, retains the OTA server on `/config/ota`, and publishes a non-retained `/ota/check/{id}` command to each discovered robot.
 
 **Settings → Marker mapping** lets an operator register which ArUco marker ID (0-49) corresponds to which robot device ID. The mapping is retained as a single JSON object (`{"<markerId>": "<deviceId>", ...}`) on `/config/aruco-map` with QoS 1, so it survives broker restarts and is immediately available to any subscriber, including a future computer-vision service that should publish robot positions on `/pose/{deviceId}` keyed by device ID rather than the raw marker ID it detects.
+
+The dashboard's home page has a **Formation & parameters** panel for choosing a swarm formation (`pointToLeader`, `vShape`, `lineShape`, `circleShape`, `squareShape`, `verticalLineShape`, `stop`), a leader robot, and that formation's numeric parameters. Applying it retains a single JSON object (`{"program": "<name>", "leaderId": "<deviceId>" | null, "params": {"<key>": <number>, ...}}`) on `/config/formation` with QoS 1. `aggregate-runtime` is the only subscriber: it merges `program`, the resolved `leader` (decoded from the hex device ID), and `params` into the sensor map its ScaFi formation programs read via `sense(...)`.
