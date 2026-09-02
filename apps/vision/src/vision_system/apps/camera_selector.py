@@ -95,21 +95,28 @@ def build_camera_config(
     base: AppConfig, assignments: dict[int, int], only_index: int | None = None
 ) -> AppConfig:
     if only_index is None:
-        expected = set(range(len(base.cameras)))
-        if set(assignments) != expected:
-            raise ValueError(f"all {len(base.cameras)} logical cameras must be assigned")
+        if not assignments:
+            raise ValueError("at least one camera must be assigned")
+        if not set(assignments).issubset(range(len(base.cameras))):
+            raise ValueError("invalid camera index in assignments")
         if len(set(assignments.values())) != len(assignments):
             raise ValueError("the selected sources must be different")
-    elif set(assignments) != {only_index}:
-        raise ValueError(
-            f"only logical camera {base.cameras[only_index].id} must be assigned"
-        )
-    cameras = [
-        camera.model_copy(update={"source": assignments[index]})
-        if index in assignments
-        else camera
-        for index, camera in enumerate(base.cameras)
-    ]
+        cameras = [
+            camera.model_copy(update={"source": assignments[index]})
+            for index, camera in enumerate(base.cameras)
+            if index in assignments
+        ]
+    else:
+        if set(assignments) != {only_index}:
+            raise ValueError(
+                f"only logical camera {base.cameras[only_index].id} must be assigned"
+            )
+        cameras = [
+            camera.model_copy(update={"source": assignments[index]})
+            if index in assignments
+            else camera
+            for index, camera in enumerate(base.cameras)
+        ]
     return base.model_copy(update={"cameras": cameras, "revision": base.revision + 1})
 
 
@@ -216,15 +223,15 @@ class CameraSelector:
             (80, 220, 255),
             2,
         )
-        fallback = [
-            self.base.cameras[index].source if self.only_index is not None else "-"
-            for index in range(len(self.base.cameras))
-        ]
-        assignment_text = " | ".join(
-            f"{self.base.cameras[index].id}=source "
-            f"{self.assignments.get(index, fallback[index])}"
-            for index in range(len(self.base.cameras))
-        )
+        assignment_items = []
+        for index, camera in enumerate(self.base.cameras):
+            if index in self.assignments:
+                assignment_items.append(f"{camera.id}=source {self.assignments[index]}")
+            elif self.only_index is not None:
+                assignment_items.append(f"{camera.id}=source {camera.source}")
+            else:
+                assignment_items.append(f"{camera.id}=-")
+        assignment_text = " | ".join(assignment_items)
         cv2.putText(
             image,
             assignment_text,
@@ -238,8 +245,8 @@ class CameraSelector:
             f"Mouse: seleziona | {self.only_index + 1}: assegna | C: pulisci | "
             f"R: riscansiona | ENTER: salva"
             if self.only_index is not None
-            else f"Mouse: seleziona | 1-{len(self.base.cameras)}: assegna | "
-            f"C: pulisci | R: riscansiona | ENTER: salva"
+            else f"Mouse: seleziona | 1-{len(self.base.cameras)}: assegna/rimuovi | "
+            f"U: disassegna | C: pulisci | R: riscansiona | ENTER: salva"
         )
         cv2.putText(
             image,
@@ -307,23 +314,61 @@ class CameraSelector:
                         )
                         continue
                     source = self.previews[self.selected_index].source
-                    for previous_logical, previous_source in list(self.assignments.items()):
-                        if previous_source == source:
-                            self.assignments.pop(previous_logical)
-                    self.assignments[logical_index] = source
-                    event(
-                        LOGGER,
-                        "camera_assigned",
-                        camera_id=self.base.cameras[logical_index].id,
-                        source=source,
-                        assignments={
-                            self.base.cameras[index].id: assigned_source
-                            for index, assigned_source in self.assignments.items()
-                        },
-                    )
-                    self.message = (
-                        f"source {source} assegnata a {self.base.cameras[logical_index].id}"
-                    )
+                    cam_id = self.base.cameras[logical_index].id
+                    if self.assignments.get(logical_index) == source:
+                        self.assignments.pop(logical_index)
+                        event(
+                            LOGGER,
+                            "camera_unassigned",
+                            camera_id=cam_id,
+                            source=source,
+                            assignments={
+                                self.base.cameras[index].id: assigned_source
+                                for index, assigned_source in self.assignments.items()
+                            },
+                        )
+                        self.message = f"Assegnazione {cam_id} rimossa da source {source}"
+                    else:
+                        for previous_logical, previous_source in list(self.assignments.items()):
+                            if previous_source == source:
+                                self.assignments.pop(previous_logical)
+                        self.assignments[logical_index] = source
+                        event(
+                            LOGGER,
+                            "camera_assigned",
+                            camera_id=cam_id,
+                            source=source,
+                            assignments={
+                                self.base.cameras[index].id: assigned_source
+                                for index, assigned_source in self.assignments.items()
+                            },
+                        )
+                        self.message = f"source {source} assegnata a {cam_id}"
+                elif key in (ord("u"), ord("0"), 8, 127):
+                    if self.selected_index is not None:
+                        source = self.previews[self.selected_index].source
+                        removed = [
+                            self.base.cameras[log_idx].id
+                            for log_idx, src in list(self.assignments.items())
+                            if src == source
+                        ]
+                        for log_idx, src in list(self.assignments.items()):
+                            if src == source:
+                                self.assignments.pop(log_idx)
+                        if removed:
+                            event(
+                                LOGGER,
+                                "camera_unassigned",
+                                camera_id=",".join(removed),
+                                source=source,
+                                assignments={
+                                    self.base.cameras[index].id: assigned_source
+                                    for index, assigned_source in self.assignments.items()
+                                },
+                            )
+                            self.message = f"Assegnazione rimossa per source {source}"
+                        else:
+                            self.message = f"Source {source} non era assegnata"
                 elif key == ord("c"):
                     self.assignments.clear()
                     event(LOGGER, "camera_assignments_cleared")
@@ -342,22 +387,29 @@ class CameraSelector:
                             assignments={camera.id: camera.source for camera in result.cameras},
                         )
                         return result
-                    except ValueError:
+                    except ValueError as error:
                         event(
                             LOGGER,
                             "camera_selection_rejected",
                             level=logging.WARNING,
                             assignments=self.assignments,
-                            reason="distinct_sources_required"
-                            if self.only_index is None
-                            else "single_camera_assignment_required",
+                            reason="at_least_one_camera_required"
+                            if not self.assignments
+                            else (
+                                "single_camera_assignment_required"
+                                if self.only_index is not None
+                                else "invalid_assignment"
+                            ),
                         )
-                        self.message = (
-                            f"Assegna la camera a {self.base.cameras[self.only_index].id} "
-                            f"(tasto {self.only_index + 1}) prima di salvare"
-                            if self.only_index is not None
-                            else "Assegna sorgenti diverse per tutte le camere prima di salvare"
-                        )
+                        if self.only_index is not None:
+                            self.message = (
+                                f"Assegna la camera a {self.base.cameras[self.only_index].id} "
+                                f"(tasto {self.only_index + 1}) prima di salvare"
+                            )
+                        elif not self.assignments:
+                            self.message = "Assegna almeno una camera prima di salvare"
+                        else:
+                            self.message = str(error)
         finally:
             self.close()
             cv2.destroyWindow(WINDOW_NAME)
