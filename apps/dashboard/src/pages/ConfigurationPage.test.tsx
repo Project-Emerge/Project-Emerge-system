@@ -14,44 +14,29 @@ afterEach(() => {
   gateway.publish.mockClear();
   vi.unstubAllGlobals();
   useDashboardStore.getState().resetForTests();
-  window.localStorage.clear();
 });
 
 describe("pagina configurazione", () => {
-  it("applica le impostazioni motore a tutti i robot della flotta e le rende persistenti", async () => {
-    window.localStorage.clear();
-    useDashboardStore.setState({ robotIds: ["A1B2C3", "D4E5F6"] });
+  it("precompila e salva la configurazione retained del robot", async () => {
+    useDashboardStore.setState({
+      robots: {
+        A1B2C3: {
+          id: "A1B2C3",
+          lastSeenAt: Date.now(),
+          configuration: { motors: { ema_filter_alpha: 0.2, max_speed: 0.8 } },
+        },
+      },
+      robotIds: ["A1B2C3"],
+    });
     render(<ConfigurationPage />);
 
+    await waitFor(() => expect(screen.getByLabelText("Maximum speed")).toHaveValue(0.8));
     fireEvent.change(screen.getByLabelText("Maximum speed"), { target: { value: "1.25" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save for all robots" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
     await waitFor(() => expect(gateway.publish).toHaveBeenCalledWith("/config/robots/A1B2C3", {
-      motors: { ema_filter_alpha: 0.1, max_speed: 1.25 },
+      motors: { ema_filter_alpha: 0.2, max_speed: 1.25 },
     }));
-    expect(gateway.publish).toHaveBeenCalledWith("/config/robots/D4E5F6", {
-      motors: { ema_filter_alpha: 0.1, max_speed: 1.25 },
-    });
-    expect(screen.getByText("Settings saved for all 2 robots.")).toBeInTheDocument();
-    expect(JSON.parse(window.localStorage.getItem("project-emerge-motor-settings")!)).toEqual({
-      emaEnabled: true,
-      emaAlpha: 0.1,
-      maxSpeed: 1.25,
-    });
-  });
-
-  it("ricarica le impostazioni motore persistite all'apertura della pagina", () => {
-    window.localStorage.setItem("project-emerge-motor-settings", JSON.stringify({
-      emaEnabled: false,
-      emaAlpha: 0.3,
-      maxSpeed: 0.6,
-    }));
-    useDashboardStore.setState({ robotIds: ["A1B2C3"] });
-    render(<ConfigurationPage />);
-
-    expect(screen.getByLabelText("Maximum speed")).toHaveValue(0.6);
-    expect(screen.getByRole("checkbox")).not.toBeChecked();
-    window.localStorage.clear();
   });
 
   it("carica il firmware e richiede l'aggiornamento OTA di tutti i robot", async () => {
