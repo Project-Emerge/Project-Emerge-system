@@ -10,8 +10,8 @@
     "typecheck": "tsc -b",
     "build": "npm run typecheck && vite build && tsc -p tsconfig.server.json",
     "start": "node server-dist/server/index.js",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "NODE_OPTIONS=--no-experimental-webstorage vitest run",
+    "test:watch": "NODE_OPTIONS=--no-experimental-webstorage vitest"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.8",
