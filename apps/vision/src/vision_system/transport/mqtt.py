@@ -197,6 +197,8 @@ def pose_payload(pose: FusedPose, sequence: int = 0) -> dict:
         },
         "euler_deg": _euler_degrees(pose.world_from_tag[:3, :3]),
         "visible_by": pose.cameras,
+        "rejected_by": pose.rejected_cameras,
+        "camera_disagreement_m": pose.camera_disagreement_m,
         "reprojection_error_px": pose.reprojection_error_px,
         "quality": pose.quality,
         "predicted": pose.predicted,

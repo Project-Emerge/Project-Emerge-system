@@ -66,6 +66,8 @@ class VisionRuntime:
         self.diagnostic_frames: Counter[str] = Counter()
         self.diagnostic_detected_ids: dict[str, Counter[int]] = defaultdict(Counter)
         self.diagnostic_observations: Counter[str] = Counter()
+        self.diagnostic_rejected_cameras: Counter[str] = Counter()
+        self.worst_camera_disagreement_m = 0.0
 
     def _build_detectors(self) -> dict[str, MarkerDetector]:
         return {
@@ -224,9 +226,10 @@ class VisionRuntime:
                         else:
                             self.diagnostic_observations["reprojection_error_too_high"] += 1
 
-                fused_poses, failures = self.observation_window.fuse(updated_tags)
-                self.diagnostic_observations["fusion_failed"] += failures
+                fused_poses, failed_tags = self.observation_window.fuse(updated_tags)
+                self.diagnostic_observations["fusion_failed"] += len(failed_tags)
                 self.diagnostic_observations["fused"] += len(fused_poses)
+                self._record_camera_disagreement(fused_poses)
                 for pose in fused_poses:
                     if self.observation_window.should_publish(pose.tag_id, pose.monotonic_ns):
                         self.bridge.publish_pose(pose)
@@ -235,7 +238,7 @@ class VisionRuntime:
                 now_ns = time.monotonic_ns()
                 now_utc_ns = time.time_ns()
                 for pose in self.observation_window.predict(
-                    updated_tags, now_ns, now_utc_ns
+                    updated_tags - failed_tags, now_ns, now_utc_ns
                 ):
                     if not self.observation_window.should_publish(pose.tag_id, now_ns):
                         continue
@@ -267,6 +270,20 @@ class VisionRuntime:
             self.calibrations.get(camera_id),
             self.config.references_by_id(),
         )
+
+    def _record_camera_disagreement(self, poses) -> None:
+        """Count cameras dropped for contradicting the multi-camera consensus.
+
+        A camera that keeps showing up here is not merely noisy: its extrinsics
+        or the marker's configured ``size_m`` place the tag somewhere the other
+        cameras do not see it.
+        """
+        for pose in poses:
+            for camera_id in pose.rejected_cameras:
+                self.diagnostic_rejected_cameras[camera_id] += 1
+            self.worst_camera_disagreement_m = max(
+                self.worst_camera_disagreement_m, pose.camera_disagreement_m
+            )
 
     def _handle_camera_excluded(self, camera_id: str, status: dict) -> None:
         self.bridge.publish_event(
@@ -307,8 +324,21 @@ class VisionRuntime:
                 for camera_id, counts in self.diagnostic_detected_ids.items()
             },
             observation_outcomes=dict(self.diagnostic_observations),
+            cameras_rejected_for_disagreement=dict(self.diagnostic_rejected_cameras),
+            worst_camera_disagreement_m=round(self.worst_camera_disagreement_m, 4),
             reference_checks=self.drift.reference_check_status,
         )
+        if self.diagnostic_rejected_cameras:
+            self.bridge.publish_event(
+                "CAMERA_DISAGREEMENT",
+                "Cameras localise the same tag in different places; check the "
+                "marker size_m and the extrinsic calibration",
+                severity="warning",
+                cameras=dict(self.diagnostic_rejected_cameras),
+                worst_disagreement_m=round(self.worst_camera_disagreement_m, 4),
+            )
         self.diagnostic_frames.clear()
         self.diagnostic_detected_ids.clear()
         self.diagnostic_observations.clear()
+        self.diagnostic_rejected_cameras.clear()
+        self.worst_camera_disagreement_m = 0.0

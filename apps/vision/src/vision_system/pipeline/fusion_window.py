@@ -25,9 +25,10 @@ class ObservationWindow:
     def add(self, observation: TagObservation) -> None:
         self.recent[observation.tag_id].append(observation)
 
-    def fuse(self, updated_tags: set[int]) -> tuple[list[FusedPose], int]:
+    def fuse(self, updated_tags: set[int]) -> tuple[list[FusedPose], set[int]]:
+        """Fuse every updated tag, reporting the ones fusion could not resolve."""
         poses: list[FusedPose] = []
-        failures = 0
+        failed: set[int] = set()
         for tag_id in updated_tags:
             buffer = self.recent[tag_id]
             newest = max(item.monotonic_ns for item in buffer)
@@ -43,20 +44,26 @@ class ObservationWindow:
                     latest_per_camera[observation.camera_id] = observation
             pose = self.fusion.fuse(list(latest_per_camera.values()))
             if pose is None:
-                failures += 1
+                failed.add(tag_id)
             else:
                 poses.append(pose)
-        return poses, failures
+        return poses, failed
 
     def predict(
         self,
-        updated_tags: set[int],
+        fused_tags: set[int],
         monotonic_ns: int,
         utc_ns: int,
     ) -> list[FusedPose]:
+        """Dead-reckon every tracked tag that this tick did not fuse.
+
+        Tags whose fusion was rejected count as unfused, so a burst of
+        contradictory observations coasts on the last trustworthy pose instead
+        of leaving the tag without any output at all.
+        """
         return [
             pose
-            for tag_id in self.fusion.trackers.keys() - updated_tags
+            for tag_id in self.fusion.trackers.keys() - fused_tags
             if (pose := self.fusion.predict(tag_id, monotonic_ns, utc_ns)) is not None
         ]
 

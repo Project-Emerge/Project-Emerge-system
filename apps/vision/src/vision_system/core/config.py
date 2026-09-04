@@ -187,6 +187,16 @@ class FusionConfig(BaseModel):
     window_ms: float = Field(default=40.0, gt=0, le=250)
     publish_hz: float = Field(default=20.0, gt=0, le=100)
     max_reprojection_error_px: float = Field(default=4.0, gt=0)
+    # A camera whose own estimate sits further than this from the multi-camera
+    # consensus is describing a different marker (wrong ``size_m``, stale
+    # extrinsics, a pose-ambiguity flip) and is dropped from the solve instead
+    # of dragging the joint optimum around.
+    max_camera_disagreement_m: float = Field(default=0.25, gt=0)
+    # RMS reprojection error of the joint solve. Legitimate multi-camera fusion
+    # stays near the extrinsic calibration residual; anything above this means
+    # the retained cameras cannot be seeing the same marker, so the fused pose
+    # is discarded rather than published.
+    max_fused_reprojection_error_px: float = Field(default=8.0, gt=0)
     huber_scale_px: float = Field(default=1.5, gt=0)
     tracker_filter: Literal["one_euro", "alpha_beta"] = "one_euro"
     one_euro_min_cutoff_hz: float = Field(default=2.0, gt=0, le=100)

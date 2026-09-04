@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
@@ -49,6 +49,10 @@ class FusedPose:
     reprojection_error_px: float
     quality: float
     predicted: bool = False
+    # Cameras that saw the tag but were excluded for contradicting the consensus.
+    rejected_cameras: list[str] = field(default_factory=list)
+    # Widest gap between a single camera's own estimate and that consensus.
+    camera_disagreement_m: float = 0.0
 
 
 class OneEuroFilter:
@@ -235,35 +239,32 @@ class FusionEngine:
         if tracker:
             predicted_position, predicted_quaternion = tracker.predict(target_ns)
             predicted_transform = pose_matrix(predicted_position, predicted_quaternion)
-        initial_candidates: list[NDArray[np.float64]] = []
-        for observation in observations:
-            candidates = observation.candidate_world_from_tags or (observation.world_from_tag,)
-            if predicted_transform is None:
-                candidate = observation.world_from_tag.copy()
-            else:
-                candidate = min(
-                    candidates,
-                    key=lambda item: self._pose_distance(predicted_transform, item),
-                ).copy()
+        candidates = self._select_candidates(observations, predicted_transform)
+        for candidate, observation in zip(candidates, observations, strict=True):
             dt = (target_ns - observation.monotonic_ns) / NANOSECONDS_PER_SECOND
             candidate[:3, 3] += velocity * dt
-            initial_candidates.append(candidate)
-        initial = average_transforms(initial_candidates)
+
+        # A camera that contradicts the others is not describing this marker.
+        # Optimizing over the whole set would let it drag the joint optimum
+        # around from frame to frame, which is what makes a multi-camera track
+        # shake while every camera on its own looks perfectly steady.
+        kept, disagreement = self._agreeing_cameras(observations, candidates)
+        rejected = [
+            observation.camera_id
+            for index, observation in enumerate(observations)
+            if index not in kept
+        ]
+        observations = [observations[index] for index in kept]
+        candidates = [candidates[index] for index in kept]
+
+        initial = average_transforms(candidates)
         optimized, error = self._optimize(initial, observations, target_ns, velocity)
-        marker_pixels = float(np.mean([item.marker_side_px for item in observations]))
-        quality = float(
-            np.clip(
-                math.exp(-error / QUALITY_ERROR_DECAY_SCALE)
-                * min(1.0, marker_pixels / FULL_QUALITY_MARKER_SIDE_PX)
-                * min(
-                    1.0,
-                    len({item.camera_id for item in observations})
-                    / FULL_QUALITY_CAMERA_COUNT,
-                ),
-                0,
-                1,
-            )
-        )
+        if error > self.config.max_fused_reprojection_error_px:
+            # The retained cameras still cannot agree on a single rigid pose.
+            # Publishing this would be a fabricated position; let the caller
+            # dead-reckon from the last trustworthy measurement instead.
+            return None
+        quality = self._quality(observations, error, disagreement)
         if tracker is None:
             tracker = PoseTracker(optimized, target_ns)
             self.trackers[tag_id] = tracker
@@ -284,6 +285,79 @@ class FusionEngine:
             cameras=sorted({item.camera_id for item in observations}),
             reprojection_error_px=error,
             quality=quality,
+            rejected_cameras=sorted(set(rejected)),
+            camera_disagreement_m=disagreement,
+        )
+
+    def _select_candidates(
+        self,
+        observations: list[TagObservation],
+        predicted_transform: NDArray[np.float64] | None,
+    ) -> list[NDArray[np.float64]]:
+        """Resolve each camera's planar pose ambiguity against a shared reference.
+
+        ``SOLVEPNP_IPPE_SQUARE`` returns two poses that reproject almost
+        identically, so picking per camera by reprojection error alone lets
+        cameras disagree about which of the mirrored solutions is real. With a
+        tracker running the prediction arbitrates; on the first sighting the
+        camera that sees the marker biggest does.
+        """
+        reference = predicted_transform
+        if reference is None:
+            anchor = max(observations, key=lambda item: item.marker_side_px)
+            reference = anchor.world_from_tag
+        return [
+            min(
+                observation.candidate_world_from_tags or (observation.world_from_tag,),
+                key=lambda item: self._pose_distance(reference, item),
+            ).copy()
+            for observation in observations
+        ]
+
+    def _agreeing_cameras(
+        self,
+        observations: list[TagObservation],
+        candidates: list[NDArray[np.float64]],
+    ) -> tuple[list[int], float]:
+        """Indices of the cameras consistent with the consensus, and the spread."""
+        if len(candidates) < 2:
+            return list(range(len(candidates))), 0.0
+        positions = np.array([candidate[:3, 3] for candidate in candidates])
+        consensus = np.median(positions, axis=0)
+        distances = np.linalg.norm(positions - consensus, axis=1)
+        disagreement = float(np.max(distances))
+        kept = [
+            index
+            for index, distance in enumerate(distances)
+            if distance <= self.config.max_camera_disagreement_m
+        ]
+        if not kept:
+            # An even number of mutually contradicting cameras puts the median
+            # between them, so every camera looks like an outlier. Keep the one
+            # with the closest view rather than dropping the tag entirely.
+            kept = [int(np.argmax([item.marker_side_px for item in observations]))]
+        return kept, disagreement
+
+    def _quality(
+        self,
+        observations: list[TagObservation],
+        error: float,
+        disagreement: float,
+    ) -> float:
+        marker_pixels = float(np.mean([item.marker_side_px for item in observations]))
+        return float(
+            np.clip(
+                math.exp(-error / QUALITY_ERROR_DECAY_SCALE)
+                * min(1.0, marker_pixels / FULL_QUALITY_MARKER_SIDE_PX)
+                * min(
+                    1.0,
+                    len({item.camera_id for item in observations})
+                    / FULL_QUALITY_CAMERA_COUNT,
+                )
+                * math.exp(-disagreement / self.config.max_camera_disagreement_m),
+                0,
+                1,
+            )
         )
 
     def predict(self, tag_id: int, monotonic_ns: int, utc_ns: int) -> FusedPose | None:

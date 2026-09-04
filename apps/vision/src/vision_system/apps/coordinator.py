@@ -64,6 +64,8 @@ class VisionCoordinator:
         self.observations_received: Counter[str] = Counter()
         self.pose_count = 0
         self.diagnostic_observations: Counter[str] = Counter()
+        self.diagnostic_rejected_cameras: Counter[str] = Counter()
+        self.worst_camera_disagreement_m = 0.0
         self.utc_to_monotonic_ns = time.monotonic_ns() - time.time_ns()
 
     def _queue_config(self, config: AppConfig) -> None:
@@ -127,17 +129,24 @@ class VisionCoordinator:
                     self.diagnostic_observations["accepted_for_fusion"] += 1
                 else:
                     self.diagnostic_observations["reprojection_error_too_high"] += 1
-        fused_poses, failures = self.observation_window.fuse(updated_tags)
-        self.diagnostic_observations["fusion_failed"] += failures
+        fused_poses, failed_tags = self.observation_window.fuse(updated_tags)
+        self.diagnostic_observations["fusion_failed"] += len(failed_tags)
         self.diagnostic_observations["fused"] += len(fused_poses)
         for pose in fused_poses:
+            for camera_id in pose.rejected_cameras:
+                self.diagnostic_rejected_cameras[camera_id] += 1
+            self.worst_camera_disagreement_m = max(
+                self.worst_camera_disagreement_m, pose.camera_disagreement_m
+            )
             if self.observation_window.should_publish(pose.tag_id, pose.monotonic_ns):
                 self.bridge.publish_pose(pose)
                 self.observation_window.mark_published(pose.tag_id, pose.monotonic_ns)
                 self.pose_count += 1
         now_ns = time.monotonic_ns()
         now_utc_ns = time.time_ns()
-        for pose in self.observation_window.predict(updated_tags, now_ns, now_utc_ns):
+        for pose in self.observation_window.predict(
+            updated_tags - failed_tags, now_ns, now_utc_ns
+        ):
             if not self.observation_window.should_publish(pose.tag_id, now_ns):
                 continue
             self.bridge.publish_pose(pose)
@@ -229,8 +238,21 @@ class VisionCoordinator:
             tracked_tags=sorted(self.fusion.trackers),
             cameras=camera_status,
             observation_outcomes=dict(self.diagnostic_observations),
+            cameras_rejected_for_disagreement=dict(self.diagnostic_rejected_cameras),
+            worst_camera_disagreement_m=round(self.worst_camera_disagreement_m, 4),
         )
+        if self.diagnostic_rejected_cameras:
+            self.bridge.publish_event(
+                "CAMERA_DISAGREEMENT",
+                "Cameras localise the same tag in different places; check the "
+                "marker size_m and the extrinsic calibration",
+                severity="warning",
+                cameras=dict(self.diagnostic_rejected_cameras),
+                worst_disagreement_m=round(self.worst_camera_disagreement_m, 4),
+            )
         self.diagnostic_observations.clear()
+        self.diagnostic_rejected_cameras.clear()
+        self.worst_camera_disagreement_m = 0.0
 
     def stop(self) -> None:
         self.stop_event.set()
