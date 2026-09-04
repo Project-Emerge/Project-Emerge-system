@@ -69,7 +69,14 @@ object UpdateLoop:
       actuator: EnvironmentUpdate[ID, Position, Actuation, Info, E],
       render: Boundary[ID, Position, Info]
   ): IO[Unit] =
-    step(provider, coordinator, actuator, render)
-      .handleErrorWith(e => logger.error(e)("Error in loop step"))
-      .flatMap(_ => IO.sleep(waitTimeMs.milliseconds))
-      .flatMap(_ => loop(waitTimeMs)(provider, coordinator, actuator, render))
+    val period = waitTimeMs.milliseconds
+    val tick = for
+      startedAt  <- IO.monotonic
+      _          <- step(provider, coordinator, actuator, render)
+                      .handleErrorWith(e => logger.error(e)("Error in loop step"))
+      finishedAt <- IO.monotonic
+      // Sleep for what is left of the period rather than a flat delay after the work: the control
+      // law is tuned around a known rate, and a fixed post-work sleep quietly stretches it.
+      _          <- IO.sleep((period - (finishedAt - startedAt)).max(Duration.Zero))
+    yield ()
+    tick.foreverM

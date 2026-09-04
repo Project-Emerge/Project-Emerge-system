@@ -2,6 +2,7 @@ package it.unibo.demo.scenarios
 
 import it.unibo.demo.robot.Actuation
 import it.unibo.demo.robot.Actuation.{Forward, NoOp, Rotation, Stop}
+import it.unibo.demo.robot.{DifferentialDrive, DriveConfig}
 import it.unibo.scafi.space.Point3D
 import it.unibo.scafi.space.optimization.RichPoint3D
 abstract class ShapeFormation() extends BaseDemo:
@@ -37,8 +38,9 @@ abstract class ShapeFormation() extends BaseDemo:
     val distanceTowardGoal = Math.sqrt(local._1 * local._1 + local._2 * local._2)
     val neighborMap = foldhoodPlus[Map[Int, (Double, Double)]](Map.empty)((a, b) => a ++ b)(Map(nbr(mid()) -> distanceVector))
       .map { (id, nbrVector) => id -> Point3D(nbrVector._1, nbrVector._2, 0.0) }
-    // convert the orientation to a 2d vector
-    val (orientationLeaderX, orientationLeaderY) = (-math.sin(leaderOrientation), math.cos(leaderOrientation))
+    // The marker yaw is not the direction the robot faces; DifferentialDrive owns that conversion.
+    val (orientationLeaderX, orientationLeaderY) =
+      DifferentialDrive.headingVector(leaderOrientation, DriveConfig.fromEnvironment)
     // Aggregate repulsion from all neighbors within collisionRange (inverse-square weighting)
     val repulsionSum = computeRepulsionSum(neighborMap, collisionArea)
     val avoidance = if repulsionSum.magnitude > maxRepulsion then repulsionSum.normalize * maxRepulsion else repulsionSum
@@ -48,7 +50,8 @@ abstract class ShapeFormation() extends BaseDemo:
     val heading = (Point3D(local._1, local._2, 0) + avoidance).normalize
     val res =
       if distanceTowardGoal < stabilityThreshold then
-        if leader then NoOp else computeGoalConsideringAvoidance((orientationLeaderX, orientationLeaderY), avoidance)
+        if leader then NoOp
+        else computeGoalConsideringAvoidance((orientationLeaderX, orientationLeaderY), avoidance, collisionArea)
       else
         Forward((heading.x, heading.y), distanceTowardGoal)
     res
@@ -68,12 +71,20 @@ abstract class ShapeFormation() extends BaseDemo:
       }
       .foldLeft(Point3D.Zero)(_ + _)
 
-  private def computeGoalConsideringAvoidance(leaderOrientation: (Double, Double), avoidance: Point3D): Actuation =
+  private def computeGoalConsideringAvoidance(
+    leaderOrientation: (Double, Double),
+    avoidance: Point3D,
+    collisionArea: Double
+  ): Actuation =
     if avoidance.magnitude > 0.01 then
       val combinedVector = (Point3D(leaderOrientation._1, leaderOrientation._2, 0) + avoidance).normalize
-      // Already within the stability threshold, so the goal distance is meaningless here:
-      // what the robot actually wants to travel is the repulsion push itself.
-      Forward((combinedVector.x, combinedVector.y), avoidance.magnitude)
+      // Already within the stability threshold, so the goal distance is meaningless here and what
+      // the robot wants to travel is the repulsion push. That push is an inverse-square *strength*,
+      // not a length, so convert it: at full strength back off by the whole collision radius, and
+      // proportionally less below that. Handing the raw magnitude to a controller that reads metres
+      // made a strength of 1.5 mean "1.5 m to go, drive flat out".
+      val escapeDistance = math.min(1.0, avoidance.magnitude / maxRepulsion) * collisionArea
+      Forward((combinedVector.x, combinedVector.y), escapeDistance)
     else
       Rotation(leaderOrientation._1, leaderOrientation._2)
 

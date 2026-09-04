@@ -30,6 +30,7 @@ lazy val root =
         libraryDependencies += "org.typelevel" %% "cats-effect" % "3.5.7",
         libraryDependencies += "org.typelevel" %% "log4cats-slf4j" % "2.7.0",
         libraryDependencies += "org.eclipse.paho" % "org.eclipse.paho.client.mqttv3" % "1.2.5",
+        libraryDependencies += "org.scalameta" %% "munit" % "1.1.1" % Test,
         assembly / mainClass := Some("it.unibo.demo.ResearchNightDemos"),
         mainClass := Some("it.unibo.demo.ResearchNightDemos")
     )
