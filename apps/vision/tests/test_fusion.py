@@ -7,6 +7,7 @@ from vision_system.core.config import FusionConfig
 from vision_system.core.geometry import invert_transform, marker_object_points, pose_matrix
 from vision_system.pipeline.detection import TagObservation
 from vision_system.pipeline.fusion import FusionEngine
+from vision_system.pipeline.fusion_window import ObservationWindow
 
 
 def make_observation(camera_id: str, camera_x: float, timestamp: int) -> TagObservation:
@@ -141,3 +142,136 @@ def test_one_euro_velocity_settles_instead_of_accumulating() -> None:
     assert pose is not None
     assert abs(pose.velocity_m_s[0]) < 0.02
     assert abs(pose.position_m[0] - 0.5) < 0.01
+
+
+def misaligned_observation(
+    observation: TagObservation, offset_m: tuple[float, float, float]
+) -> TagObservation:
+    """A camera with stale extrinsics: identical pixels, wrong world mapping."""
+    world_from_camera = observation.world_from_camera.copy()
+    world_from_camera[:3, 3] += np.asarray(offset_m, dtype=float)
+    return replace(
+        observation,
+        world_from_camera=world_from_camera,
+        world_from_tag=world_from_camera @ observation.camera_from_tag,
+    )
+
+
+def test_camera_that_contradicts_the_others_is_dropped() -> None:
+    engine = FusionEngine(FusionConfig())
+    rogue = misaligned_observation(
+        make_observation("cam_2", -0.5, 1_000_000_000), (3.0, 0.0, 0.0)
+    )
+    pose = engine.fuse(
+        [
+            make_observation("cam_0", 0.0, 1_000_000_000),
+            make_observation("cam_1", 0.5, 1_000_000_000),
+            rogue,
+        ]
+    )
+    assert pose is not None
+    assert pose.cameras == ["cam_0", "cam_1"]
+    assert pose.rejected_cameras == ["cam_2"]
+    assert pose.camera_disagreement_m > 1.0
+    np.testing.assert_allclose(pose.position_m, [0.1, -0.05, 2.0], atol=1e-6)
+
+
+def test_a_contradicting_camera_cannot_drag_the_fused_pose() -> None:
+    """The regression behind 'each camera is steady but the fusion shakes'."""
+    engine = FusionEngine(FusionConfig())
+    positions = []
+    for index, offset in enumerate([0.0, 3.0, -4.0, 7.0, -2.0, 5.0]):
+        timestamp = 1_000_000_000 + index * 50_000_000
+        pose = engine.fuse(
+            [
+                make_observation("cam_0", 0.0, timestamp),
+                make_observation("cam_1", 0.5, timestamp),
+                misaligned_observation(
+                    make_observation("cam_2", -0.5, timestamp), (offset, 0.0, 0.0)
+                ),
+            ]
+        )
+        assert pose is not None
+        positions.append(pose.position_m)
+    spread = np.ptp(np.array(positions), axis=0)
+    assert np.all(spread < 1e-3), spread
+
+
+def test_occluding_a_camera_does_not_move_the_fused_pose() -> None:
+    engine = FusionEngine(FusionConfig())
+    seen_by_all = None
+    for index in range(6):
+        timestamp = 1_000_000_000 + index * 50_000_000
+        seen_by_all = engine.fuse(
+            [
+                make_observation("cam_0", 0.0, timestamp),
+                make_observation("cam_1", 0.5, timestamp),
+                make_observation("cam_2", -0.5, timestamp),
+            ]
+        )
+    occluded = engine.fuse(
+        [
+            make_observation("cam_0", 0.0, 1_300_000_000),
+            make_observation("cam_1", 0.5, 1_300_000_000),
+        ]
+    )
+    assert seen_by_all is not None and occluded is not None
+    assert occluded.cameras == ["cam_0", "cam_1"]
+    assert np.linalg.norm(occluded.position_m - seen_by_all.position_m) < 1e-3
+
+
+def test_fusion_is_discarded_when_no_rigid_pose_explains_every_camera() -> None:
+    engine = FusionEngine(
+        FusionConfig(max_camera_disagreement_m=10.0, max_fused_reprojection_error_px=1.0)
+    )
+    pose = engine.fuse(
+        [
+            make_observation("cam_0", 0.0, 1_000_000_000),
+            misaligned_observation(
+                make_observation("cam_1", 0.5, 1_000_000_000), (0.3, 0.0, 0.0)
+            ),
+        ]
+    )
+    assert pose is None
+
+
+def test_pairwise_disagreement_keeps_the_closest_view() -> None:
+    engine = FusionEngine(FusionConfig())
+    near = make_observation("cam_0", 0.0, 1_000_000_000)
+    far = replace(
+        misaligned_observation(
+            make_observation("cam_1", 0.5, 1_000_000_000), (2.0, 0.0, 0.0)
+        ),
+        marker_side_px=20.0,
+    )
+    pose = engine.fuse([near, far])
+    assert pose is not None
+    assert pose.cameras == ["cam_0"]
+    assert pose.rejected_cameras == ["cam_1"]
+    np.testing.assert_allclose(pose.position_m, [0.1, -0.05, 2.0], atol=1e-6)
+
+
+def test_rejected_fusion_falls_back_to_dead_reckoning() -> None:
+    """A rejected tag must coast, not go silent, until the cameras agree again."""
+    config = FusionConfig(
+        max_camera_disagreement_m=10.0, max_fused_reprojection_error_px=1.0
+    )
+    window = ObservationWindow(FusionEngine(config))
+    window.add(make_observation("cam_0", 0.0, 1_000_000_000))
+    poses, failed = window.fuse({23})
+    assert len(poses) == 1 and not failed
+
+    window.add(make_observation("cam_0", 0.0, 1_010_000_000))
+    window.add(
+        misaligned_observation(
+            make_observation("cam_1", 0.5, 1_010_000_000), (0.3, 0.0, 0.0)
+        )
+    )
+    poses, failed = window.fuse({23})
+    assert not poses
+    assert failed == {23}
+
+    predicted = window.predict({23} - failed, 1_010_000_000, 1_010_000_000)
+    assert [pose.tag_id for pose in predicted] == [23]
+    assert predicted[0].predicted
+    np.testing.assert_allclose(predicted[0].position_m, [0.1, -0.05, 2.0], atol=1e-6)

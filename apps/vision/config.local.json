@@ -7,14 +7,14 @@
       "origin_id": 5,
       "plane_z_m": 0.0,
       "x_axis_id": 2,
-      "x_distance_m": 2.35,
+      "x_distance_m": 2.25,
       "y_axis_id": 4,
-      "y_distance_m": 2.35
+      "y_distance_m": 2.25
     },
     "auto_mobile_markers": {
       "default_size_m": 0.09,
       "enabled": true,
-      "ignored_ids": []
+      "ignored_ids": [17]
     },
     "corner_refinement": true,
     "dictionary": "DICT_4X4_50",
@@ -35,16 +35,16 @@
         "orientation_xyzw": [
           0.0,
           0.0,
-          0.0054271602316777875,
-          0.9999852728574655
+          -0.012856912179064449,
+          0.9999173464888085
         ],
         "position_m": [
-          2.35,
+          2.25,
           0.0,
           0.0
         ],
         "size_m": 0.09,
-        "uncertainty_m": 0.0035926263380026114
+        "uncertainty_m": 0.01707434382159907
       },
       {
         "id": 4,
@@ -52,16 +52,16 @@
         "orientation_xyzw": [
           0.0,
           0.0,
-          -0.01426430472715222,
-          0.999898259629774
+          0.0007712059407511302,
+          0.9999997026206543
         ],
         "position_m": [
           0.0,
-          2.35,
+          2.25,
           0.0
         ],
         "size_m": 0.09,
-        "uncertainty_m": 0.004635041339923205
+        "uncertainty_m": 0.009641083922326592
       },
       {
         "id": 5,
@@ -69,8 +69,8 @@
         "orientation_xyzw": [
           0.0,
           0.0,
-          0.0028597568353364348,
-          0.999995910887061
+          0.014843837179532304,
+          0.9998898241795381
         ],
         "position_m": [
           0.0,
@@ -78,7 +78,7 @@
           0.0
         ],
         "size_m": 0.09,
-        "uncertainty_m": 0.005
+        "uncertainty_m": 0.012957770053087897
       },
       {
         "id": 6,
@@ -86,16 +86,16 @@
         "orientation_xyzw": [
           0.0,
           0.0,
-          -0.006635899039579026,
-          0.999977982179576
+          -0.0041867260560232876,
+          0.9999912356240588
         ],
         "position_m": [
-          2.35,
-          2.35,
+          2.25,
+          2.25,
           0.0
         ],
         "size_m": 0.09,
-        "uncertainty_m": 0.0035355339059327372
+        "uncertainty_m": 0.01525601161460624
       }
     ]
   },
@@ -109,7 +109,7 @@
       "fps": 30.0,
       "height": 1080,
       "id": "cam_1",
-      "source": 2,
+      "source": 0,
       "width": 1920,
       "zoom": null
     },
@@ -122,7 +122,7 @@
       "fps": 30.0,
       "height": 1080,
       "id": "cam_2",
-      "source": 4,
+      "source": 9,
       "width": 1920,
       "zoom": null
     },
@@ -135,7 +135,7 @@
       "fps": 30.0,
       "height": 1080,
       "id": "cam_3",
-      "source": 6,
+      "source": 7,
       "width": 1920,
       "zoom": null
     }
@@ -147,6 +147,8 @@
   },
   "fusion": {
     "huber_scale_px": 1.5,
+    "max_camera_disagreement_m": 0.25,
+    "max_fused_reprojection_error_px": 8.0,
     "max_reprojection_error_px": 4.0,
     "one_euro_beta": 5.0,
     "one_euro_derivative_cutoff_hz": 1.0,
@@ -160,7 +162,7 @@
     "tracker_velocity_gain": 0.12,
     "window_ms": 40.0
   },
-  "revision": 7,
+  "revision": 4,
   "schema_version": 1,
   "site": "lab",
   "system_id": "indoor-01"

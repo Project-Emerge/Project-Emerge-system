@@ -494,6 +494,8 @@ perché VisionSystem non calcola una covarianza della posizione.
       "window_ms": 40.0,
       "publish_hz": 20.0,
       "max_reprojection_error_px": 4.0,
+      "max_camera_disagreement_m": 0.25,
+      "max_fused_reprojection_error_px": 8.0,
       "huber_scale_px": 1.5,
       "tracker_filter": "one_euro",
       "one_euro_min_cutoff_hz": 2.0,
@@ -519,7 +521,27 @@ perché VisionSystem non calcola una covarianza della posizione.
 - **Target automatici (`auto_mobile_markers`)**: se abilitato, qualsiasi marker rilevato che non appartenga a `reference_markers` né a `ignored_ids` viene tracciato come marker mobile con dimensione `default_size_m`.
 - **Frame anchor (`anchor_frame`)**: vincola le posizioni dei 4 marker di riferimento chiave esattamente sui vertici del rettangolo specificato, garantendo un sistema di coordinate world ortogonale e stabile.
 
-### 8.4 Filtro del tracker
+### 8.4 Coerenza fra camere
+
+Ogni camera che vede il tag produce una propria stima in coordinate world.
+Prima di risolvere la posa congiunta la fusione confronta quelle stime fra loro
+e scarta le camere che contraddicono il consenso:
+
+- `max_camera_disagreement_m`: distanza massima fra la stima di una singola
+  camera e la mediana delle altre. Oltre questa soglia la camera viene esclusa
+  da quel ciclo di fusione e riportata in `rejected_by` nel payload della posa.
+- `max_fused_reprojection_error_px`: errore RMS massimo della soluzione
+  congiunta. Se le camere rimaste non sono comunque spiegabili da un'unica posa
+  rigida la posa viene scartata e il tag prosegue in dead-reckoning.
+
+Se una camera compare di continuo fra quelle scartate il problema **non** è il
+rumore: viene emesso l'evento `CAMERA_DISAGREEMENT` e le cause tipiche sono un
+`size_m` sbagliato per quel marker (anche via `auto_mobile_markers.default_size_m`)
+oppure estrinseci non più validi. Una dimensione errata sposta la stima di ogni
+camera lungo il proprio raggio visivo: presa singolarmente ogni camera sembra
+perfettamente stabile, ma le stime non si intersecano e la posa fusa oscilla.
+
+### 8.5 Filtro del tracker
 
 Il tracker usa di default un **One Euro Filter** sulla posizione. A target quasi
 fermo attenua il jitter, mentre durante un movimento rapido aumenta
