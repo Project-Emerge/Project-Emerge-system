@@ -14,6 +14,29 @@ describe("normalizzazione della telemetria firmware", () => {
     expect(parsed).toMatchObject({ kind: "pose", deviceId: "A1B2C3", payload: { x_m: 1.2, y_m: 3.4 } });
   });
 
+  it("accetta pose Vision senza inventare una varianza", () => {
+    const parsed = parseInboundMqttMessage("/pose/A1B2C3", {
+      x_m: 1.2,
+      y_m: 3.4,
+      z_m: 0.1,
+      heading_rad: 0.5,
+      speed_m_s: 0.2,
+      timestamp_us: 1234,
+      quality: 0.8,
+      visible_by: ["cam_0", "cam_1"],
+    });
+    expect(parsed).toMatchObject({
+      kind: "pose",
+      deviceId: "A1B2C3",
+      payload: {
+        position_variance_m2: null,
+        z_m: 0.1,
+        quality: 0.8,
+        visible_by: ["cam_0", "cam_1"],
+      },
+    });
+  });
+
   it("estrae la lista dei vicini escludendo il mittente", () => {
     const parsed = parseInboundMqttMessage("/neighbors/A1B2C3", ["A1B2C3", "D4E5F6"]);
     expect(parsed).toEqual({ kind: "neighbors", deviceId: "A1B2C3", payload: ["D4E5F6"] });

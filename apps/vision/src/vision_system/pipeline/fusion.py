@@ -32,6 +32,7 @@ FULL_QUALITY_CAMERA_COUNT = 2
 QUALITY_ERROR_DECAY_SCALE = 2.0
 ROTATION_DISTANCE_WEIGHT = 0.1
 OPTIMIZER_MAX_EVALUATIONS = 30
+MIN_FILTER_CUTOFF_HZ = 1e-6
 
 
 @dataclass
@@ -50,10 +51,58 @@ class FusedPose:
     predicted: bool = False
 
 
+class OneEuroFilter:
+    """Adaptive low-pass filter for vector-valued, irregularly sampled signals."""
+
+    def __init__(self, value: NDArray[np.float64], timestamp_ns: int) -> None:
+        self.reset(value, timestamp_ns)
+
+    def reset(self, value: NDArray[np.float64], timestamp_ns: int) -> None:
+        initial = np.asarray(value, dtype=np.float64)
+        self.value = initial.copy()
+        self.raw_value = initial.copy()
+        self.derivative = np.zeros_like(initial)
+        self.timestamp_ns = timestamp_ns
+
+    @staticmethod
+    def _smoothing_factor(
+        dt: float, cutoff_hz: float | NDArray[np.float64]
+    ) -> float | NDArray[np.float64]:
+        cutoff = np.maximum(cutoff_hz, MIN_FILTER_CUTOFF_HZ)
+        return 1.0 / (1.0 + 1.0 / (2.0 * math.pi * cutoff * dt))
+
+    def update(
+        self,
+        value: NDArray[np.float64],
+        timestamp_ns: int,
+        *,
+        min_cutoff_hz: float,
+        beta: float,
+        derivative_cutoff_hz: float,
+    ) -> NDArray[np.float64]:
+        sample = np.asarray(value, dtype=np.float64)
+        dt = max(
+            (timestamp_ns - self.timestamp_ns) / NANOSECONDS_PER_SECOND,
+            MIN_UPDATE_INTERVAL_S,
+        )
+        raw_derivative = (sample - self.raw_value) / dt
+        derivative_alpha = self._smoothing_factor(dt, derivative_cutoff_hz)
+        self.derivative += derivative_alpha * (raw_derivative - self.derivative)
+
+        cutoff_hz = min_cutoff_hz + beta * np.abs(self.derivative)
+        alpha = self._smoothing_factor(dt, cutoff_hz)
+        self.value += alpha * (sample - self.value)
+        self.raw_value = sample.copy()
+        self.timestamp_ns = timestamp_ns
+        return self.value.copy()
+
+
 class PoseTracker:
     def __init__(self, transform: NDArray[np.float64], timestamp_ns: int) -> None:
         self.position = transform[:3, 3].copy()
         self.velocity = np.zeros(3)
+        self.position_filter = OneEuroFilter(self.position, timestamp_ns)
+        self.filter_mode: str | None = None
         self.quaternion = matrix_to_quaternion(transform[:3, :3])
         self.angular_velocity = np.zeros(3)
         self.timestamp_ns = timestamp_ns
@@ -76,6 +125,11 @@ class PoseTracker:
         config: FusionConfig,
         quality: float = 1.0,
     ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        if self.filter_mode != config.tracker_filter:
+            self.position_filter.reset(self.position, self.timestamp_ns)
+            if config.tracker_filter == "one_euro":
+                self.velocity = np.zeros(3)
+            self.filter_mode = config.tracker_filter
         predicted_position, predicted_quaternion = self.predict(timestamp_ns)
         measured_position = transform[:3, 3]
         measured_quaternion = matrix_to_quaternion(transform[:3, :3])
@@ -90,9 +144,22 @@ class PoseTracker:
         quality_scale = MIN_QUALITY_SCALE + QUALITY_SCALE_RANGE * float(
             np.clip(quality, 0, 1)
         )
-        gain = config.tracker_position_gain * quality_scale
-        self.position = predicted_position + gain * innovation
-        self.velocity = self.velocity + config.tracker_velocity_gain * innovation / dt
+        if config.tracker_filter == "one_euro":
+            clamped_measurement = predicted_position + innovation
+            self.position = self.position_filter.update(
+                clamped_measurement,
+                timestamp_ns,
+                min_cutoff_hz=config.one_euro_min_cutoff_hz * quality_scale,
+                beta=config.one_euro_beta * quality_scale,
+                derivative_cutoff_hz=config.one_euro_derivative_cutoff_hz,
+            )
+            # The filtered derivative is bounded by the current measurement trend;
+            # unlike the legacy alpha-beta update it cannot accumulate indefinitely.
+            self.velocity = self.position_filter.derivative.copy()
+        else:
+            gain = config.tracker_position_gain * quality_scale
+            self.position = predicted_position + gain * innovation
+            self.velocity = self.velocity + config.tracker_velocity_gain * innovation / dt
         if np.dot(predicted_quaternion, measured_quaternion) < 0:
             measured_quaternion = -measured_quaternion
         updated_quaternion = slerp(

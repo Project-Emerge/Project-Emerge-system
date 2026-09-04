@@ -10,3 +10,8 @@ class Stop() extends BaseDemo:
     } {
       Actuation.Stop
     }
+
+class NoOp() extends BaseDemo:
+  override def main(): Actuation =
+    Actuation.NoOp
+    

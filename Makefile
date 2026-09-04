@@ -1,4 +1,6 @@
-.PHONY: bootstrap test build compose-config up down logs ps
+.PHONY: bootstrap test build compose-config up up-simulator down logs ps
+
+SIMULATOR_SERVICES := dashboard aggregate-runtime simulator neighborhood-system mosquitto
 
 bootstrap:
 	npm ci
@@ -18,7 +20,8 @@ up:
 	docker compose up --build -d
 
 up-simulator:
-	docker compose --profile simulator up --build -d
+	docker compose stop vision
+	docker compose --profile simulator up --build -d $(SIMULATOR_SERVICES)
 
 down:
 	docker compose down

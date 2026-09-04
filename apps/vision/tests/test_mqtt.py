@@ -1,4 +1,5 @@
 import json
+import math
 from types import SimpleNamespace
 
 import numpy as np
@@ -6,12 +7,41 @@ import numpy as np
 from vision_system.core.config import AppConfig
 from vision_system.pipeline.fusion import FusedPose
 from vision_system.transport.mqtt import (
+    ARUCO_MAP_TOPIC,
+    MqttBridge,
     MqttSettings,
     OfflineBridge,
     config_update_payload,
+    dashboard_pose_payload,
+    parse_aruco_robot_map,
     pose_payload,
     publish_config_update,
 )
+
+
+def _fused_pose(tag_id: int = 4) -> FusedPose:
+    yaw = math.pi / 2
+    world_from_tag = np.eye(4)
+    world_from_tag[:3, :3] = np.array(
+        [
+            [math.cos(yaw), -math.sin(yaw), 0.0],
+            [math.sin(yaw), math.cos(yaw), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    return FusedPose(
+        tag_id=tag_id,
+        monotonic_ns=1,
+        utc_ns=1_700_000_000_000_000_000,
+        world_from_tag=world_from_tag,
+        position_m=np.array([1.0, 2.0, 3.0]),
+        orientation_xyzw=np.array([0.0, 0.0, math.sin(yaw / 2), math.cos(yaw / 2)]),
+        velocity_m_s=np.array([3.0, 4.0, 0.5]),
+        angular_velocity_rad_s=np.array([0.1, 0.2, 0.3]),
+        cameras=["cam_0"],
+        reprojection_error_px=0.5,
+        quality=0.8,
+    )
 
 
 def test_config_update_payload_contains_revision_and_request_id() -> None:
@@ -69,24 +99,83 @@ def test_publish_config_update_waits_for_matching_result(monkeypatch) -> None:
 
 
 def test_pose_payload_uses_world_frame_and_xyzw() -> None:
-    pose = FusedPose(
-        tag_id=4,
-        monotonic_ns=1,
-        utc_ns=1_700_000_000_000_000_000,
-        world_from_tag=np.eye(4),
-        position_m=np.array([1.0, 2.0, 3.0]),
-        orientation_xyzw=np.array([0.0, 0.0, 0.0, 1.0]),
-        velocity_m_s=np.zeros(3),
-        angular_velocity_rad_s=np.zeros(3),
-        cameras=["cam_0"],
-        reprojection_error_px=0.5,
-        quality=0.8,
-    )
+    pose = _fused_pose()
     payload = pose_payload(pose, sequence=17)
     assert payload["frame_id"] == "world"
     assert payload["sequence"] == 17
-    assert payload["orientation_xyzw"]["w"] == 1.0
+    assert payload["orientation_xyzw"]["w"] == pose.orientation_xyzw[3]
+    assert payload["velocity_m_s"] == {"x": 3.0, "y": 4.0, "z": 0.5}
+    assert payload["angular_velocity_rad_s"] == {"x": 0.1, "y": 0.2, "z": 0.3}
     json.dumps(payload, default=float)
+
+
+def test_dashboard_pose_payload_contains_only_known_compatibility_fields() -> None:
+    payload = dashboard_pose_payload(_fused_pose(), sequence=7)
+    assert payload["x_m"] == 1.0
+    assert payload["y_m"] == 2.0
+    assert payload["z_m"] == 3.0
+    assert payload["roll_rad"] == 0.0
+    assert payload["pitch_rad"] == 0.0
+    assert payload["heading_rad"] == math.pi / 2
+    assert payload["speed_m_s"] == 5.0
+    assert payload["timestamp_us"] == 1_700_000_000_000_000
+    assert payload["sequence"] == 7
+    assert payload["quality"] == 0.8
+    assert payload["visible_by"] == ["cam_0"]
+    assert "position_variance_m2" not in payload
+
+
+def test_parse_aruco_robot_map_validates_marker_and_robot_ids() -> None:
+    assert parse_aruco_robot_map({"0": "A1B2C3", "12": "D4E5F6"}) == {
+        0: "A1B2C3",
+        12: "D4E5F6",
+    }
+    for invalid in (
+        {"01": "A1B2C3"},
+        {"50": "A1B2C3"},
+        {"1": "invalid"},
+        {"1": "A1B2C3", "2": "A1B2C3"},
+    ):
+        try:
+            parse_aruco_robot_map(invalid)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"mapping should be rejected: {invalid}")
+
+
+def test_mqtt_bridge_subscribes_to_mapping_and_publishes_both_pose_topics(
+    tmp_path,
+) -> None:
+    bridge = MqttBridge(AppConfig(), tmp_path / "cache.json", tmp_path / "calibrations")
+    subscriptions = []
+    published = []
+    client = SimpleNamespace(
+        subscribe=lambda topic, qos: subscriptions.append((topic, qos)),
+    )
+    bridge._publish_json = lambda topic, body, qos=0, retain=False: published.append(
+        (topic, body, qos, retain)
+    )
+
+    bridge._on_connect(client, None, None, 0, None)
+    assert (ARUCO_MAP_TOPIC, 1) in subscriptions
+
+    bridge._on_message(
+        client,
+        None,
+        SimpleNamespace(topic=ARUCO_MAP_TOPIC, payload=b'{"4":"A1B2C3"}'),
+    )
+    published.clear()
+    bridge.publish_pose(_fused_pose())
+    assert [item[0] for item in published] == [
+        "vision/default/indoor-01/pose/4",
+        "/pose/A1B2C3",
+    ]
+    dashboard_payload = published[1][1]
+    assert dashboard_payload["tag_id"] == 4
+    assert dashboard_payload["x_m"] == 1.0
+    assert dashboard_payload["heading_rad"] == math.pi / 2
+    assert "position_variance_m2" not in dashboard_payload
 
 
 def test_offline_bridge_prints_pose_without_network(capsys) -> None:

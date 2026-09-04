@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.state/
+calibration-assets/
+calibrations/
+debug-output/
+diagnostics/
+tests/
+config*.json
+reference-markers*
+*.jpg
+*.log

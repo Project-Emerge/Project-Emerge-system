@@ -8,7 +8,8 @@ Polyglot monorepo for the Project Emerge services. Deployable applications live 
 apps/
   dashboard/          React dashboard and Node MQTT/WebSocket gateway
   aggregate-runtime/  Scala/ScaFi aggregate-computing runtime, publishes robot actuation over MQTT
-  <python-service>/   Future Python deployables
+  vision/             Python/OpenCV localization runtime for USB cameras
+  robot-emulator/     Python robot simulator used instead of physical vision input
 packages/             Optional language-specific shared libraries
 infra/mosquitto/      MQTT broker configuration
 compose.yaml          Local/edge service orchestration
@@ -41,11 +42,40 @@ npm start
 
 ## Container stack
 
-Start the production-style dashboard and Mosquitto broker with:
+Start the complete hardware stack, including the USB-camera vision runtime, with:
 
 ```bash
 make up
 make ps
+```
+
+The equivalent direct command is `docker compose up --build -d`. Vision reads
+`apps/vision/config.local.json`, loads and updates calibration artifacts under
+`apps/vision/calibrations/`, connects to `mosquitto:1883`, and persists its
+runtime state and diagnostics in named volumes. On Linux, the container receives
+access to V4L2 USB camera devices (major number 81) and supports both numeric
+camera sources and stable `/dev/v4l/by-id/...` paths.
+
+Before the first hardware start, create the local camera configuration and
+calibrations as described in `apps/vision/README.md`. The runtime remains alive
+and retries if a configured USB camera is temporarily disconnected.
+
+To run the robot simulator without loading the physical vision system, use:
+
+```bash
+make up-simulator
+```
+
+This target first stops an already-running `vision` container and then starts
+only the common services plus `simulator`. Do not use a bare
+`docker compose --profile simulator up`: Compose profiles are additive, so that
+form would also start every ordinary service, including Vision. The direct
+equivalent of the safe target is:
+
+```bash
+docker compose stop vision
+docker compose --profile simulator up --build -d \
+  dashboard aggregate-runtime simulator neighborhood-system mosquitto
 ```
 
 The dashboard is available at `http://localhost:8787`; MQTT clients connect to `mqtt://localhost:1883`. Override the published host ports with `DASHBOARD_PORT` and `MQTT_PORT` in the root `.env` when necessary. Containers communicate over the `emerge-backplane` network, where the broker has the stable address `mosquitto:1883`.
@@ -58,7 +88,12 @@ Stop the stack without deleting state:
 make down
 ```
 
-`dashboard-firmware` stores uploaded OTA images and manifests. `mosquitto-data` stores retained MQTT messages and persistent sessions. Both named volumes survive container recreation and normal `docker compose down`. Running `docker compose down -v` permanently deletes both volumes and their data.
+`dashboard-firmware` stores uploaded OTA images and manifests, while
+`mosquitto-data` stores retained MQTT messages and persistent sessions.
+`vision-state` contains the last accepted runtime configuration and
+`vision-diagnostics` contains the structured VisionSystem logs. All named
+volumes survive container recreation and normal `docker compose down`. Running
+`docker compose down -v` permanently deletes these volumes and their data.
 
 ## Configuration
 
@@ -83,6 +118,6 @@ The `aggregate-runtime` service publishes the same `/motors/{id}` topic and `{"M
 
 For OTA updates, provide a dashboard `host:port` reachable by the robots, the firmware version, and the compiled `.bin` file in **Settings → OTA update**. Use the dashboard's LAN address rather than `localhost`. The gateway stores the image, retains the OTA server on `/config/ota`, and publishes a non-retained `/ota/check/{id}` command to each discovered robot.
 
-**Settings → Marker mapping** lets an operator register which ArUco marker ID (0-49) corresponds to which robot device ID. The mapping is retained as a single JSON object (`{"<markerId>": "<deviceId>", ...}`) on `/config/aruco-map` with QoS 1, so it survives broker restarts and is immediately available to any subscriber, including a future computer-vision service that should publish robot positions on `/pose/{deviceId}` keyed by device ID rather than the raw marker ID it detects.
+**Settings → Marker mapping** lets an operator register which ArUco marker ID (0-49) corresponds to which robot device ID. The mapping is retained as a single JSON object (`{"<markerId>": "<deviceId>", ...}`) on `/config/aruco-map` with QoS 1, so it survives broker restarts. VisionSystem consumes this mapping and publishes each mapped marker on `/pose/{deviceId}` while retaining its detailed raw-marker pose under the `vision/<site>/<system_id>/pose/{markerId}` namespace.
 
 The dashboard's home page has a **Formation & parameters** panel for choosing a swarm formation (`pointToLeader`, `vShape`, `lineShape`, `circleShape`, `squareShape`, `verticalLineShape`, `stop`), a leader robot, and that formation's numeric parameters. Applying it retains a single JSON object (`{"program": "<name>", "leaderId": "<deviceId>" | null, "params": {"<key>": <number>, ...}}`) on `/config/formation` with QoS 1. `aggregate-runtime` is the only subscriber: it merges `program`, the resolved `leader` (decoded from the hex device ID), and `params` into the sensor map its ScaFi formation programs read via `sense(...)`.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -22,6 +23,10 @@ from ..pipeline.fusion import FusedPose
 
 LOGGER = logging.getLogger(__name__)
 MQTT_KEEPALIVE_S = 30
+ARUCO_MAP_TOPIC = "/config/aruco-map"
+DEVICE_ID_PATTERN = re.compile(r"^[A-F0-9]{6}$")
+ARUCO_MARKER_ID_MIN = 0
+ARUCO_MARKER_ID_MAX = 49
 
 
 @dataclass(frozen=True)
@@ -141,7 +146,7 @@ def publish_config_update(
             client.loop_stop()
 
 
-def _euler_degrees(rotation: np.ndarray) -> dict[str, float]:
+def _euler_radians(rotation: np.ndarray) -> dict[str, float]:
     sy = float(np.hypot(rotation[0, 0], rotation[1, 0]))
     singular = sy < 1e-8
     if not singular:
@@ -152,10 +157,13 @@ def _euler_degrees(rotation: np.ndarray) -> dict[str, float]:
         roll = np.arctan2(-rotation[1, 2], rotation[1, 1])
         pitch = np.arctan2(-rotation[2, 0], sy)
         yaw = 0.0
+    return {"roll": float(roll), "pitch": float(pitch), "yaw": float(yaw)}
+
+
+def _euler_degrees(rotation: np.ndarray) -> dict[str, float]:
+    radians = _euler_radians(rotation)
     return {
-        "roll": round(float(np.degrees(roll)), 4),
-        "pitch": round(float(np.degrees(pitch)), 4),
-        "yaw": round(float(np.degrees(yaw)), 4),
+        axis: round(float(np.degrees(angle)), 4) for axis, angle in radians.items()
     }
 
 
@@ -177,6 +185,16 @@ def pose_payload(pose: FusedPose, sequence: int = 0) -> dict:
             "z": quaternion[2],
             "w": quaternion[3],
         },
+        "velocity_m_s": {
+            "x": pose.velocity_m_s[0],
+            "y": pose.velocity_m_s[1],
+            "z": pose.velocity_m_s[2],
+        },
+        "angular_velocity_rad_s": {
+            "x": pose.angular_velocity_rad_s[0],
+            "y": pose.angular_velocity_rad_s[1],
+            "z": pose.angular_velocity_rad_s[2],
+        },
         "euler_deg": _euler_degrees(pose.world_from_tag[:3, :3]),
         "visible_by": pose.cameras,
         "reprojection_error_px": pose.reprojection_error_px,
@@ -185,6 +203,50 @@ def pose_payload(pose: FusedPose, sequence: int = 0) -> dict:
         "age_ms": max(0.0, (now_ns - pose.monotonic_ns) / 1e6),
         "valid": True,
     }
+
+
+def dashboard_pose_payload(pose: FusedPose, sequence: int = 0) -> dict:
+    """Adapt all known VisionSystem pose data to the dashboard contract."""
+    angles = _euler_radians(pose.world_from_tag[:3, :3])
+    payload = pose_payload(pose, sequence)
+    payload.update(
+        {
+            "x_m": pose.position_m[0],
+            "y_m": pose.position_m[1],
+            "z_m": pose.position_m[2],
+            "roll_rad": angles["roll"],
+            "pitch_rad": angles["pitch"],
+            "heading_rad": angles["yaw"],
+            "speed_m_s": float(np.linalg.norm(pose.velocity_m_s[:2])),
+            "timestamp_us": pose.utc_ns // 1_000,
+        }
+    )
+    return payload
+
+
+def parse_aruco_robot_map(payload: object) -> dict[int, str]:
+    """Validate the dashboard's retained marker-to-device mapping."""
+    if not isinstance(payload, dict):
+        raise ValueError("ArUco map must be a JSON object")
+    mapping: dict[int, str] = {}
+    device_ids: set[str] = set()
+    for raw_marker_id, raw_device_id in payload.items():
+        if not isinstance(raw_marker_id, str) or not raw_marker_id.isdigit():
+            raise ValueError(f"invalid ArUco marker ID: {raw_marker_id!r}")
+        marker_id = int(raw_marker_id)
+        if str(marker_id) != raw_marker_id or not (
+            ARUCO_MARKER_ID_MIN <= marker_id <= ARUCO_MARKER_ID_MAX
+        ):
+            raise ValueError(f"invalid ArUco marker ID: {raw_marker_id!r}")
+        if not isinstance(raw_device_id, str) or not DEVICE_ID_PATTERN.fullmatch(
+            raw_device_id
+        ):
+            raise ValueError(f"invalid robot device ID for marker {marker_id}")
+        if raw_device_id in device_ids:
+            raise ValueError(f"robot device ID mapped more than once: {raw_device_id}")
+        mapping[marker_id] = raw_device_id
+        device_ids.add(raw_device_id)
+    return mapping
 
 
 class OfflineBridge:
@@ -266,6 +328,7 @@ class MqttBridge:
         self.config_event = threading.Event()
         self.connected = threading.Event()
         self.pose_sequences: dict[int, int] = {}
+        self.robot_ids_by_tag: dict[int, str] = {}
         self.loop_started = False
         self.client = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2,
@@ -319,6 +382,7 @@ class MqttBridge:
         base = self.config.base_topic
         client.subscribe(f"{base}/config/set", qos=1)
         client.subscribe(f"{base}/calibration/+/set", qos=1)
+        client.subscribe(ARUCO_MAP_TOPIC, qos=1)
         for topic, qos in self.extra_subscriptions.items():
             client.subscribe(topic, qos=qos)
         self.publish_status(True, "running")
@@ -337,7 +401,9 @@ class MqttBridge:
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             self.publish_event("INVALID_JSON", str(error), severity="error")
             return
-        if message.topic.endswith("/config/set"):
+        if message.topic == ARUCO_MAP_TOPIC:
+            self._accept_aruco_map(body)
+        elif message.topic.endswith("/config/set"):
             self._accept_config(body)
         elif "/calibration/" in message.topic and message.topic.endswith("/set"):
             self._accept_calibration(message.topic, body)
@@ -405,6 +471,15 @@ class MqttBridge:
                 "INVALID_CALIBRATION", str(error), severity="error", camera_id=camera_id
             )
 
+    def _accept_aruco_map(self, body: object) -> None:
+        try:
+            mapping = parse_aruco_robot_map(body)
+        except ValueError as error:
+            self.publish_event("INVALID_ARUCO_MAP", str(error), severity="error")
+            return
+        self.robot_ids_by_tag = mapping
+        LOGGER.info("ArUco robot mapping updated: %s", mapping)
+
     def _publish_json(self, topic: str, body: dict, qos: int = 0, retain: bool = False) -> None:
         self.client.publish(
             topic,
@@ -418,6 +493,10 @@ class MqttBridge:
         self._publish_json(
             f"{self.config.base_topic}/pose/{pose.tag_id}", pose_payload(pose, sequence)
         )
+        if device_id := self.robot_ids_by_tag.get(pose.tag_id):
+            self._publish_json(
+                f"/pose/{device_id}", dashboard_pose_payload(pose, sequence)
+            )
         self.pose_sequences[pose.tag_id] = sequence + 1
 
     def publish_observations(self, camera_id: str, payload: dict) -> None:

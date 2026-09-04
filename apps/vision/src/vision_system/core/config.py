@@ -188,6 +188,10 @@ class FusionConfig(BaseModel):
     publish_hz: float = Field(default=20.0, gt=0, le=100)
     max_reprojection_error_px: float = Field(default=4.0, gt=0)
     huber_scale_px: float = Field(default=1.5, gt=0)
+    tracker_filter: Literal["one_euro", "alpha_beta"] = "one_euro"
+    one_euro_min_cutoff_hz: float = Field(default=2.0, gt=0, le=100)
+    one_euro_beta: float = Field(default=5.0, ge=0, le=100)
+    one_euro_derivative_cutoff_hz: float = Field(default=1.0, gt=0, le=100)
     tracker_position_gain: float = Field(default=0.65, gt=0, le=1)
     tracker_velocity_gain: float = Field(default=0.12, ge=0, le=1)
     tracker_orientation_gain: float = Field(default=0.55, gt=0, le=1)

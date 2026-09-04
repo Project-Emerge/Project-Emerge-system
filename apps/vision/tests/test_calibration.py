@@ -88,6 +88,9 @@ def test_synthetic_reference_extrinsic() -> None:
         1: ReferenceMarkerConfig(
             id=1, size_m=0.15, position_m=(0.3, 0, 2), orientation_xyzw=(0, 0, 0, 1)
         ),
+        2: ReferenceMarkerConfig(
+            id=2, size_m=0.15, position_m=(0.0, 0.3, 2), orientation_xyzw=(0, 0, 0, 1)
+        ),
     }
     expected_world_from_camera = pose_matrix(np.array([0.05, -0.02, 0.0]), np.array([0, 0, 0, 1]))
     camera_from_world = invert_transform(expected_world_from_camera)
@@ -107,21 +110,20 @@ def test_synthetic_reference_extrinsic() -> None:
         )
         corners.append(projected.astype(np.float32))
     estimate = estimate_world_from_camera(
-        corners, np.array([[0], [1]], dtype=np.int32), references, matrix, distortion
+        corners, np.array([[0], [1], [2]], dtype=np.int32), references, matrix, distortion
     )
     assert estimate is not None
     np.testing.assert_allclose(estimate[0], expected_world_from_camera, atol=1e-5)
     assert estimate[1] < 1e-3
 
 
-def test_low_quality_raises_extrinsic_ransac_threshold(monkeypatch) -> None:
-    thresholds: list[float] = []
+def test_solvepnp_failure_returns_none(monkeypatch) -> None:
+    """estimate_world_from_camera returns None when solvePnP fails."""
 
     def reject_pose(*args, **kwargs):
-        thresholds.append(kwargs["reprojectionError"])
-        return False, None, None, None
+        return False, None, None
 
-    monkeypatch.setattr(cv2, "solvePnPRansac", reject_pose)
+    monkeypatch.setattr(cv2, "solvePnP", reject_pose)
     references = {
         marker_id: ReferenceMarkerConfig(
             id=marker_id,
@@ -129,10 +131,10 @@ def test_low_quality_raises_extrinsic_ransac_threshold(monkeypatch) -> None:
             position_m=(float(marker_id), 0, 2),
             orientation_xyzw=(0, 0, 0, 1),
         )
-        for marker_id in (0, 1)
+        for marker_id in (0, 1, 2)
     }
     corners = [np.zeros((1, 4, 2), dtype=np.float32) for _ in references]
-    ids = np.array([[0], [1]], dtype=np.int32)
+    ids = np.array([[0], [1], [2]], dtype=np.int32)
 
     strict = estimate_world_from_camera(corners, ids, references, np.eye(3), np.zeros(8))
     relaxed = estimate_world_from_camera(
@@ -146,7 +148,6 @@ def test_low_quality_raises_extrinsic_ransac_threshold(monkeypatch) -> None:
 
     assert strict is None
     assert relaxed is None
-    assert thresholds == [3.0, 30.0]
 
 
 def test_load_calibrations_ignores_folder_reports(tmp_path: Path) -> None:
@@ -180,17 +181,17 @@ def test_extrinsic_diagnostic_explains_that_target_does_not_count() -> None:
     assert not accepted
     assert "reference utili [0]" in detection
     assert "ignorati [23]" in detection
-    assert "1/2" in reason
+    assert "1/3" in reason
     assert "target" in reason
 
 
 def test_extrinsic_diagnostic_reports_reprojection_rejection_and_override() -> None:
     rejected, _, reason = extrinsic_sample_diagnostic(
-        seen_ids=[0, 1], reference_ids={0, 1}, reprojection_error_px=2.5
+        seen_ids=[0, 1, 2], reference_ids={0, 1, 2}, reprojection_error_px=2.5
     )
     accepted, _, override_reason = extrinsic_sample_diagnostic(
-        seen_ids=[0, 1],
-        reference_ids={0, 1},
+        seen_ids=[0, 1, 2],
+        reference_ids={0, 1, 2},
         reprojection_error_px=2.5,
         allow_low_quality=True,
     )

@@ -14,7 +14,7 @@ import org.slf4j.LoggerFactory
 import scala.concurrent.duration.*
 
 private val BROKER_URL = System.getenv().getOrDefault("MQTT_URL", "tcp://localhost:1883")
-private val PROGRAM_FREQUENCY: Double = 10 // Hz
+private val PROGRAM_FREQUENCY: Double = 5 // Hz
 
 class AllDemoToLoad(demos: (String, BaseDemo)*) extends BaseDemo {
   private val logger = LoggerFactory.getLogger(classOf[AllDemoToLoad])
@@ -26,8 +26,8 @@ class AllDemoToLoad(demos: (String, BaseDemo)*) extends BaseDemo {
     val programToRun = demosToMap.get(currentProgram) match {
       case Some(demo) => demo
       case None =>
-        logger.warn(s"Unknown program name: '$currentProgram'. Falling back to 'stop'. Available: ${demosToMap.keys.mkString(", ")}")
-        demosToMap.getOrElse("stop", Stop())
+        logger.warn(s"Unknown program name: '$currentProgram'. Falling back to 'NoOp'. Available: ${demosToMap.keys.mkString(", ")}")
+        demosToMap.getOrElse("stop", NoOp())
     }
     align(currentProgram){
       programToLaunch => programToRun(ctx)

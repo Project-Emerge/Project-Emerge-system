@@ -319,6 +319,25 @@ uv run vision-calibrate --config config.local.json extrinsics --camera all \
 
 ## 6. Esecuzione del Runtime
 
+### 6.0 Esecuzione con Docker Compose
+
+Dalla root del repository, lo stack hardware completo include automaticamente
+VisionSystem:
+
+```bash
+docker compose up --build -d
+docker compose logs --follow vision
+```
+
+Il container usa `config.local.json` e la directory `calibrations/` presenti in
+questa applicazione, accede alle camere USB V4L2 del sistema Linux e comunica con
+il broker Compose tramite `mosquitto:1883`. Stato e log diagnostici sono
+conservati nei volumi Docker `vision-state` e `vision-diagnostics`.
+
+Per usare il simulatore robot senza avviare VisionSystem eseguire invece
+`make up-simulator` dalla root. Il target arresta anche un eventuale container
+`vision` già attivo.
+
 ### 6.1 Esecuzione locale (singolo PC)
 
 Avvia il localizzatore aprendo tutte le camere configurate, eseguendo rilevamento, controllo drift e fusione:
@@ -423,6 +442,17 @@ Base topic predefinito: `vision/<site>/<system_id>`.
 | `metrics` | 0 | No | Outbound | Metriche aggregate di sistema |
 | `event` | 1 | No | Outbound | Notifiche di drift, errori e allarmi |
 | `status` | 1 | Sì | Outbound | Stato online del sistema e Last Will |
+| `/config/aruco-map` | 1 | Sì | Inbound | Mappa globale marker ArUco → device ID robot |
+| `/pose/<device_id>` | 0 | No | Outbound | Posa adattata al protocollo dashboard per i marker mappati |
+
+I topic che iniziano con `/` sono globali e non usano il base topic Vision. Per
+ogni marker mobile, `pose/<tag_id>` continua a pubblicare la posa 3D dettagliata.
+Quando `/config/aruco-map` associa quel marker a un robot, Vision pubblica anche
+`/pose/<device_id>` con i campi richiesti dalla dashboard (`x_m`, `y_m`,
+`heading_rad`, `speed_m_s`, `timestamp_us`) e con gli altri dati effettivamente
+disponibili: quota, orientamento, velocità lineare e angolare, camere coinvolte,
+errore di riproiezione e qualità. `position_variance_m2` non viene sintetizzato,
+perché VisionSystem non calcola una covarianza della posizione.
 
 ### 8.2 Esempio di configurazione completa
 
@@ -465,6 +495,10 @@ Base topic predefinito: `vision/<site>/<system_id>`.
       "publish_hz": 20.0,
       "max_reprojection_error_px": 4.0,
       "huber_scale_px": 1.5,
+      "tracker_filter": "one_euro",
+      "one_euro_min_cutoff_hz": 2.0,
+      "one_euro_beta": 5.0,
+      "one_euro_derivative_cutoff_hz": 1.0,
       "tracker_position_gain": 0.65,
       "tracker_velocity_gain": 0.12,
       "tracker_orientation_gain": 0.55,
@@ -484,6 +518,24 @@ Base topic predefinito: `vision/<site>/<system_id>`.
 
 - **Target automatici (`auto_mobile_markers`)**: se abilitato, qualsiasi marker rilevato che non appartenga a `reference_markers` né a `ignored_ids` viene tracciato come marker mobile con dimensione `default_size_m`.
 - **Frame anchor (`anchor_frame`)**: vincola le posizioni dei 4 marker di riferimento chiave esattamente sui vertici del rettangolo specificato, garantendo un sistema di coordinate world ortogonale e stabile.
+
+### 8.4 Filtro del tracker
+
+Il tracker usa di default un **One Euro Filter** sulla posizione. A target quasi
+fermo attenua il jitter, mentre durante un movimento rapido aumenta
+automaticamente la frequenza di taglio e riduce il ritardo:
+
+- `one_euro_min_cutoff_hz`: stabilità a riposo; aumentarlo rende il tracker più
+  reattivo ma lascia passare più rumore.
+- `one_euro_beta`: adattamento alla velocità; aumentarlo riduce il ritardo nei
+  movimenti rapidi.
+- `one_euro_derivative_cutoff_hz`: filtraggio della velocità usata sia per
+  adattare il filtro sia per le brevi predizioni quando il marker non è visibile.
+
+I valori iniziali `2.0`, `5.0`, `1.0` sono un profilo reattivo per acquisizioni a
+20–30 FPS. Il precedente tracker è ancora selezionabile con
+`"tracker_filter": "alpha_beta"`; in quel caso si usano
+`tracker_position_gain` e `tracker_velocity_gain`.
 
 ---
 

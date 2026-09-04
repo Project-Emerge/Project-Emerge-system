@@ -1,7 +1,106 @@
+import cv2
+import numpy as np
 import pytest
 
-from vision_system.apps.camera_selector import build_camera_config
+from vision_system.apps import camera_selector
+from vision_system.apps.camera_selector import (
+    PREVIEW_PROFILES,
+    build_camera_config,
+    open_previews,
+    open_previews_with_failures,
+)
 from vision_system.core.config import AppConfig, ArucoConfig, CameraConfig, MobileMarkerConfig
+
+
+class FakeCapture:
+    def __init__(self, frame=None, *, opened: bool = True) -> None:
+        self.frame = frame
+        self.opened = opened
+        self.released = False
+        self.calls: list[tuple[int, float]] = []
+        self.properties: dict[int, float] = {}
+
+    def isOpened(self) -> bool:
+        return self.opened
+
+    def set(self, property_id: int, value: float) -> bool:
+        self.calls.append((property_id, value))
+        self.properties[property_id] = value
+        return True
+
+    def get(self, property_id: int) -> float:
+        return self.properties.get(property_id, 0.0)
+
+    def read(self):
+        if self.frame is None:
+            self.opened = False
+            return False, None
+        return True, self.frame
+
+    def getBackendName(self) -> str:
+        return "FAKE"
+
+    def release(self) -> None:
+        self.opened = False
+        self.released = True
+
+
+def test_preview_negotiates_mjpeg_before_dimensions(monkeypatch) -> None:
+    capture = FakeCapture(np.zeros((480, 640, 3), dtype=np.uint8))
+    monkeypatch.setattr(camera_selector, "open_video_capture", lambda source: capture)
+
+    previews = open_previews([2], timeout_s=0.01)
+
+    assert len(previews) == 1
+    assert previews[0].profile == "mjpeg"
+    assert capture.calls[0][0] == cv2.CAP_PROP_FOURCC
+    assert [property_id for property_id, _ in capture.calls[1:4]] == [
+        cv2.CAP_PROP_FRAME_WIDTH,
+        cv2.CAP_PROP_FRAME_HEIGHT,
+        cv2.CAP_PROP_FPS,
+    ]
+    previews[0].close()
+
+
+def test_preview_retries_with_lower_fps_after_frame_failure(monkeypatch) -> None:
+    captures = [
+        FakeCapture(),
+        FakeCapture(np.zeros((480, 640, 3), dtype=np.uint8)),
+    ]
+    monkeypatch.setattr(camera_selector, "open_video_capture", lambda source: captures.pop(0))
+    monkeypatch.setattr(camera_selector.time, "sleep", lambda duration: None)
+
+    previews = open_previews([2], timeout_s=0.01)
+
+    assert len(previews) == 1
+    assert previews[0].profile == "mjpeg-low-fps"
+    assert previews[0].capture.properties[cv2.CAP_PROP_FPS] == PREVIEW_PROFILES[1].fps
+    previews[0].close()
+
+
+def test_preview_reports_v4l2_open_failure(monkeypatch) -> None:
+    captures = [FakeCapture(opened=False) for _ in PREVIEW_PROFILES]
+    monkeypatch.setattr(camera_selector, "open_video_capture", lambda source: captures.pop(0))
+    monkeypatch.setattr(camera_selector.time, "sleep", lambda duration: None)
+    monkeypatch.setattr(
+        camera_selector,
+        "inspect_video_node",
+        lambda source: {
+            "path": f"/dev/video{source}",
+            "exists": True,
+            "readable": True,
+            "writable": True,
+            "capture_capable": True,
+        },
+    )
+
+    previews, failures = open_previews_with_failures([6], timeout_s=0.01)
+
+    assert previews == []
+    assert len(failures) == 1
+    assert failures[0].source == 6
+    assert failures[0].reason == "v4l2_open_failed"
+    assert len(failures[0].attempts) == len(PREVIEW_PROFILES)
 
 
 def test_camera_selection_preserves_config_and_increments_revision() -> None:

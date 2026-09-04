@@ -35,6 +35,33 @@ services:
     networks:
       - emerge-backplane
 
+  vision:
+    build:
+      context: apps/vision
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+        restart: true
+    environment:
+      VISION_MQTT_HOST: mosquitto
+      VISION_MQTT_PORT: 1883
+    # USB cameras are V4L2 character devices (major 81). Mounting /dev keeps
+    # numeric sources and stable /dev/v4l/by-id paths usable without listing
+    # every camera node in this file.
+    device_cgroup_rules:
+      - "c 81:* rmw"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    volumes:
+      - /dev:/dev
+      - ./apps/vision/config.local.json:/app/config/config.local.json:ro
+      - ./apps/vision/calibrations:/app/calibrations
+      - vision-diagnostics:/app/diagnostics
+      - vision-state:/app/state
+    networks:
+      - emerge-backplane
+
   simulator:
     profiles:
       - simulator
@@ -94,3 +121,5 @@ networks:
 volumes:
   dashboard-firmware:
   mosquitto-data:
+  vision-diagnostics:
+  vision-state:

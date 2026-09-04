@@ -26,6 +26,9 @@ class DebugRenderer:
         self._shown_mosaic = False
         self._shown_world = False
         self.trails: dict[int, deque[tuple[float, NDArray[np.float64]]]] = defaultdict(deque)
+        # Cache last observations per camera so that the mosaic keeps showing
+        # tags between frames (the main loop runs faster than camera FPS).
+        self._last_observations: dict[str, list[TagObservation]] = {}
 
     def update(self, config: AppConfig, calibrations: dict[str, CameraCalibration]) -> None:
         self.config = config
@@ -39,9 +42,14 @@ class DebugRenderer:
     ) -> None:
         if not self.enabled:
             return
+        # Merge: new observations override the cache; cameras without new data
+        # keep showing their last known detections.
+        merged = dict(self._last_observations)
+        merged.update(observations)
+        self._last_observations = dict(merged)
         try:
             if self.config.debug.mosaic:
-                cv2.imshow("VisionSystem - mosaic", self._mosaic(frames, observations))
+                cv2.imshow("VisionSystem - mosaic", self._mosaic(frames, merged))
                 self._shown_mosaic = True
             elif self._shown_mosaic:
                 cv2.destroyWindow("VisionSystem - mosaic")

@@ -3,19 +3,29 @@
 from __future__ import annotations
 
 import argparse
+import errno
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - unavailable outside Unix
+    fcntl = None  # type: ignore[assignment]
+
 import logging
 import math
+import os
+import struct
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
 from numpy.typing import NDArray
 
 from ..core.config import AppConfig, load_config, save_json
-from ..pipeline.capture import open_video_capture
+from ..pipeline.capture import PREFERRED_FOURCC, capture_fourcc, open_video_capture
 from ..transport.diagnostics import configure_diagnostics, event
 
 WINDOW_NAME = "VisionSystem - selezione camere"
@@ -24,6 +34,56 @@ TILE_WIDTH = 400
 TILE_HEIGHT = 225
 GRID_COLUMNS = 3
 LOGGER = logging.getLogger(__name__)
+PREVIEW_TIMEOUT_S = 2.0
+PREVIEW_RETRY_DELAY_S = 0.15
+
+# linux/videodev2.h.  QUERYCAP lets us reject UVC metadata nodes before OpenCV
+# tries to treat every /dev/video* entry as a camera.
+VIDIOC_QUERYCAP = 0x80685600
+V4L2_CAP_VIDEO_CAPTURE = 0x00000001
+V4L2_CAP_VIDEO_CAPTURE_MPLANE = 0x00001000
+V4L2_CAP_DEVICE_CAPS = 0x80000000
+V4L2_CAPABILITY_SIZE = 104
+
+
+@dataclass(frozen=True)
+class PreviewProfile:
+    name: str
+    fourcc: str | None
+    width: int
+    height: int
+    fps: float
+
+
+# Prefer compressed video before the first read: opening several UVC cameras in
+# their often-uncompressed default mode can exhaust the USB periodic bandwidth.
+PREVIEW_PROFILES = (
+    PreviewProfile("mjpeg", PREFERRED_FOURCC, 640, 480, 15.0),
+    PreviewProfile("mjpeg-low-fps", PREFERRED_FOURCC, 640, 480, 5.0),
+    PreviewProfile("native-low-fps", None, 640, 480, 5.0),
+)
+
+
+@dataclass(frozen=True)
+class CameraOpenFailure:
+    source: int
+    reason: str
+    attempts: tuple[dict[str, Any], ...]
+    node: dict[str, Any]
+
+
+FAILURE_MESSAGES = {
+    "device_missing": "device assente",
+    "permission_denied": "permessi negati",
+    "device_busy": "device occupato",
+    "not_video_capture_node": "nodo metadata",
+    "frame_timeout": "nessun frame",
+    "v4l2_open_failed": "apertura V4L2",
+}
+
+
+def _failure_message(reason: str) -> str:
+    return FAILURE_MESSAGES.get(reason, reason)
 
 
 @dataclass
@@ -31,63 +91,215 @@ class CameraPreview:
     source: int
     capture: cv2.VideoCapture
     frame: NDArray[np.uint8]
+    profile: str = "unknown"
     online: bool = True
 
     def close(self) -> None:
         self.capture.release()
 
 
+def _decode_c_string(value: bytes | bytearray) -> str:
+    return bytes(value).split(b"\0", 1)[0].decode("utf-8", errors="replace")
+
+
+def inspect_video_node(source: int) -> dict[str, Any]:
+    """Return Linux V4L2 identity/capabilities and actionable access errors."""
+    path = Path(f"/dev/video{source}")
+    result: dict[str, Any] = {
+        "path": str(path),
+        "exists": path.exists(),
+        "readable": os.access(path, os.R_OK),
+        "writable": os.access(path, os.W_OK),
+    }
+    if not sys.platform.startswith("linux") or fcntl is None or not result["exists"]:
+        return result
+
+    try:
+        descriptor = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+    except OSError as error:
+        result.update(
+            probe_errno=error.errno,
+            probe_error=error.strerror or str(error),
+        )
+        return result
+
+    try:
+        capability = bytearray(V4L2_CAPABILITY_SIZE)
+        fcntl.ioctl(descriptor, VIDIOC_QUERYCAP, capability, True)
+        capabilities = struct.unpack_from("=I", capability, 84)[0]
+        device_caps = struct.unpack_from("=I", capability, 88)[0]
+        effective_caps = device_caps if capabilities & V4L2_CAP_DEVICE_CAPS else capabilities
+        result.update(
+            driver=_decode_c_string(capability[0:16]),
+            card=_decode_c_string(capability[16:48]),
+            bus_info=_decode_c_string(capability[48:80]),
+            capabilities=f"0x{effective_caps:08x}",
+            capture_capable=bool(
+                effective_caps & (V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VIDEO_CAPTURE_MPLANE)
+            ),
+        )
+    except OSError as error:
+        result.update(
+            probe_errno=error.errno,
+            probe_error=error.strerror or str(error),
+        )
+    finally:
+        os.close(descriptor)
+    return result
+
+
+def _failure_reason(node: dict[str, Any], opened_at_least_once: bool) -> str:
+    probe_errno = node.get("probe_errno")
+    if not node.get("exists", True):
+        return "device_missing"
+    if probe_errno in (errno.EACCES, errno.EPERM) or not node.get("readable", True):
+        return "permission_denied"
+    if probe_errno == errno.EBUSY:
+        return "device_busy"
+    if node.get("capture_capable") is False:
+        return "not_video_capture_node"
+    if opened_at_least_once:
+        return "frame_timeout"
+    return "v4l2_open_failed"
+
+
 def discover_camera_sources(max_index: int = 15) -> list[int]:
     if sys.platform.startswith("linux"):
         detected: list[int] = []
+        ignored: list[dict[str, Any]] = []
+        nodes: list[dict[str, Any]] = []
         for path in Path("/dev").glob("video*"):
             suffix = path.name.removeprefix("video")
             if suffix.isdigit() and int(suffix) <= max_index:
-                detected.append(int(suffix))
+                source = int(suffix)
+                node = inspect_video_node(source)
+                nodes.append({"source": source, **node})
+                if node.get("capture_capable") is False:
+                    ignored.append({"source": source, "reason": "not_video_capture_node"})
+                else:
+                    # If QUERYCAP itself fails, keep the node as a candidate and
+                    # let OpenCV try it; the diagnostic retains the exact errno.
+                    detected.append(source)
         sources = sorted(set(detected))
     else:
         sources = list(range(max_index + 1))
-    event(LOGGER, "camera_sources_discovered", max_index=max_index, sources=sources)
+        ignored = []
+        nodes = []
+    event(
+        LOGGER,
+        "camera_sources_discovered",
+        max_index=max_index,
+        sources=sources,
+        ignored=ignored,
+        nodes=nodes,
+    )
     return sources
 
 
-def open_previews(sources: list[int], timeout_s: float = 1.0) -> list[CameraPreview]:
-    previews: list[CameraPreview] = []
-    for source in sources:
+def _apply_preview_profile(capture: cv2.VideoCapture, profile: PreviewProfile) -> dict[str, bool]:
+    accepted: dict[str, bool] = {}
+    if profile.fourcc is not None:
+        accepted["fourcc"] = bool(
+            capture.set(
+                cv2.CAP_PROP_FOURCC,
+                float(cv2.VideoWriter_fourcc(*profile.fourcc)),
+            )
+        )
+    accepted.update(
+        width=bool(capture.set(cv2.CAP_PROP_FRAME_WIDTH, profile.width)),
+        height=bool(capture.set(cv2.CAP_PROP_FRAME_HEIGHT, profile.height)),
+        fps=bool(capture.set(cv2.CAP_PROP_FPS, profile.fps)),
+        buffer_size=bool(capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)),
+    )
+    return accepted
+
+
+def _open_preview(
+    source: int,
+    timeout_s: float,
+) -> tuple[CameraPreview | None, CameraOpenFailure | None]:
+    attempts: list[dict[str, Any]] = []
+    opened_at_least_once = False
+    for attempt_index, profile in enumerate(PREVIEW_PROFILES, start=1):
         capture = open_video_capture(source)
-        capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
-        capture.set(cv2.CAP_PROP_FPS, 15)
-        capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        opened = capture.isOpened()
+        opened_at_least_once = opened_at_least_once or opened
+        accepted = _apply_preview_profile(capture, profile) if opened else {}
         deadline = time.monotonic() + timeout_s
         frame = None
         while capture.isOpened() and time.monotonic() < deadline:
             ok, candidate = capture.read()
-            if ok:
+            if ok and candidate is not None and candidate.size:
                 frame = candidate
                 break
-        if frame is None:
+        effective = {
+            "width": capture.get(cv2.CAP_PROP_FRAME_WIDTH),
+            "height": capture.get(cv2.CAP_PROP_FRAME_HEIGHT),
+            "fps": capture.get(cv2.CAP_PROP_FPS),
+            "fourcc": capture_fourcc(capture),
+        }
+        attempt = {
+            "attempt": attempt_index,
+            "profile": profile.name,
+            "requested_fourcc": profile.fourcc,
+            "requested_size": [profile.width, profile.height],
+            "requested_fps": profile.fps,
+            "opened": opened,
+            "frame_received": frame is not None,
+            "accepted": accepted,
+            "effective": effective,
+        }
+        attempts.append(attempt)
+        event(LOGGER, "camera_preview_attempt", source=source, **attempt)
+        if frame is not None:
             event(
                 LOGGER,
-                "camera_preview_open_failed",
-                level=logging.WARNING,
+                "camera_preview_opened",
                 source=source,
-                capture_opened=capture.isOpened(),
-                timeout_s=timeout_s,
+                frame_shape=frame.shape,
+                backend=capture.getBackendName() if capture.isOpened() else None,
+                profile=profile.name,
+                accepted=accepted,
+                **{f"effective_{key}": value for key, value in effective.items()},
             )
-            capture.release()
-            continue
-        event(
-            LOGGER,
-            "camera_preview_opened",
-            source=source,
-            frame_shape=frame.shape,
-            backend=capture.getBackendName() if capture.isOpened() else None,
-            effective_width=capture.get(cv2.CAP_PROP_FRAME_WIDTH),
-            effective_height=capture.get(cv2.CAP_PROP_FRAME_HEIGHT),
-            effective_fps=capture.get(cv2.CAP_PROP_FPS),
-        )
-        previews.append(CameraPreview(source, capture, frame))
+            return CameraPreview(source, capture, frame, profile.name), None
+        capture.release()
+        if attempt_index < len(PREVIEW_PROFILES):
+            time.sleep(PREVIEW_RETRY_DELAY_S)
+
+    node = inspect_video_node(source)
+    reason = _failure_reason(node, opened_at_least_once)
+    failure = CameraOpenFailure(source, reason, tuple(attempts), node)
+    event(
+        LOGGER,
+        "camera_preview_open_failed",
+        level=logging.WARNING,
+        source=source,
+        reason=reason,
+        timeout_s=timeout_s,
+        attempts=attempts,
+        node=node,
+    )
+    return None, failure
+
+
+def open_previews_with_failures(
+    sources: list[int],
+    timeout_s: float = PREVIEW_TIMEOUT_S,
+) -> tuple[list[CameraPreview], list[CameraOpenFailure]]:
+    previews: list[CameraPreview] = []
+    failures: list[CameraOpenFailure] = []
+    for source in sources:
+        preview, failure = _open_preview(source, timeout_s)
+        if preview is not None:
+            previews.append(preview)
+        if failure is not None:
+            failures.append(failure)
+    return previews, failures
+
+
+def open_previews(sources: list[int], timeout_s: float = PREVIEW_TIMEOUT_S) -> list[CameraPreview]:
+    previews, _ = open_previews_with_failures(sources, timeout_s)
     return previews
 
 
@@ -133,6 +345,7 @@ class CameraSelector:
         self.max_index = max_index
         self.only_index = only_index
         self.previews: list[CameraPreview] = []
+        self.open_failures: list[CameraOpenFailure] = []
         self.assignments: dict[int, int] = {}
         self.selected_index: int | None = None
         self.message = (
@@ -146,7 +359,7 @@ class CameraSelector:
     def scan(self) -> None:
         self.close()
         sources = self.requested_sources or discover_camera_sources(self.max_index)
-        self.previews = open_previews(sources)
+        self.previews, self.open_failures = open_previews_with_failures(sources)
         available = {preview.source for preview in self.previews}
         if self.only_index is None:
             self.assignments = {
@@ -171,9 +384,21 @@ class CameraSelector:
                 self.base.cameras[index].id: source
                 for index, source in self.assignments.items()
             },
+            failures={failure.source: failure.reason for failure in self.open_failures},
         )
         if not self.previews:
-            self.message = "Nessuna camera video disponibile. Premi R per riprovare o ESC."
+            failed = ", ".join(
+                f"{failure.source}:{_failure_message(failure.reason)}"
+                for failure in self.open_failures
+            )
+            detail = f" ({failed})" if failed else ""
+            self.message = f"Nessun flusso{detail}. Vedi log; R riprova, ESC esce."
+        elif self.open_failures:
+            failed = ", ".join(
+                f"{failure.source}:{_failure_message(failure.reason)}"
+                for failure in self.open_failures
+            )
+            self.message = f"Aperte {len(self.previews)}; fallite {failed}. Vedi log o premi R."
 
     def close(self) -> None:
         for preview in self.previews:
@@ -275,7 +500,7 @@ class CameraSelector:
                 for logical_index, source in self.assignments.items()
                 if source == preview.source
             ]
-            label = f"source {preview.source}"
+            label = f"source {preview.source} [{preview.profile}]"
             if logical:
                 label += " -> " + ",".join(logical)
             cv2.rectangle(image, (x + 5, y + 5), (x + 250, y + 38), (0, 0, 0), -1)

@@ -258,7 +258,7 @@ function RobotMesh({ id, theme }: { id: string; theme: ResolvedTheme }): React.J
     const heading = -pose.heading_rad;
     group.current.rotation.y += THREE.MathUtils.euclideanModulo(heading - group.current.rotation.y + Math.PI, Math.PI * 2) - Math.PI;
     const stale = !robot || Date.now() - robot.lastSeenAt > 3_000;
-    const uncertain = pose.position_variance_m2 > 0.1;
+    const uncertain = pose.position_variance_m2 !== null && pose.position_variance_m2 > 0.1;
     const color = stale
       ? theme === "dark" ? "#647184" : "#8994a3"
       : uncertain ? "#d39a4a" : "#45a487";

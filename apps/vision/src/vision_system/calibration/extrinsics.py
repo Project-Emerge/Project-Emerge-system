@@ -16,14 +16,16 @@ from ..core.geometry import (
     transform_points,
 )
 
-# solvePnP/RANSAC reprojection inlier threshold in normal and tolerant mode.
+# Legacy RANSAC thresholds – still used by diagnostic helpers and the wizard UI.
 STRICT_EXTRINSIC_RANSAC_ERROR_PX = 3.0
 LOW_QUALITY_EXTRINSIC_RANSAC_ERROR_PX = 30.0
-RANSAC_ITERATIONS = 200
-RANSAC_CONFIDENCE = 0.999
-MIN_RANSAC_INLIERS = 8
-# Geometric minimum: extrinsics need at least two distinct reference markers.
-MIN_REFERENCES_FOR_EXTRINSICS = 2
+# Geometric minimum: extrinsics need at least three distinct reference markers
+# to constrain the planar solve properly.
+MIN_REFERENCES_FOR_EXTRINSICS = 3
+# Per-marker outlier gate: if a single marker's RMS reprojection error exceeds
+# this threshold the entire marker (all 4 corners) is removed and the solve is
+# re-run.  This avoids the RANSAC corner-level subset problem on coplanar anchors.
+MARKER_OUTLIER_THRESHOLD_PX = 5.0
 # Per-sample acceptance gate on the reprojection error.
 MAX_SAMPLE_REPROJECTION_ERROR_PX = 2.0
 
@@ -83,34 +85,61 @@ def estimate_world_from_camera(
     )
     if len(set(used)) < MIN_REFERENCES_FOR_EXTRINSICS:
         return None
-    valid, rvec, tvec, inliers = cv2.solvePnPRansac(
+
+    # Initial solve with SQPNP – robust for coplanar anchors, uses all points.
+    valid, rvec, tvec = cv2.solvePnP(
         object_points,
         image_points,
         camera_matrix,
         distortion,
-        flags=cv2.SOLVEPNP_ITERATIVE,
-        reprojectionError=ransac_threshold_px(allow_low_quality),
-        iterationsCount=RANSAC_ITERATIONS,
-        confidence=RANSAC_CONFIDENCE,
+        flags=cv2.SOLVEPNP_SQPNP,
     )
-    if not valid or inliers is None or len(inliers) < MIN_RANSAC_INLIERS:
+    if not valid:
         return None
-    rvec, tvec = cv2.solvePnPRefineLM(
-        object_points[inliers[:, 0]],
-        image_points[inliers[:, 0]],
-        camera_matrix,
-        distortion,
-        rvec,
-        tvec,
+
+    # Per-marker outlier rejection (groups of 4 corners per marker).
+    projected, _ = cv2.projectPoints(
+        object_points, rvec, tvec, camera_matrix, distortion
     )
+    residuals = projected.reshape(-1, 2) - image_points
+    n_markers = len(used)
+    marker_rms = np.array([
+        float(np.sqrt(np.mean(np.sum(
+            residuals[i * 4 : (i + 1) * 4] ** 2, axis=1
+        ))))
+        for i in range(n_markers)
+    ])
+    keep = [i for i, e in enumerate(marker_rms) if e < MARKER_OUTLIER_THRESHOLD_PX]
+    if len(keep) < MIN_REFERENCES_FOR_EXTRINSICS:
+        return None
+
+    kept_idx = np.concatenate([np.arange(i * 4, (i + 1) * 4) for i in keep])
+    obj_kept = object_points[kept_idx]
+    img_kept = image_points[kept_idx]
+    used_kept = [used[i] for i in keep]
+
+    # Re-solve without outliers if any marker was removed.
+    if len(keep) < n_markers:
+        valid, rvec, tvec = cv2.solvePnP(
+            obj_kept, img_kept, camera_matrix, distortion,
+            flags=cv2.SOLVEPNP_SQPNP,
+        )
+        if not valid:
+            return None
+
+    # LM refinement on all kept points.
+    rvec, tvec = cv2.solvePnPRefineLM(
+        obj_kept, img_kept, camera_matrix, distortion, rvec, tvec,
+    )
+
     rotation, _ = cv2.Rodrigues(rvec)
     camera_from_world = np.eye(4)
     camera_from_world[:3, :3] = rotation
     camera_from_world[:3, 3] = tvec.reshape(3)
-    projected, _ = cv2.projectPoints(object_points, rvec, tvec, camera_matrix, distortion)
-    residual = projected.reshape(-1, 2) - image_points
+    projected, _ = cv2.projectPoints(obj_kept, rvec, tvec, camera_matrix, distortion)
+    residual = projected.reshape(-1, 2) - img_kept
     error = float(np.sqrt(np.mean(np.sum(residual * residual, axis=1))))
-    return invert_transform(camera_from_world), error, used
+    return invert_transform(camera_from_world), error, used_kept
 
 
 def extrinsic_sample_outcome(

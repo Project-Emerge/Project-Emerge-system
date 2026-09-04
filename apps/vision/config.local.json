@@ -2,9 +2,17 @@
   "aruco": {
     "adaptive_thresh_win_size_max": 23,
     "adaptive_thresh_win_size_min": 3,
-    "anchor_frame": null,
+    "anchor_frame": {
+      "opposite_id": 6,
+      "origin_id": 5,
+      "plane_z_m": 0.0,
+      "x_axis_id": 2,
+      "x_distance_m": 2.35,
+      "y_axis_id": 4,
+      "y_distance_m": 2.35
+    },
     "auto_mobile_markers": {
-      "default_size_m": 0.12,
+      "default_size_m": 0.09,
       "enabled": true,
       "ignored_ids": []
     },
@@ -19,21 +27,50 @@
       }
     ],
     "perspective_remove_pixel_per_cell": 4,
-    "reference_ids": [
-      13,
-      15,
-      19,
-      21
-    ],
+    "reference_ids": [],
     "reference_markers": [
       {
-        "id": 13,
-        "name": "ref-13",
+        "id": 2,
+        "name": "ref-2",
         "orientation_xyzw": [
           0.0,
           0.0,
-          0.01236833892253788,
-          0.9999235091707251
+          0.0054271602316777875,
+          0.9999852728574655
+        ],
+        "position_m": [
+          2.35,
+          0.0,
+          0.0
+        ],
+        "size_m": 0.09,
+        "uncertainty_m": 0.0035926263380026114
+      },
+      {
+        "id": 4,
+        "name": "ref-4",
+        "orientation_xyzw": [
+          0.0,
+          0.0,
+          -0.01426430472715222,
+          0.999898259629774
+        ],
+        "position_m": [
+          0.0,
+          2.35,
+          0.0
+        ],
+        "size_m": 0.09,
+        "uncertainty_m": 0.004635041339923205
+      },
+      {
+        "id": 5,
+        "name": "ref-5",
+        "orientation_xyzw": [
+          0.0,
+          0.0,
+          0.0028597568353364348,
+          0.999995910887061
         ],
         "position_m": [
           0.0,
@@ -41,58 +78,24 @@
           0.0
         ],
         "size_m": 0.09,
-        "uncertainty_m": 0.004423847093445531
+        "uncertainty_m": 0.005
       },
       {
-        "id": 15,
-        "name": "ref-15",
+        "id": 6,
+        "name": "ref-6",
         "orientation_xyzw": [
           0.0,
           0.0,
-          0.02048634684118367,
-          0.9997901327744252
+          -0.006635899039579026,
+          0.999977982179576
         ],
         "position_m": [
-          0.0,
-          2.3,
+          2.35,
+          2.35,
           0.0
         ],
         "size_m": 0.09,
         "uncertainty_m": 0.0035355339059327372
-      },
-      {
-        "id": 19,
-        "name": "ref-19",
-        "orientation_xyzw": [
-          0.0,
-          0.0,
-          -0.010613690289113211,
-          0.9999436732028694
-        ],
-        "position_m": [
-          2.3,
-          2.3,
-          0.0
-        ],
-        "size_m": 0.09,
-        "uncertainty_m": 0.004206932205286282
-      },
-      {
-        "id": 21,
-        "name": "ref-21",
-        "orientation_xyzw": [
-          0.0,
-          0.0,
-          0.9999923698411968,
-          0.003906438197011446
-        ],
-        "position_m": [
-          2.3,
-          0.0,
-          0.0
-        ],
-        "size_m": 0.09,
-        "uncertainty_m": 0.0040744849875888126
       }
     ]
   },
@@ -105,33 +108,7 @@
       "focus": null,
       "fps": 30.0,
       "height": 1080,
-      "id": "cam_0",
-      "source": 6,
-      "width": 1920,
-      "zoom": null
-    },
-    {
-      "auto_exposure": false,
-      "autofocus": false,
-      "digital_zoom": 1.0,
-      "exposure": null,
-      "focus": null,
-      "fps": 30.0,
-      "height": 1080,
       "id": "cam_1",
-      "source": 8,
-      "width": 1920,
-      "zoom": null
-    },
-    {
-      "auto_exposure": false,
-      "autofocus": false,
-      "digital_zoom": 1.0,
-      "exposure": null,
-      "focus": null,
-      "fps": 30.0,
-      "height": 1080,
-      "id": "cam_2",
       "source": 2,
       "width": 1920,
       "zoom": null
@@ -144,8 +121,21 @@
       "focus": null,
       "fps": 30.0,
       "height": 1080,
-      "id": "cam_3",
+      "id": "cam_2",
       "source": 4,
+      "width": 1920,
+      "zoom": null
+    },
+    {
+      "auto_exposure": false,
+      "autofocus": false,
+      "digital_zoom": 1.0,
+      "exposure": null,
+      "focus": null,
+      "fps": 30.0,
+      "height": 1080,
+      "id": "cam_3",
+      "source": 6,
       "width": 1920,
       "zoom": null
     }
@@ -158,15 +148,19 @@
   "fusion": {
     "huber_scale_px": 1.5,
     "max_reprojection_error_px": 4.0,
+    "one_euro_beta": 5.0,
+    "one_euro_derivative_cutoff_hz": 1.0,
+    "one_euro_min_cutoff_hz": 2.0,
     "publish_hz": 20.0,
     "stale_after_ms": 250.0,
+    "tracker_filter": "one_euro",
     "tracker_max_innovation_m": 0.15,
     "tracker_orientation_gain": 0.55,
     "tracker_position_gain": 0.65,
     "tracker_velocity_gain": 0.12,
     "window_ms": 40.0
   },
-  "revision": 2,
+  "revision": 7,
   "schema_version": 1,
   "site": "lab",
   "system_id": "indoor-01"

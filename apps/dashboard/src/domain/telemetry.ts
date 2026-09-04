@@ -14,14 +14,44 @@ import {
 const finiteNumber = z.number().finite();
 const Vec3Schema = z.tuple([finiteNumber, finiteNumber, finiteNumber]);
 const QuaternionSchema = z.tuple([finiteNumber, finiteNumber, finiteNumber, finiteNumber]);
+const CartesianVectorSchema = z.object({ x: finiteNumber, y: finiteNumber, z: finiteNumber });
+const QuaternionObjectSchema = z.object({
+  x: finiteNumber,
+  y: finiteNumber,
+  z: finiteNumber,
+  w: finiteNumber,
+});
+const EulerDegreesSchema = z.object({ roll: finiteNumber, pitch: finiteNumber, yaw: finiteNumber });
 
 export const PoseSchema = z.object({
   x_m: finiteNumber,
   y_m: finiteNumber,
+  z_m: finiteNumber.optional(),
+  roll_rad: finiteNumber.optional(),
+  pitch_rad: finiteNumber.optional(),
   heading_rad: finiteNumber,
   speed_m_s: finiteNumber,
-  position_variance_m2: finiteNumber.nonnegative(),
+  // VisionSystem does not estimate covariance. Preserve the distinction
+  // between an unavailable variance and a measured numeric value.
+  position_variance_m2: finiteNumber.nonnegative().nullable().default(null),
   timestamp_us: z.number().int().nonnegative(),
+  schema_version: z.literal(1).optional(),
+  tag_id: z.number().int().nonnegative().optional(),
+  frame_id: z.string().optional(),
+  sequence: z.number().int().nonnegative().optional(),
+  captured_at: z.string().optional(),
+  published_at: z.string().optional(),
+  position_m: CartesianVectorSchema.optional(),
+  orientation_xyzw: QuaternionObjectSchema.optional(),
+  velocity_m_s: CartesianVectorSchema.optional(),
+  angular_velocity_rad_s: CartesianVectorSchema.optional(),
+  euler_deg: EulerDegreesSchema.optional(),
+  visible_by: z.array(z.string()).optional(),
+  reprojection_error_px: finiteNumber.nonnegative().optional(),
+  quality: finiteNumber.min(0).max(1).optional(),
+  predicted: z.boolean().optional(),
+  age_ms: finiteNumber.nonnegative().optional(),
+  valid: z.boolean().optional(),
 });
 
 const ImuRawSchema = z.object({
