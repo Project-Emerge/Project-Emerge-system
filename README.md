@@ -110,7 +110,7 @@ volumes survive container recreation and normal `docker compose down`. Running
 
 ## MQTT and OTA behavior
 
-The gateway subscribes to `/pose/+`, `/telemetry/+`, `/imu/+`, `/config/ota`, `/config/robots/+`, `/config/aruco-map`, and `/config/formation`. Motor configuration is published with QoS 1 and retention on `/config/robots/{id}`.
+The gateway subscribes to `/pose/+`, `/telemetry/+`, `/imu/+`, `/config/ota`, `/config/motors`, `/config/aruco-map`, and `/config/formation`. Motor configuration is fleet-wide: it is published once with QoS 1 and retention on `/config/motors`, so every robot — including robots that join later — applies the same settings.
 
 Manual dashboard driving publishes normalized differential-wheel commands to `/motors/{id}` while the joystick is held. Moving commands use the payload `{"Move":{"left":-1..1,"right":-1..1}}` at 10 Hz with QoS 0; release and safety stops use `"Stop"` with QoS 1. Motor commands are never retained. Robot telemetry separately reports motor state as `Motoring` or `Stopped`. Robot firmware should independently stop both wheels when fresh commands have not arrived for 300 ms so a broken browser or network connection cannot leave the robot moving.
 

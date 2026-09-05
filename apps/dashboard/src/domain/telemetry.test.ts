@@ -89,6 +89,15 @@ describe("normalizzazione della telemetria firmware", () => {
     })).toBeNull();
   });
 
+  it("interpreta la configurazione motore condivisa dalla flotta", () => {
+    expect(parseInboundMqttMessage("/config/motors", { motors: { ema_filter_alpha: 0.1, max_speed: 1 } })).toMatchObject({
+      kind: "motor-config",
+      payload: { motors: { ema_filter_alpha: 0.1, max_speed: 1 } },
+    });
+    expect(parseInboundMqttMessage("/config/motors", { motors: { ema_filter_alpha: 2, max_speed: 1 } })).toBeNull();
+    expect(parseInboundMqttMessage("/config/robots/A1B2C3", { motors: { ema_filter_alpha: 0.1, max_speed: 1 } })).toBeNull();
+  });
+
   it("interpreta la mappatura marker ArUco -> robot", () => {
     expect(parseInboundMqttMessage("/config/aruco-map", { "0": "A1B2C3", "12": "D4E5F6" })).toMatchObject({
       kind: "aruco-map",

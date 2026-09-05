@@ -15,7 +15,7 @@ export const MotorCommandSchema = z.union([
   }),
 ]);
 
-export const RobotConfigurationSchema = z.object({
+export const MotorConfigurationSchema = z.object({
   motors: z.object({
     ema_filter_alpha: finiteNumber.min(0).max(1).nullable(),
     max_speed: finiteNumber.nonnegative(),
@@ -68,7 +68,7 @@ export const FormationCommandSchema = z.object({
   params: z.record(z.string(), finiteNumber),
 });
 
-export type RobotConfiguration = z.infer<typeof RobotConfigurationSchema>;
+export type MotorConfiguration = z.infer<typeof MotorConfigurationSchema>;
 export type OtaConfiguration = z.infer<typeof OtaConfigurationSchema>;
 export type MotorCommand = z.infer<typeof MotorCommandSchema>;
 export type ArucoMap = z.infer<typeof ArucoMapSchema>;
@@ -105,20 +105,13 @@ export const MQTT_SUBSCRIPTIONS = [
   "/imu/+",
   "/neighbors/+",
   "/config/ota",
-  "/config/robots/+",
+  "/config/motors",
   "/config/aruco-map",
   "/config/formation",
 ] as const;
 
 export function isDeviceId(value: string): boolean {
   return DEVICE_ID_PATTERN.test(value);
-}
-
-export function robotConfigurationTopic(deviceId: string): string {
-  if (!isDeviceId(deviceId)) {
-    throw new Error("Invalid robot ID");
-  }
-  return `/config/robots/${deviceId}`;
 }
 
 export function otaCheckTopic(deviceId: string): string {
@@ -146,6 +139,10 @@ export function otaConfigurationTopic(): "/config/ota" {
   return "/config/ota";
 }
 
+export function motorConfigurationTopic(): "/config/motors" {
+  return "/config/motors";
+}
+
 export function arucoMapTopic(): "/config/aruco-map" {
   return "/config/aruco-map";
 }
@@ -168,9 +165,9 @@ export function isTransientCommandTopic(topic: string): boolean {
 
 export function isAllowedConfigurationTopic(topic: string): boolean {
   return topic === "/config/ota"
+    || topic === "/config/motors"
     || topic === "/config/aruco-map"
-    || topic === "/config/formation"
-    || /^\/config\/robots\/[A-F0-9]{6}$/.test(topic);
+    || topic === "/config/formation";
 }
 
 export function validateConfigurationPublication(topic: string, payload: unknown): string | null {
@@ -189,9 +186,9 @@ export function validateConfigurationPublication(topic: string, payload: unknown
     return result.success ? null : result.error.issues[0]?.message ?? "Invalid formation command";
   }
 
-  if (/^\/config\/robots\/[A-F0-9]{6}$/.test(topic)) {
-    const result = RobotConfigurationSchema.safeParse(payload);
-    return result.success ? null : result.error.issues[0]?.message ?? "Invalid robot configuration";
+  if (topic === "/config/motors") {
+    const result = MotorConfigurationSchema.safeParse(payload);
+    return result.success ? null : result.error.issues[0]?.message ?? "Invalid motor configuration";
   }
 
   return "Configuration topic is not allowed";

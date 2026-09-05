@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  MotorConfigurationSchema,
   OtaConfigurationSchema,
-  RobotConfigurationSchema,
+  motorConfigurationTopic,
   otaConfigurationTopic,
   otaCheckTopic,
-  robotConfigurationTopic,
 } from "../../shared/protocol";
 import { ArucoMapPanel } from "../components/ArucoMapPanel";
 import { useGatewayClient } from "../services/gateway-context";
@@ -60,6 +60,7 @@ function StatusMessage({ state }: { state: SaveState }): React.JSX.Element | nul
 export function ConfigurationPage(): React.JSX.Element {
   const gateway = useGatewayClient();
   const robotIds = useDashboardStore((state) => state.robotIds);
+  const retainedMotorConfiguration = useDashboardStore((state) => state.motorConfiguration);
   const [emaEnabled, setEmaEnabled] = useState(() => loadMotorSettings().emaEnabled);
   const [emaAlpha, setEmaAlpha] = useState(() => loadMotorSettings().emaAlpha);
   const [maxSpeed, setMaxSpeed] = useState(() => loadMotorSettings().maxSpeed);
@@ -69,22 +70,27 @@ export function ConfigurationPage(): React.JSX.Element {
   const [otaServer, setOtaServer] = useState(defaultOtaServer);
   const [firmwareUpdate, setFirmwareUpdate] = useState<SaveState>({ kind: "idle" });
 
+  // The broker keeps the fleet-wide motor configuration retained, so it wins over the local copy.
+  useEffect(() => {
+    if (!retainedMotorConfiguration) return;
+    const { ema_filter_alpha, max_speed } = retainedMotorConfiguration.motors;
+    setEmaEnabled(ema_filter_alpha !== null);
+    if (ema_filter_alpha !== null) setEmaAlpha(ema_filter_alpha);
+    setMaxSpeed(max_speed);
+  }, [retainedMotorConfiguration]);
+
   async function saveMotorConfiguration(): Promise<void> {
     const payload = { motors: { ema_filter_alpha: emaEnabled ? emaAlpha : null, max_speed: maxSpeed } };
-    const parsed = RobotConfigurationSchema.safeParse(payload);
+    const parsed = MotorConfigurationSchema.safeParse(payload);
     if (!parsed.success) {
       setRobotSave({ kind: "error", message: "Motor settings are not valid." });
       return;
     }
-    if (robotIds.length === 0) {
-      setRobotSave({ kind: "error", message: "Wait for at least one robot to appear." });
-      return;
-    }
     setRobotSave({ kind: "saving" });
     try {
-      await Promise.all(robotIds.map((robotId) => gateway.publish(robotConfigurationTopic(robotId), parsed.data)));
+      await gateway.publish(motorConfigurationTopic(), parsed.data);
       persistMotorSettings({ emaEnabled, emaAlpha, maxSpeed });
-      setRobotSave({ kind: "success", message: `Settings saved for all ${robotIds.length} robot${robotIds.length === 1 ? "" : "s"}.` });
+      setRobotSave({ kind: "success", message: "Settings saved for the whole fleet." });
     } catch (error) {
       setRobotSave({ kind: "error", message: error instanceof Error ? error.message : "Save failed." });
     }
@@ -127,15 +133,14 @@ export function ConfigurationPage(): React.JSX.Element {
       </section>
 
       <section className="panel robot-config-panel">
-        <div className="panel-heading"><div><span className="eyebrow">1 · Robots</span><h2>Motor settings</h2></div><span className="retained-tag">PENDING FIRMWARE</span></div>
-        <p className="muted">These settings will take effect when supported by the firmware. Saved settings apply to every robot in the fleet and are remembered on this device.</p>
+        <div className="panel-heading"><div><span className="eyebrow">1 · Robots</span><h2>Motor settings</h2></div><span className="retained-tag">RETAINED · FLEET</span></div>
+        <p className="muted">These settings will take effect when supported by the firmware. They are published retained on <code>/config/motors</code>, so every robot in the fleet picks them up, including robots that connect later.</p>
         <div className="robot-form-grid">
           <label className="switch-row"><input type="checkbox" checked={emaEnabled} onChange={(event) => setEmaEnabled(event.target.checked)} />Enable EMA filter</label>
           <label className="field-label">EMA alpha<input aria-label="EMA alpha" disabled={!emaEnabled} type="number" min="0" max="1" step="0.01" value={emaAlpha} onChange={(event) => setEmaAlpha(numberValue(event))} /></label>
           <label className="field-label">Maximum speed<input aria-label="Maximum speed" type="number" min="0" step="0.01" value={maxSpeed} onChange={(event) => setMaxSpeed(numberValue(event))} /></label>
-          <div className="save-row"><button type="button" className="primary-button" disabled={robotSave.kind === "saving" || robotIds.length === 0} onClick={saveMotorConfiguration}>{robotSave.kind === "saving" ? "Saving…" : "Save for all robots"}</button><StatusMessage state={robotSave} /></div>
+          <div className="save-row"><button type="button" className="primary-button" disabled={robotSave.kind === "saving"} onClick={saveMotorConfiguration}>{robotSave.kind === "saving" ? "Saving…" : "Save for all robots"}</button><StatusMessage state={robotSave} /></div>
         </div>
-        {robotIds.length === 0 && <p className="empty-message">Robots appear here after their first MQTT message.</p>}
       </section>
 
       <section className="panel firmware-update-panel">

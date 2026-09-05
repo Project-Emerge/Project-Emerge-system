@@ -5,7 +5,7 @@ import {
   parseInboundMqttMessage,
   type ImuTelemetry,
   type Pose,
-  type RobotConfiguration,
+  type MotorConfiguration,
   type Telemetry,
 } from "../domain/telemetry";
 
@@ -14,7 +14,6 @@ export type RobotLiveState = {
   pose?: Pose;
   telemetry?: Telemetry;
   imu?: ImuTelemetry;
-  configuration?: RobotConfiguration;
   lastSeenAt: number;
   lastPoseAt?: number;
 };
@@ -28,6 +27,7 @@ type DashboardState = {
   arucoMap: Record<string, string>;
   neighbors: Record<string, string[]>;
   formation: FormationCommand | null;
+  motorConfiguration: MotorConfiguration | null;
   lastProtocolError: string | null;
   setConnectionStatus: (status: GatewayStatus) => void;
   ingestMqttMessage: (message: GatewayMqttMessage) => void;
@@ -46,6 +46,7 @@ const initialData = {
   arucoMap: {} as Record<string, string>,
   neighbors: {} as Record<string, string[]>,
   formation: null as FormationCommand | null,
+  motorConfiguration: null as MotorConfiguration | null,
   lastProtocolError: null,
 };
 
@@ -112,15 +113,8 @@ export const useDashboardStore = create<DashboardState>()(
               })),
               lastProtocolError: null,
             };
-          case "robot-config":
-            return {
-              ...robotWithUpdate(state, inbound.deviceId, (robot) => ({
-                ...robot,
-                configuration: inbound.payload,
-                lastSeenAt: message.receivedAt,
-              })),
-              lastProtocolError: null,
-            };
+          case "motor-config":
+            return { motorConfiguration: inbound.payload, lastProtocolError: null };
           case "neighbors":
             // The neighborhood service republishes unchanged lists periodically; keep the
             // reference stable so the scene does not rebuild its link geometry for nothing.

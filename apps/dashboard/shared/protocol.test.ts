@@ -9,7 +9,7 @@ import {
   motorCommandTopic,
   otaConfigurationTopic,
   otaCheckTopic,
-  robotConfigurationTopic,
+  motorConfigurationTopic,
   validateClientPublication,
   validateConfigurationPublication,
 } from "./protocol.js";
@@ -17,11 +17,11 @@ import {
 describe("contratti di configurazione MQTT", () => {
   it("accetta soltanto i topic retained previsti", () => {
     expect(isAllowedConfigurationTopic("/config/ota")).toBe(true);
-    expect(isAllowedConfigurationTopic("/config/robots/A1B2C3")).toBe(true);
+    expect(isAllowedConfigurationTopic("/config/motors")).toBe(true);
     expect(isAllowedConfigurationTopic("/config/aruco-map")).toBe(true);
     expect(isAllowedConfigurationTopic("/config/formation")).toBe(true);
     expect(isAllowedConfigurationTopic("/motors/A1B2C3")).toBe(false);
-    expect(isAllowedConfigurationTopic("/config/robots/not-an-id")).toBe(false);
+    expect(isAllowedConfigurationTopic("/config/robots/A1B2C3")).toBe(false);
   });
 
   it("costruisce e valida il comando di formazione dello sciame", () => {
@@ -74,12 +74,12 @@ describe("contratti di configurazione MQTT", () => {
     })).not.toBeNull();
   });
 
-  it("costruisce e valida la configurazione futura del robot", () => {
-    expect(robotConfigurationTopic("A1B2C3")).toBe("/config/robots/A1B2C3");
-    expect(validateConfigurationPublication("/config/robots/A1B2C3", {
+  it("costruisce e valida la configurazione motore condivisa dalla flotta", () => {
+    expect(motorConfigurationTopic()).toBe("/config/motors");
+    expect(validateConfigurationPublication("/config/motors", {
       motors: { ema_filter_alpha: 0.1, max_speed: 1 },
     })).toBeNull();
-    expect(validateConfigurationPublication("/config/robots/A1B2C3", {
+    expect(validateConfigurationPublication("/config/motors", {
       motors: { ema_filter_alpha: 4, max_speed: -1 },
     })).not.toBeNull();
     expect(validateConfigurationPublication("/config/ota", { server: "192.168.8.1:8787" })).toBeNull();

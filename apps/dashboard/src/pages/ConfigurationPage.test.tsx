@@ -18,21 +18,18 @@ afterEach(() => {
 });
 
 describe("pagina configurazione", () => {
-  it("applica le impostazioni motore a tutti i robot della flotta e le rende persistenti", async () => {
+  it("pubblica le impostazioni motore sul topic condiviso della flotta e le rende persistenti", async () => {
     window.localStorage.clear();
-    useDashboardStore.setState({ robotIds: ["A1B2C3", "D4E5F6"] });
     render(<ConfigurationPage />);
 
     fireEvent.change(screen.getByLabelText("Maximum speed"), { target: { value: "1.25" } });
     fireEvent.click(screen.getByRole("button", { name: "Save for all robots" }));
 
-    await waitFor(() => expect(gateway.publish).toHaveBeenCalledWith("/config/robots/A1B2C3", {
+    await waitFor(() => expect(gateway.publish).toHaveBeenCalledWith("/config/motors", {
       motors: { ema_filter_alpha: 0.1, max_speed: 1.25 },
     }));
-    expect(gateway.publish).toHaveBeenCalledWith("/config/robots/D4E5F6", {
-      motors: { ema_filter_alpha: 0.1, max_speed: 1.25 },
-    });
-    expect(screen.getByText("Settings saved for all 2 robots.")).toBeInTheDocument();
+    expect(gateway.publish).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Settings saved for the whole fleet.")).toBeInTheDocument();
     expect(JSON.parse(window.localStorage.getItem("project-emerge-motor-settings")!)).toEqual({
       emaEnabled: true,
       emaAlpha: 0.1,
@@ -46,12 +43,24 @@ describe("pagina configurazione", () => {
       emaAlpha: 0.3,
       maxSpeed: 0.6,
     }));
-    useDashboardStore.setState({ robotIds: ["A1B2C3"] });
     render(<ConfigurationPage />);
 
     expect(screen.getByLabelText("Maximum speed")).toHaveValue(0.6);
     expect(screen.getByRole("checkbox")).not.toBeChecked();
     window.localStorage.clear();
+  });
+
+  it("preferisce la configurazione motore retained del broker alla copia locale", () => {
+    window.localStorage.setItem("project-emerge-motor-settings", JSON.stringify({
+      emaEnabled: true,
+      emaAlpha: 0.1,
+      maxSpeed: 1,
+    }));
+    useDashboardStore.setState({ motorConfiguration: { motors: { ema_filter_alpha: null, max_speed: 0.42 } } });
+    render(<ConfigurationPage />);
+
+    expect(screen.getByLabelText("Maximum speed")).toHaveValue(0.42);
+    expect(screen.getByRole("checkbox")).not.toBeChecked();
   });
 
   it("carica il firmware e richiede l'aggiornamento OTA di tutti i robot", async () => {

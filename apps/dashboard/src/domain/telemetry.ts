@@ -3,12 +3,12 @@ import {
   ArucoMapSchema,
   FormationCommandSchema,
   NeighborsSchema,
-  RobotConfigurationSchema,
+  MotorConfigurationSchema,
   isDeviceId,
   type ArucoMap,
   type FormationCommand,
   type Neighbors,
-  type RobotConfiguration,
+  type MotorConfiguration,
 } from "../../shared/protocol";
 
 const finiteNumber = z.number().finite();
@@ -101,14 +101,14 @@ export const TelemetrySchema = z.object({
 export type Pose = z.infer<typeof PoseSchema>;
 export type ImuTelemetry = z.infer<typeof ImuTelemetrySchema>;
 export type Telemetry = z.infer<typeof TelemetrySchema>;
-export type { RobotConfiguration, ArucoMap, Neighbors };
+export type { MotorConfiguration, ArucoMap, Neighbors };
 
 export type InboundMessage =
   | { kind: "pose"; deviceId: string; payload: Pose }
   | { kind: "telemetry"; deviceId: string; payload: Telemetry }
   | { kind: "imu"; deviceId: string; payload: ImuTelemetry }
   | { kind: "neighbors"; deviceId: string; payload: Neighbors }
-  | { kind: "robot-config"; deviceId: string; payload: RobotConfiguration }
+  | { kind: "motor-config"; payload: MotorConfiguration }
   | { kind: "aruco-map"; payload: ArucoMap }
   | { kind: "formation"; payload: FormationCommand };
 
@@ -148,13 +148,9 @@ export function parseInboundMqttMessage(topic: string, payload: unknown): Inboun
       : null;
   }
 
-  const robotConfigPrefix = "/config/robots/";
-  if (topic.startsWith(robotConfigPrefix)) {
-    const deviceId = topic.slice(robotConfigPrefix.length);
-    const parsed = RobotConfigurationSchema.safeParse(payload);
-    return isDeviceId(deviceId) && parsed.success
-      ? { kind: "robot-config", deviceId, payload: parsed.data }
-      : null;
+  if (topic === "/config/motors") {
+    const parsed = MotorConfigurationSchema.safeParse(payload);
+    return parsed.success ? { kind: "motor-config", payload: parsed.data } : null;
   }
 
   if (topic === "/config/aruco-map") {
