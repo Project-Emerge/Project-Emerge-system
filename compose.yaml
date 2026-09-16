@@ -71,6 +71,43 @@ services:
     networks:
       - emerge-backplane
 
+  # Server di fusione per il deployment distribuito: nessuna camera collegata,
+  # riceve le osservazioni dei nodi via MQTT. Mutuamente esclusivo con `vision`
+  # (il monolite pubblica le stesse pose): `make server` ferma l'altro.
+  vision-server:
+    profiles:
+      - distributed
+    build:
+      context: apps/vision
+    command:
+      - vision-server
+      - --config
+      - /app/config/config.local.json
+      - --calibrations
+      - /app/calibrations
+      - --cache
+      - /app/state/last_good_config.json
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+        restart: true
+    environment:
+      VISION_MQTT_HOST: mosquitto
+      VISION_MQTT_PORT: 1883
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    volumes:
+      # Il server ricostruisce le osservazioni con le estrinseche locali: questa
+      # cartella deve contenere il file di ogni camera del roster, comprese
+      # quelle collegate ai PC remoti.
+      - ./apps/vision/config.local.json:/app/config/config.local.json:ro
+      - ./apps/vision/calibrations:/app/calibrations
+      - vision-diagnostics:/app/diagnostics
+      - vision-state:/app/state
+    networks:
+      - emerge-backplane
+
   simulator:
     profiles:
       - simulator

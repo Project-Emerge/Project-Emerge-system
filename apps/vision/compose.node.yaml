@@ -1,10 +1,10 @@
-# Nodo camera autonomo: gira su un PC che NON ospita il broker.
-# Il broker e il server di fusione stanno altrove, quindi qui non c'e' ne'
-# mosquitto ne' la rete `emerge-backplane`: basta la bridge di default per
-# raggiungere l'IP del PC server sulla LAN.
+# Nodo camera autonomo ("client"): una camera, osservazioni ArUco via MQTT.
+# Qui non c'e' ne' mosquitto ne' la rete `emerge-backplane`, cosi' lo stesso file
+# vale sia per un nodo sul PC del server (broker raggiunto via host-gateway) sia
+# per un nodo su un altro PC (broker raggiunto per IP sulla LAN).
 #
-#   VISION_MQTT_HOST=192.168.1.10 VISION_CAMERA=cam_1 \
-#     docker compose -f compose.node.yaml up --build -d
+#   make client CAMERA=cam_1                          broker sullo stesso PC
+#   make client CAMERA=cam_1 MQTT_HOST=192.168.1.10    broker su un altro PC
 name: emerge-vision-node
 
 services:
@@ -22,8 +22,12 @@ services:
       - --cache
       - /app/state/last_good_config.json
     environment:
-      VISION_MQTT_HOST: ${VISION_MQTT_HOST:?impostare l'IP del PC che esegue il broker}
+      # Default: il broker gira sull'host di questo container (server e nodo sullo
+      # stesso PC). Per un nodo remoto passare l'IP del PC che ospita il broker.
+      VISION_MQTT_HOST: ${VISION_MQTT_HOST:-host.docker.internal}
       VISION_MQTT_PORT: ${VISION_MQTT_PORT:-1883}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     # Le camere USB sono device a caratteri V4L2 (major 81): montare /dev tiene
     # utilizzabili sia gli indici numerici sia i percorsi /dev/v4l/by-id/...
     device_cgroup_rules:

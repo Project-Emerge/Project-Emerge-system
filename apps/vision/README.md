@@ -24,6 +24,8 @@ Sistema di localizzazione indoor per marker ArUco basato su camere fisse (da una
 6. [Esecuzione del Runtime](#6-esecuzione-del-runtime)
    - [6.1 Esecuzione locale (singolo PC)](#61-esecuzione-locale-singolo-pc)
    - [6.2 Modalità distribuita (un PC per camera)](#62-modalità-distribuita-un-pc-per-camera)
+   - [6.3 GUI di avvio e debug del server](#63-gui-di-avvio-e-debug-del-server)
+   - [6.4 Docker: server e nodi su PC diversi](#64-docker-server-e-nodi-su-pc-diversi)
 7. [Simulatore](#7-simulatore)
    - [7.1 Simulazione sintetica](#71-simulazione-sintetica)
    - [7.2 Simulazione live con webcam reali](#72-simulazione-live-con-webcam-reali)
@@ -51,7 +53,7 @@ UV_CACHE_DIR=/tmp/visionsystem-uv-cache uv run pytest
 
 ### 2.1 Selezione visiva delle sorgenti
 
-Il sistema usa inizialmente le sorgenti OpenCV `5`, `1`, `2`, `4` a 1920×1080 @ 30 FPS. Per associarle visivamente:
+Il sistema supporta arene con **2, 3 o 4 camere**: il file base definisce al massimo quattro slot logici (`cam_0`..`cam_3`), ma la configurazione salvata contiene solo le camere effettivamente presenti. Le sorgenti OpenCV iniziali sono `5`, `1`, `2`, `4` a 1920×1080 @ 30 FPS. Per associarle visivamente:
 
 ```bash
 uv run vision-select-cameras \
@@ -61,6 +63,12 @@ uv run vision-select-cameras \
 
 - Cliccare su un riquadro video e premere `1`, `2`, `3` o `4` per assegnarlo alla camera logica corrispondente (`cam_0`..`cam_3`).
 - `C` cancella le assegnazioni, `R` ripete la scansione delle periferiche, `ENTER` salva il file, `ESC` annulla.
+- **Meno di quattro camere:** basta assegnare solo le camere disponibili; gli slot non assegnati non finiscono nel file. Per dichiarare esplicitamente il roster (consigliato, così i tasti e gli ID corrispondono alle camere reali):
+  ```bash
+  uv run vision-select-cameras --base config.example.json \
+    --cameras cam_0 cam_1 --output config.local.json
+  ```
+  Con due camere la finestra mostra due slot e si assegnano con i tasti `1` e `2`.
 - Per limitare la scansione a indici noti:
   ```bash
   uv run vision-select-cameras --sources 5 1 2 4 --output config.local.json
@@ -74,9 +82,9 @@ uv run vision-select-cameras \
 uv run vision-configure-cameras --config config.local.json
 ```
 
-- Mostra contemporaneamente le quattro camere. Cliccare su una vista e usare `+`/`-` per regolare lo zoom digitale (`digital_zoom`).
+- Mostra contemporaneamente tutte le camere configurate (due, tre o quattro). Cliccare su una vista e usare `+`/`-` per regolare lo zoom digitale (`digital_zoom`).
 - `N` imposta il preset normale `1.75x`; `W` ripristina il grandangolo completo `1.00x`.
-- `A` applica lo zoom selezionato a tutte le quattro camere; `ENTER` salva la configurazione (incrementando `revision`), `ESC` annulla.
+- `A` applica lo zoom selezionato a tutte le camere configurate; `ENTER` salva la configurazione (incrementando `revision`), `ESC` annulla.
 - Per salvare su un file diverso:
   ```bash
   uv run vision-configure-cameras --config config.local.json --output config.con-fov.json
@@ -338,6 +346,11 @@ Per usare il simulatore robot senza avviare VisionSystem eseguire invece
 `make up-simulator` dalla root. Il target arresta anche un eventuale container
 `vision` già attivo.
 
+Questo servizio esegue il **monolite** `vision-localizer` (tutte le camere su un
+solo PC); da questa cartella lo stesso stack si avvia con `make all`. Per il
+deployment distribuito in Docker — `make server` sul PC di fusione, `make client`
+su ogni PC con una camera — vedere [6.4](#64-docker-server-e-nodi-su-pc-diversi).
+
 ### 6.1 Esecuzione locale (singolo PC)
 
 Avvia il localizzatore aprendo tutte le camere configurate, eseguendo rilevamento, controllo drift e fusione:
@@ -357,7 +370,7 @@ uv run vision-localizer --config config.local.json --no-mqtt --print-poses
 
 ### 6.2 Modalità distribuita (un PC per camera)
 
-Architettura scalabile per arene ampie: 4 PC periferici (ciascuno con una sola camera) inviano osservazioni leggere (~8 KB/s) via MQTT a un server di fusione centrale.
+Architettura scalabile per arene ampie: da 2 a 4 PC periferici (ciascuno con una sola camera) inviano osservazioni leggere (~8 KB/s) via MQTT a un server di fusione centrale. Il numero di nodi è libero: conta solo che **tutti i nodi e il server condividano lo stesso roster di camere** (`--cameras`), altrimenti il coordinatore continua a segnalare offline gli slot che nessuno pubblica.
 
 #### Requisiti di sincronizzazione temporale:
 Tutti i nodi e il server devono avere gli orologi sincronizzati via **NTP/Chrony** con scarto inferiore a 2-3 ms (la fusione usa timestamp UTC in nanosecondi).
@@ -368,10 +381,12 @@ sudo apt install chrony && sudo systemctl enable --now chronyd
 ```
 
 #### Su ogni PC nodo (`cam_X`):
-1. Associare la camera:
+1. Associare la camera dichiarando il roster completo del deployment (qui un'arena a due camere, `cam_0` e `cam_1`; su questo PC si assegna solo `cam_X`):
    ```bash
-   uv run vision-select-cameras --base config.example.json --camera cam_X --output config.local.json
+   uv run vision-select-cameras --base config.example.json \
+     --cameras cam_0 cam_1 --camera cam_X --output config.local.json
    ```
+   Senza `--cameras` il file conserva tutti e quattro gli slot del file base: usarlo su un'arena a 2 o 3 camere lascerebbe nel roster camere inesistenti.
 2. Calibrare intrinseche ed estrinseche per la propria camera:
    ```bash
    uv run vision-calibrate --config config.local.json intrinsics --camera cam_X --board-format a3
@@ -387,6 +402,159 @@ sudo apt install chrony && sudo systemctl enable --now chronyd
 ```bash
 export VISION_MQTT_HOST=192.168.1.10
 uv run vision-server --debug
+```
+
+Il server usa lo stesso roster dei nodi: con 2 camere la fusione lavora su due osservazioni per tag, con 3 o 4 il residuo migliora ma il flusso resta identico.
+
+### 6.3 GUI di avvio e debug del server
+
+Nel deployment distribuito i processi sono indipendenti e la domanda tipica non è *cosa calcola la fusione* ma *chi sta parlando con chi*. Il pannello grafico avvia il server sul PC locale e mostra, nella stessa finestra, la vista delle due estremità della catena più la mappa 2D dei robot tracciati:
+
+```bash
+# Server sulla stessa macchina del broker
+uv run vision-server-gui --config config.local.json
+
+# Broker (e nodi) su un'altra macchina
+uv run vision-server-gui --config config.local.json --mqtt-host 192.168.1.10
+```
+
+Richiede `tkinter` (Debian/Ubuntu: `sudo apt install python3-tk`).
+
+Il pannello è diviso in tre zone:
+
+1. **Avvio server** — host e porta MQTT, `config`, `calibrations`, cache di stato e i flag `--debug`, `--no-mqtt`, `--verbose`. `Avvia server` lancia `vision-server` come processo figlio (in una sessione separata: chiudere il terminale non lo uccide), `Ferma server` gli invia `SIGTERM` e, se non risponde entro 10 s, `SIGKILL`. Le impostazioni MQTT diventano `VISION_MQTT_HOST`/`VISION_MQTT_PORT` del processo figlio.
+2. **Camere del deployment** — una riga per camera del roster, con le due viste affiancate: *Nodo* (il `vision-node` sta pubblicando le sue metriche) e *Server* (il coordinatore sta effettivamente ricevendo osservazioni da quella camera), più osservazioni pubblicate/ricevute, età dell'ultima osservazione e stato di calibrazione.
+3. **Vista world / Console** — due schede: la mappa 2D dell'arena (camere calibrate in arancio, reference marker in viola, robot tracciati con scia e freccia di heading) e la console del server con gli eventi MQTT (`MISSING_CALIBRATION`, `CALIBRATION_DRIFT`, `CAMERA_DISAGREEMENT`, …).
+
+La vista world disegna le pose fuse pubblicate su `<base_topic>/pose/<tag_id>`, **non** le ricalcola: è quindi un controllo indipendente di ciò che il server sta realmente mandando al resto del sistema. Un tag disegnato vuoto è una posa predetta o ferma da più di 1,5 s.
+
+Il pannello si limita ad ascoltare il broker (non pubblica nulla): se il server gira su un altro PC basta puntarlo allo stesso broker e usarlo come monitor, senza premere `Avvia server`.
+
+Diagnosi rapida della tabella:
+
+| Sintomo | Causa tipica |
+| --- | --- |
+| Nodo `●`, Server `○` | broker o `base_topic` diversi (`site`/`system_id` nel config), oppure firewall sulla porta 1883 |
+| Nodo `○`, Server `●` | il nodo pubblica osservazioni ma non metriche: processo in avvio o log-level alterato |
+| Entrambi `●`, età alta | orologi non sincronizzati (NTP/Chrony) o rete satura |
+| `Calibrata: no` | manca `calibrations/cam_X.json` **sul PC del server** |
+| Nota `drift` | la camera si è spostata: ripetere la calibrazione estrinseca |
+| Vista world vuota con camere online | nessun marker mobile visibile, oppure `size_m` dei marker errato (le osservazioni vengono scartate per reprojection error) |
+
+### 6.4 Docker: server e nodi su PC diversi
+
+Tutti i comandi Docker di questo sottoprogetto sono nel `Makefile` di questa
+cartella. Le variabili disponibili sono `CAMERA` (camera gestita dal nodo),
+`MQTT_HOST`/`MQTT_PORT` (broker visto dai container del nodo), `GUI_MQTT_HOST` e
+`CONFIG`.
+
+| Comando | Cosa fa |
+| --- | --- |
+| `make all` | stack completo su un solo PC: broker, dashboard e il monolite `vision-localizer`, che apre tutte le camere del roster e fonde da solo |
+| `make server` | deployment distribuito, lato server: ferma il monolite e avvia broker + `vision-server` (nessuna camera aperta) |
+| `make client CAMERA=cam_0` | un nodo camera; il broker è quello dello stesso PC |
+| `make client CAMERA=cam_1 MQTT_HOST=192.168.1.10` | un nodo camera su un PC remoto, verso il broker del PC server |
+| `make gui` | pannello grafico di avvio e debug (gira sull'host, non in container) |
+| `make logs` / `make logs-client CAMERA=cam_1` | log del server / di un nodo |
+| `make ps`, `make down`, `make down-client CAMERA=cam_1` | stato e arresto |
+
+Dalla root del repository esistono le scorciatoie `make vision-all`,
+`make vision-server`, `make vision-client CAMERA=... MQTT_HOST=...`, `make vision-gui`.
+
+`make all` e `make server` sono alternativi: il monolite e il server di fusione
+pubblicherebbero le stesse pose, perciò `make server` ferma il servizio `vision`
+prima di partire.
+
+#### Prerequisiti su tutti i PC
+
+```bash
+# 1. Orologi sincronizzati: il container eredita l'orologio dell'host
+sudo apt install chrony && sudo systemctl enable --now chronyd
+chronyc tracking          # lo scarto deve restare sotto 2-3 ms
+
+# 2. Stesso roster e stesso base_topic in config.local.json su ogni PC
+#    (site + system_id identici, lista `cameras` identica)
+jq '{site, system_id, cameras: [.cameras[].id]}' config.local.json
+```
+
+#### PC A — broker, server e nodo locale
+
+```bash
+cd apps/vision
+
+make server                 # broker + server di fusione
+make client CAMERA=cam_0    # la camera collegata a questo PC
+make logs                   # oppure: make logs-client CAMERA=cam_0
+
+sudo ufw allow 1883/tcp     # il broker deve essere raggiungibile dagli altri PC
+ip -4 addr show | grep inet # IP da passare ai nodi remoti
+```
+
+Il servizio `vision-server` è definito in `compose.yaml` nella root sotto il
+profilo `distributed`: non parte con `docker compose up`, solo con `make server`
+(o `docker compose --profile distributed up -d mosquitto vision-server`). Il nodo
+usa invece `compose.node.yaml` di questa cartella, con un progetto Compose per
+camera (`vision-node-<camera>`): sullo stesso PC possono convivere più nodi.
+
+#### PC B — solo il nodo camera
+
+Su ogni PC remoto serve una copia di `apps/vision` con il **proprio**
+`config.local.json` (stesso roster del PC A) e le proprie calibrazioni; il broker
+e il server restano sul PC A.
+
+```bash
+cd apps/vision
+
+make client CAMERA=cam_1 MQTT_HOST=192.168.1.10
+make logs-client CAMERA=cam_1 MQTT_HOST=192.168.1.10
+make down-client CAMERA=cam_1 MQTT_HOST=192.168.1.10
+```
+
+`MQTT_HOST` serve in ogni comando perché identifica il broker del container; il
+default `host.docker.internal` vale solo quando broker e nodo stanno sullo stesso
+PC. Se sul PC B non c'è il repository, trasferire l'immagine invece di
+ricostruirla:
+
+```bash
+# sul PC A
+docker save vision-node-cam_1-vision-node | ssh utente@pc-b docker load
+```
+
+#### Calibrazioni: il server le vuole tutte
+
+Il coordinatore ricostruisce le osservazioni usando le estrinseche presenti
+nella **sua** cartella `calibrations/`: il PC A deve quindi avere il file di ogni
+camera del roster, comprese quelle collegate ai PC remoti.
+
+```bash
+# Opzione 1: copia diretta dal PC del nodo al PC del server
+scp calibrations/cam_1.json utente@pc-a:~/Project-Emerge-system/apps/vision/calibrations/
+
+# Opzione 2: distribuzione via MQTT (il bridge salva il file su disco da solo)
+mosquitto_pub -h 192.168.1.10 -t 'vision/<site>/<system_id>/calibration/cam_1/set' \
+  -q 1 -f calibrations/cam_1.json
+```
+
+#### Verifica del deployment
+
+```bash
+# Dal PC A: pose fuse pubblicate dal server
+mosquitto_sub -h localhost -t 'vision/+/+/pose/+' -v | head
+
+# Metriche del coordinatore (camere online, osservazioni ricevute)
+mosquitto_sub -h localhost -t 'vision/+/+/metrics' -v | head
+
+# Pannello grafico: con il server già attivo in Docker si usa come monitor,
+# senza premere "Avvia server"
+make gui
+```
+
+Arresto completo:
+
+```bash
+make down                                  # broker + server (PC A)
+make down-client CAMERA=cam_0              # nodo locale
+make down-client CAMERA=cam_1 MQTT_HOST=192.168.1.10   # nodo remoto (dal PC B)
 ```
 
 ---
