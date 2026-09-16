@@ -303,6 +303,26 @@ def open_previews(sources: list[int], timeout_s: float = PREVIEW_TIMEOUT_S) -> l
     return previews
 
 
+def resolve_camera_roster(base: AppConfig, camera_ids: list[str] | None) -> AppConfig:
+    """Trim the logical slots to the cameras this deployment actually owns.
+
+    An arena can run with two, three or four cameras: every node PC and the
+    fusion server must agree on the same roster, otherwise the coordinator keeps
+    waiting for observations from slots nobody publishes.
+    """
+    if not camera_ids:
+        return base
+    available = {camera.id: camera for camera in base.cameras}
+    unknown = [camera_id for camera_id in camera_ids if camera_id not in available]
+    if unknown:
+        raise ValueError(f"camere sconosciute: {', '.join(unknown)}")
+    if len(set(camera_ids)) != len(camera_ids):
+        raise ValueError("le camere richieste devono essere diverse")
+    return base.model_copy(
+        update={"cameras": [available[camera_id] for camera_id in camera_ids]}
+    )
+
+
 def build_camera_config(
     base: AppConfig, assignments: dict[int, int], only_index: int | None = None
 ) -> AppConfig:
@@ -647,10 +667,18 @@ def select_camera_config(
     max_index: int = 15,
     force: bool = False,
     camera_id: str | None = None,
+    camera_ids: list[str] | None = None,
 ) -> AppConfig | None:
     if output.exists() and not force:
         raise FileExistsError(f"{output} exists; use --force to overwrite it")
     base = load_config(base_path) if base_path else AppConfig()
+    base = resolve_camera_roster(base, camera_ids)
+    event(
+        LOGGER,
+        "camera_roster_resolved",
+        requested=camera_ids,
+        cameras=[camera.id for camera in base.cameras],
+    )
     only_index: int | None = None
     if camera_id is not None:
         only_index = next(
@@ -681,8 +709,16 @@ def camera_selector_main() -> None:
     parser.add_argument("--max-index", type=int, default=15)
     parser.add_argument("--force", action="store_true")
     parser.add_argument(
+        "--cameras",
+        nargs="+",
+        metavar="CAM_ID",
+        help="camere logiche presenti nel deployment, es. --cameras cam_0 cam_1; "
+        "le altre vengono rimosse dalla configurazione",
+    )
+    parser.add_argument(
         "--camera",
-        help="assegna una sola camera logica (cam_0..cam_3); le altre slot restano invariate",
+        help="assegna una sola camera logica (modalita distribuita); "
+        "le altre slot del roster restano invariate",
     )
     args = parser.parse_args()
     diagnostic_path = configure_diagnostics("vision-select-cameras")
@@ -695,6 +731,7 @@ def camera_selector_main() -> None:
             args.max_index,
             args.force,
             args.camera,
+            args.cameras,
         )
     except (FileExistsError, ValueError) as error:
         parser.error(str(error))

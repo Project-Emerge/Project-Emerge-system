@@ -1,0 +1,43 @@
+# Nodo camera autonomo: gira su un PC che NON ospita il broker.
+# Il broker e il server di fusione stanno altrove, quindi qui non c'e' ne'
+# mosquitto ne' la rete `emerge-backplane`: basta la bridge di default per
+# raggiungere l'IP del PC server sulla LAN.
+#
+#   VISION_MQTT_HOST=192.168.1.10 VISION_CAMERA=cam_1 \
+#     docker compose -f compose.node.yaml up --build -d
+name: emerge-vision-node
+
+services:
+  vision-node:
+    build:
+      context: .
+    command:
+      - vision-node
+      - --camera
+      - ${VISION_CAMERA:-cam_0}
+      - --config
+      - /app/config/config.local.json
+      - --calibrations
+      - /app/calibrations
+      - --cache
+      - /app/state/last_good_config.json
+    environment:
+      VISION_MQTT_HOST: ${VISION_MQTT_HOST:?impostare l'IP del PC che esegue il broker}
+      VISION_MQTT_PORT: ${VISION_MQTT_PORT:-1883}
+    # Le camere USB sono device a caratteri V4L2 (major 81): montare /dev tiene
+    # utilizzabili sia gli indici numerici sia i percorsi /dev/v4l/by-id/...
+    device_cgroup_rules:
+      - "c 81:* rmw"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    volumes:
+      - /dev:/dev
+      - ./config.local.json:/app/config/config.local.json:ro
+      - ./calibrations:/app/calibrations
+      - node-diagnostics:/app/diagnostics
+      - node-state:/app/state
+
+volumes:
+  node-diagnostics:
+  node-state:

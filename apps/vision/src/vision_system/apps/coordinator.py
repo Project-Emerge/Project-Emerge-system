@@ -288,3 +288,7 @@ def coordinator_main() -> None:
     signal.signal(signal.SIGINT, lambda signum, frame: coordinator.stop())
     signal.signal(signal.SIGTERM, lambda signum, frame: coordinator.stop())
     coordinator.run()
+
+
+if __name__ == "__main__":
+    coordinator_main()

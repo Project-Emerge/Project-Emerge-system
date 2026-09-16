@@ -74,8 +74,10 @@ def _handle_select_cameras_command(
             sources=args.sources,
             max_index=args.max_index,
             force=args.force,
+            camera_id=args.camera,
+            camera_ids=args.cameras,
         )
-    except FileExistsError as error:
+    except (FileExistsError, ValueError) as error:
         parser.error(str(error))
     if selected is None:
         print("Selezione annullata: nessun file scritto")
@@ -276,6 +278,15 @@ def calibration_main() -> None:
     selector_parser.add_argument("--sources", type=int, nargs="+")
     selector_parser.add_argument("--max-index", type=int, default=15)
     selector_parser.add_argument("--force", action="store_true")
+    selector_parser.add_argument(
+        "--cameras",
+        nargs="+",
+        metavar="CAM_ID",
+        help="camere logiche presenti nel deployment, es. --cameras cam_0 cam_1",
+    )
+    selector_parser.add_argument(
+        "--camera", help="assegna una sola camera logica (modalita distribuita)"
+    )
     subparsers.add_parser("probe", help="verifica le sorgenti video configurate")
     args = parser.parse_args()
     diagnostic_path = configure_diagnostics(

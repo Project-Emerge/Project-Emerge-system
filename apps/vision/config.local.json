@@ -3,18 +3,18 @@
     "adaptive_thresh_win_size_max": 23,
     "adaptive_thresh_win_size_min": 3,
     "anchor_frame": {
-      "opposite_id": 6,
-      "origin_id": 5,
+      "opposite_id": 3,
+      "origin_id": 7,
       "plane_z_m": 0.0,
-      "x_axis_id": 2,
-      "x_distance_m": 2.25,
-      "y_axis_id": 4,
-      "y_distance_m": 2.25
+      "x_axis_id": 10,
+      "x_distance_m": 1.69,
+      "y_axis_id": 9,
+      "y_distance_m": 1.69
     },
     "auto_mobile_markers": {
       "default_size_m": 0.09,
       "enabled": true,
-      "ignored_ids": [17]
+      "ignored_ids": []
     },
     "corner_refinement": true,
     "dictionary": "DICT_4X4_50",
@@ -27,75 +27,80 @@
       }
     ],
     "perspective_remove_pixel_per_cell": 4,
-    "reference_ids": [],
+    "reference_ids": [
+      7,
+      9,
+      10,
+      3
+    ],
     "reference_markers": [
       {
-        "id": 2,
-        "name": "ref-2",
+        "id": 3,
+        "name": "ref-3",
         "orientation_xyzw": [
           0.0,
           0.0,
-          -0.012856912179064449,
-          0.9999173464888085
+          -0.002586163611679324,
+          0.9999966558732952
         ],
         "position_m": [
-          2.25,
-          0.0,
+          1.69,
+          1.69,
           0.0
         ],
         "size_m": 0.09,
-        "uncertainty_m": 0.01707434382159907
+        "uncertainty_m": 0.0037361744571803145
       },
       {
-        "id": 4,
-        "name": "ref-4",
+        "id": 7,
+        "name": "ref-7",
         "orientation_xyzw": [
           0.0,
           0.0,
-          0.0007712059407511302,
-          0.9999997026206543
+          -0.710003309958134,
+          0.7041983384306539
         ],
         "position_m": [
           0.0,
-          2.25,
+          0.0,
           0.0
         ],
         "size_m": 0.09,
-        "uncertainty_m": 0.009641083922326592
+        "uncertainty_m": 0.0035355339059327372
       },
       {
-        "id": 5,
-        "name": "ref-5",
+        "id": 9,
+        "name": "ref-9",
         "orientation_xyzw": [
           0.0,
           0.0,
-          0.014843837179532304,
-          0.9998898241795381
+          0.0010336923930525743,
+          0.9999994657398755
         ],
         "position_m": [
           0.0,
-          0.0,
+          1.69,
           0.0
         ],
         "size_m": 0.09,
-        "uncertainty_m": 0.012957770053087897
+        "uncertainty_m": 0.0035355339059327372
       },
       {
-        "id": 6,
-        "name": "ref-6",
+        "id": 10,
+        "name": "ref-10",
         "orientation_xyzw": [
           0.0,
           0.0,
-          -0.0041867260560232876,
-          0.9999912356240588
+          0.9999182824191076,
+          0.01278391505062867
         ],
         "position_m": [
-          2.25,
-          2.25,
+          1.69,
+          0.0,
           0.0
         ],
         "size_m": 0.09,
-        "uncertainty_m": 0.01525601161460624
+        "uncertainty_m": 0.0035355339059327372
       }
     ]
   },
@@ -108,21 +113,8 @@
       "focus": null,
       "fps": 30.0,
       "height": 1080,
-      "id": "cam_1",
-      "source": 0,
-      "width": 1920,
-      "zoom": null
-    },
-    {
-      "auto_exposure": false,
-      "autofocus": false,
-      "digital_zoom": 1.0,
-      "exposure": null,
-      "focus": null,
-      "fps": 30.0,
-      "height": 1080,
       "id": "cam_2",
-      "source": 9,
+      "source": 2,
       "width": 1920,
       "zoom": null
     },
@@ -135,7 +127,7 @@
       "fps": 30.0,
       "height": 1080,
       "id": "cam_3",
-      "source": 7,
+      "source": 4,
       "width": 1920,
       "zoom": null
     }
@@ -162,7 +154,7 @@
     "tracker_velocity_gain": 0.12,
     "window_ms": 40.0
   },
-  "revision": 4,
+  "revision": 3,
   "schema_version": 1,
   "site": "lab",
   "system_id": "indoor-01"

@@ -23,6 +23,7 @@ vision-reference-map = "vision_system.apps.reference_mapper:reference_mapper_mai
 vision-select-origin = "vision_system.apps.origin_selector:origin_selector_main"
 vision-node = "vision_system.apps.node:node_main"
 vision-server = "vision_system.apps.coordinator:coordinator_main"
+vision-server-gui = "vision_system.apps.server_gui:server_gui_main"
 vision-simulate = "vision_system.apps.simulator:simulator_main"
 vision-aruco-view = "vision_system.apps.aruco_viewer:viewer_main"
 vision-reference-stitch = "vision_system.apps.reference_stitcher:reference_stitcher_main"

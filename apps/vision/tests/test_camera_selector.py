@@ -174,3 +174,62 @@ def test_single_camera_selection_requires_exactly_that_slot() -> None:
         build_camera_config(AppConfig(), {1: 3}, only_index=2)
     with pytest.raises(ValueError, match="cam_2"):
         build_camera_config(AppConfig(), {0: 3, 2: 4}, only_index=2)
+
+
+def test_roster_keeps_only_requested_cameras() -> None:
+    trimmed = camera_selector.resolve_camera_roster(AppConfig(), ["cam_1", "cam_2"])
+    assert [camera.id for camera in trimmed.cameras] == ["cam_1", "cam_2"]
+    assert [camera.source for camera in trimmed.cameras] == [1, 2]
+
+
+def test_roster_without_ids_keeps_the_base_config() -> None:
+    base = AppConfig()
+    assert camera_selector.resolve_camera_roster(base, None) is base
+    assert camera_selector.resolve_camera_roster(base, []) is base
+
+
+def test_roster_rejects_unknown_and_duplicated_cameras() -> None:
+    with pytest.raises(ValueError, match="camere sconosciute: cam_9"):
+        camera_selector.resolve_camera_roster(AppConfig(), ["cam_0", "cam_9"])
+    with pytest.raises(ValueError, match="diverse"):
+        camera_selector.resolve_camera_roster(AppConfig(), ["cam_0", "cam_0"])
+
+
+def test_two_camera_roster_assigns_both_slots() -> None:
+    base = camera_selector.resolve_camera_roster(AppConfig(revision=4), ["cam_0", "cam_1"])
+    result = build_camera_config(base, {0: 3, 1: 7})
+    assert [camera.id for camera in result.cameras] == ["cam_0", "cam_1"]
+    assert [camera.source for camera in result.cameras] == [3, 7]
+    assert result.revision == 5
+
+
+def test_distributed_two_camera_roster_updates_only_its_own_slot() -> None:
+    base = camera_selector.resolve_camera_roster(AppConfig(), ["cam_0", "cam_1"])
+    result = build_camera_config(base, {1: 7}, only_index=1)
+    assert [camera.id for camera in result.cameras] == ["cam_0", "cam_1"]
+    assert [camera.source for camera in result.cameras] == [5, 7]
+
+
+def test_select_camera_config_applies_the_roster(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeSelector:
+        def __init__(self, base, sources, max_index, only_index) -> None:
+            captured["camera_ids"] = [camera.id for camera in base.cameras]
+            captured["only_index"] = only_index
+            self.base = base
+
+        def run(self):
+            return build_camera_config(self.base, {1: 7}, only_index=1)
+
+    monkeypatch.setattr(camera_selector, "CameraSelector", FakeSelector)
+    output = tmp_path / "config.local.json"
+
+    result = camera_selector.select_camera_config(
+        output, camera_id="cam_1", camera_ids=["cam_0", "cam_1"]
+    )
+
+    assert captured == {"camera_ids": ["cam_0", "cam_1"], "only_index": 1}
+    assert result is not None
+    assert [camera.id for camera in result.cameras] == ["cam_0", "cam_1"]
+    assert output.exists()
