@@ -1,17 +1,26 @@
 package it.unibo.demo.scenarios
 
 /**
- * An idiomatic and highly optimized Scala 3 solver for the minimum weight perfect matching problem
- * (the assignment problem) specifically tailored for multi-robot shape formations.
+ * Solves the minimum weight perfect matching problem (the assignment problem) for
+ * multi-robot shape formations.
  *
- * It uses a Branch and Bound backtracking algorithm to find the globally optimal bijection
- * between robots and target slots, minimizing the sum of squared distances to completely
- * prevent path crossings and minimize total travel time.
+ * Matching is done on squared distances, which is what keeps robots from crossing paths
+ * and keeps total travel low.
+ *
+ * The implementation is the Hungarian algorithm (Jonker-Volgenant shortest augmenting
+ * paths with potentials), which is exact and runs in O(n^3). It replaces an earlier
+ * branch-and-bound search: that was also exact, but its bound collapsed precisely in the
+ * case the runtime hits most -- a scattered fleet still far from its slots -- where it cost
+ * ~11ms for 9 robots, ~90ms for 10 and over a second for 11. At 12 robots that alone
+ * stretched the 200ms control loop past a second and destabilised the wheel controllers.
  */
 object AssignmentSolver:
 
   type RobotId = Int
   type Vector2D = (Double, Double)
+
+  /** Stands in for a distance that is not a real number, so one bad pose cannot poison the solve. */
+  private val UnusableCost: Double = 1e12
 
   /**
    * Solves the assignment problem, matching each robot to a target slot optimally.
@@ -24,6 +33,48 @@ object AssignmentSolver:
     robots: List[(RobotId, Vector2D)],
     targets: List[Vector2D]
   ): Map[RobotId, Vector2D] =
+    displacements(robots, targets, solveIndices(robots, targets))
+
+  /**
+   * The displacement each robot must travel under the given assignment.
+   *
+   * @param assignment robot id to the index of the slot it was given
+   */
+  def displacements(
+    robots: List[(RobotId, Vector2D)],
+    targets: List[Vector2D],
+    assignment: Map[RobotId, Int]
+  ): Map[RobotId, Vector2D] =
+    val targetArray = targets.toArray
+    robots.iterator.flatMap { (id, at) =>
+      assignment.get(id).filter(targetArray.indices.contains).map { slot =>
+        val (tx, ty) = targetArray(slot)
+        id -> (tx + at._1, ty + at._2)
+      }
+    }.toMap
+
+  /** Total squared distance travelled under the given assignment. */
+  def cost(
+    robots: List[(RobotId, Vector2D)],
+    targets: List[Vector2D],
+    assignment: Map[RobotId, Int]
+  ): Double =
+    displacements(robots, targets, assignment).values.foldLeft(0.0) { (total, d) =>
+      total + d._1 * d._1 + d._2 * d._2
+    }
+
+  /**
+   * The optimal assignment, as a map from robot id to the index of the slot it was given.
+   *
+   * Note that when several assignments share the lowest cost -- which is common for a
+   * collinear slot set -- which one is returned is arbitrary. Callers that feed this to
+   * moving robots should hold the previous assignment steady rather than adopt a new
+   * equal-cost one every round; see `ShapeFormation.steadyAssignment`.
+   */
+  def solveIndices(
+    robots: List[(RobotId, Vector2D)],
+    targets: List[Vector2D]
+  ): Map[RobotId, Int] =
     if robots.isEmpty || targets.isEmpty || robots.size != targets.size then
       Map.empty
     else
@@ -31,81 +82,72 @@ object AssignmentSolver:
       val robotArray = robots.toArray
       val targetArray = targets.toArray
 
-      // Precompute squared distance matrix: distSq(r)(t) is the squared distance from robot r to target t
-      val distSq = Array.tabulate(n, n) { (r, t) =>
+      // cost(r)(t) is the squared distance robot r would travel to reach target t.
+      // Robot vectors point from the robot to the anchor, so the robot's position relative
+      // to the anchor is -r and the displacement to target t is t - (-r) = t + r.
+      val cost = Array.tabulate(n, n) { (r, t) =>
         val (rx, ry) = robotArray(r)._2
         val (tx, ty) = targetArray(t)
         val dx = rx + tx
         val dy = ry + ty
-        dx * dx + dy * dy
+        val squared = dx * dx + dy * dy
+        if squared.isNaN || squared.isInfinite then UnusableCost else squared
       }
 
-      var bestCost = Double.MaxValue
-      val bestMatch = new Array[Int](n) // Maps target index -> robot index
+      // Jonker-Volgenant, 1-indexed with a sentinel column 0 as in the classic formulation.
+      // rowPotential/columnPotential keep the reduced costs non-negative; matchedRow(j) is
+      // the robot currently assigned to slot j; parent(j) reconstructs the augmenting path.
+      val rowPotential = Array.fill(n + 1)(0.0)
+      val columnPotential = Array.fill(n + 1)(0.0)
+      val matchedRow = Array.fill(n + 1)(0)
+      val parent = Array.fill(n + 1)(0)
 
-      // 1. Greedy Initialization (provides a strong initial upper bound for pruning)
-      val assignedRobots = new Array[Boolean](n)
-      var greedyCost = 0.0
-      val tempMatch = new Array[Int](n)
-      for t <- 0 until n do
-        val bestR = (0 until n)
-          .filter(r => !assignedRobots(r))
-          .minByOption(r => distSq(r)(t))
-        
-        bestR.foreach { r =>
-          assignedRobots(r) = true
-          tempMatch(t) = r
-          greedyCost += distSq(r)(t)
-        }
+      for robot <- 1 to n do
+        matchedRow(0) = robot
+        var current = 0
+        val slack = Array.fill(n + 1)(Double.PositiveInfinity)
+        val visited = Array.fill(n + 1)(false)
 
-      bestCost = greedyCost
-      tempMatch.copyToArray(bestMatch)
+        // Grow a shortest augmenting path until it reaches a slot with no robot on it.
+        var reachedFreeSlot = false
+        while !reachedFreeSlot do
+          visited(current) = true
+          val onPath = matchedRow(current)
+          var delta = Double.PositiveInfinity
+          var next = 0
 
-      // 2. Precompute optimistic suffix bounds for aggressive pruning
-      val minTargetCost = Array.tabulate(n) { t =>
-        (0 until n).map(r => distSq(r)(t)).min
-      }
+          var slot = 1
+          while slot <= n do
+            if !visited(slot) then
+              val reduced = cost(onPath - 1)(slot - 1) - rowPotential(onPath) - columnPotential(slot)
+              if reduced < slack(slot) then
+                slack(slot) = reduced
+                parent(slot) = current
+              if slack(slot) < delta then
+                delta = slack(slot)
+                next = slot
+            slot += 1
 
-      val suffixMinCost = new Array[Double](n + 1)
-      for tIndex <- (n - 1) to 0 by -1 do
-        suffixMinCost(tIndex) = suffixMinCost(tIndex + 1) + minTargetCost(tIndex)
+          // Shift the potentials so the chosen slot becomes tight, keeping the rest valid.
+          var j = 0
+          while j <= n do
+            if visited(j) then
+              rowPotential(matchedRow(j)) += delta
+              columnPotential(j) -= delta
+            else slack(j) -= delta
+            j += 1
 
-      // 3. Pre-sort candidate robots for each target to visit better assignments first
-      val sortedRobotsForTarget = Array.tabulate(n) { tg =>
-        (0 until n).sortBy(r => distSq(r)(tg)).toArray
-      }
+          current = next
+          reachedFreeSlot = matchedRow(current) == 0
 
-      // 4. Backtracking search with branch-and-bound pruning
-      val currentMatch = new Array[Int](n)
-      val usedRobots = new Array[Boolean](n)
+        // Walk the path back, moving each robot onto the next slot along it.
+        while current != 0 do
+          val previous = parent(current)
+          matchedRow(current) = matchedRow(previous)
+          current = previous
 
-      def search(targetIdx: Int, currentCost: Double): Unit =
-        if currentCost + suffixMinCost(targetIdx) >= bestCost then
-          () // Prune branch
-        else if targetIdx == n then
-          if currentCost < bestCost then
-            bestCost = currentCost
-            currentMatch.copyToArray(bestMatch)
-        else
-          val candidates = sortedRobotsForTarget(targetIdx)
-          for r <- candidates do
-            if !usedRobots(r) then
-              val cost = distSq(r)(targetIdx)
-              if currentCost + cost + suffixMinCost(targetIdx + 1) < bestCost then
-                usedRobots(r) = true
-                currentMatch(targetIdx) = r
-                search(targetIdx + 1, currentCost + cost)
-                usedRobots(r) = false
-
-      search(0, 0.0)
-
-      // 5. Construct the result mapping (RobotId -> Relative Displacement Vector)
-      val resultMap = Map.newBuilder[RobotId, Vector2D]
-      for tg <- 0 until n do
-        val robotIdx = bestMatch(tg)
-        val (robotId, (rx, ry)) = robotArray(robotIdx)
-        val (tx, ty) = targetArray(tg)
-        val relativeVector = (tx + rx, ty + ry)
-        resultMap += (robotId -> relativeVector)
+      val resultMap = Map.newBuilder[RobotId, Int]
+      for slot <- 1 to n do
+        resultMap += (robotArray(matchedRow(slot) - 1)._1 -> (slot - 1))
 
       resultMap.result()

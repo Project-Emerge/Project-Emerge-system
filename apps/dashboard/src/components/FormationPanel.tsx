@@ -1,138 +1,30 @@
 import { useEffect, useState } from "react";
-import { FormationCommandSchema, formationTopic, type FormationCommand, type FormationProgram } from "../../shared/protocol";
+import {
+  FormationCommandSchema,
+  formationTopic,
+  type CustomFormationSpec,
+  type FormationAnchor,
+  type FormationCommand,
+  type FormationProgram,
+} from "../../shared/protocol";
+import {
+  ANCHOR_DESCRIPTIONS,
+  ANCHOR_LABELS,
+  FORMATION_DEFINITIONS,
+  GROUP_LABELS,
+  GROUP_ORDER,
+  defaultParams,
+  definitionFor,
+  resolveAnchor,
+} from "../../shared/formations";
 import { useGatewayClient } from "../services/gateway-context";
 import { useDashboardStore } from "../store/dashboard-store";
 
 type SaveState = { kind: "idle" | "saving" | "success" | "error"; message?: string };
 
-type FormationParamDefinition = {
-  key: string;
-  label: string;
-  unit?: string;
-  min: number;
-  max: number;
-  step: number;
-  defaultValue: number;
-};
-
-type FormationDefinition = {
-  value: FormationProgram;
-  label: string;
-  description: string;
-  params: FormationParamDefinition[];
-};
-
-const COLLISION_AREA: FormationParamDefinition = {
-  key: "collisionArea",
-  label: "Collision radius",
-  unit: "m",
-  min: 0.05,
-  max: 1,
-  step: 0.05,
-  defaultValue: 0.3,
-};
-
-const STABILITY_THRESHOLD: FormationParamDefinition = {
-  key: "stabilityThreshold",
-  label: "Stability threshold",
-  unit: "m",
-  min: 0.01,
-  max: 0.5,
-  step: 0.01,
-  defaultValue: 0.1,
-};
-
-const FORMATION_DEFINITIONS: FormationDefinition[] = [
-  {
-    value: "pointToLeader",
-    label: "Point to leader",
-    description: "Every robot turns to face the leader.",
-    params: [],
-  },
-  {
-    value: "vShape",
-    label: "V formation",
-    description: "Two trailing arms fan out behind the leader.",
-    params: [
-      { key: "interDistanceV", label: "Arm spacing", unit: "m", min: 0.1, max: 1.2, step: 0.05, defaultValue: 0.4 },
-      { key: "angleV", label: "Arm angle", unit: "rad", min: -Math.PI, max: Math.PI, step: 0.05, defaultValue: -0.79 },
-      COLLISION_AREA,
-      STABILITY_THRESHOLD,
-    ],
-  },
-  {
-    value: "lineShape",
-    label: "Line",
-    description: "Robots line up side by side behind the leader.",
-    params: [
-      { key: "interDistanceLine", label: "Robot spacing", unit: "m", min: 0.1, max: 1.2, step: 0.05, defaultValue: 0.4 },
-      COLLISION_AREA,
-      STABILITY_THRESHOLD,
-    ],
-  },
-  {
-    value: "circleShape",
-    label: "Circle",
-    description: "Robots ring the leader at a fixed radius.",
-    params: [
-      { key: "radius", label: "Circle radius", unit: "m", min: 0.2, max: 1.5, step: 0.05, defaultValue: 0.6 },
-      COLLISION_AREA,
-      STABILITY_THRESHOLD,
-    ],
-  },
-  {
-    value: "squareShape",
-    label: "Square",
-    description: "Robots fill a grid around the leader.",
-    params: [
-      { key: "interDistanceSquare", label: "Grid spacing", unit: "m", min: 0.1, max: 1.2, step: 0.05, defaultValue: 0.4 },
-      COLLISION_AREA,
-      STABILITY_THRESHOLD,
-    ],
-  },
-  {
-    value: "verticalLineShape",
-    label: "Vertical line",
-    description: "Robots queue directly behind the leader.",
-    params: [
-      { key: "interDistanceVertical", label: "Robot spacing", unit: "m", min: 0.1, max: 1.2, step: 0.05, defaultValue: 0.4 },
-      COLLISION_AREA,
-      STABILITY_THRESHOLD,
-    ],
-  },
-  {
-    value: "heartShape",
-    label: "Heart",
-    description: "Robots trace a heart outline around the leader.",
-    params: [
-      { key: "scaleHeart", label: "Heart size", unit: "m", min: 0.02, max: 0.2, step: 0.01, defaultValue: 0.06 },
-      COLLISION_AREA,
-      STABILITY_THRESHOLD,
-    ],
-  },
-  {
-    value: "stop",
-    label: "Stop",
-    description: "Every robot holds position.",
-    params: [],
-  },
-];
-
-function definitionFor(program: FormationProgram): FormationDefinition {
-  return FORMATION_DEFINITIONS.find((definition) => definition.value === program) ?? FORMATION_DEFINITIONS[0];
-}
-
-function defaultParams(definition: FormationDefinition): Record<string, number> {
-  return Object.fromEntries(definition.params.map((param) => [param.key, param.defaultValue]));
-}
-
 function StatusMessage({ state }: { state: SaveState }): React.JSX.Element | null {
   if (state.kind === "idle" || state.kind === "saving") return null;
   return <p className={`form-message ${state.kind}`}>{state.message}</p>;
-}
-
-export function getFormationLabel(program: string): string {
-  return FORMATION_DEFINITIONS.find((definition) => definition.value === program)?.label ?? program;
 }
 
 export function FormationPanel({ onClose }: { onClose: () => void }): React.JSX.Element {
@@ -143,8 +35,10 @@ export function FormationPanel({ onClose }: { onClose: () => void }): React.JSX.
 
   const [expanded, setExpanded] = useState(false);
   const [program, setProgram] = useState<FormationProgram>("pointToLeader");
+  const [anchor, setAnchor] = useState<FormationAnchor>("leader");
   const [leaderId, setLeaderId] = useState<string | null>(null);
   const [params, setParams] = useState<Record<string, number>>({});
+  const [customSpec, setCustomSpec] = useState<CustomFormationSpec | null>(null);
   const [saveState, setSaveState] = useState<SaveState>({ kind: "idle" });
 
   useEffect(() => {
@@ -160,19 +54,30 @@ export function FormationPanel({ onClose }: { onClose: () => void }): React.JSX.
   useEffect(() => {
     if (!activeFormation) return;
     setProgram(activeFormation.program);
+    setAnchor(activeFormation.anchor);
     setLeaderId(activeFormation.leaderId);
     setParams(activeFormation.params);
+    setCustomSpec(activeFormation.custom ?? null);
     setExpanded(definitionFor(activeFormation.program).params.length > 0);
   }, [activeFormation]);
 
   const definition = definitionFor(program);
-  const needsLeader = program !== "stop";
-  const canApply = connectionStatus === "connected" && (!needsLeader || Boolean(leaderId)) && saveState.kind !== "saving";
+  const effectiveAnchor = resolveAnchor(definition, anchor);
+  const anchorApplies = definition.anchors.length > 0;
+  const needsLeader = anchorApplies && effectiveAnchor === "leader";
+  const hasGeometry = program !== "custom" || customSpec !== null;
+  const canApply = connectionStatus === "connected"
+    && (!needsLeader || Boolean(leaderId))
+    && hasGeometry
+    && saveState.kind !== "saving";
 
   function selectProgram(next: FormationProgram): void {
+    const nextDefinition = definitionFor(next);
     setProgram(next);
-    setParams(defaultParams(definitionFor(next)));
-    setExpanded(definitionFor(next).params.length > 0);
+    setAnchor(resolveAnchor(nextDefinition, anchor));
+    setParams(defaultParams(nextDefinition));
+    if (next !== "custom") setCustomSpec(null);
+    setExpanded(nextDefinition.params.length > 0);
   }
 
   function resetParams(): void {
@@ -184,7 +89,15 @@ export function FormationPanel({ onClose }: { onClose: () => void }): React.JSX.
   }
 
   async function applyFormation(): Promise<void> {
-    const command: FormationCommand = { program, leaderId, params };
+    const command: FormationCommand = {
+      program,
+      // Anything but an operator-chosen leader must clear the id, otherwise the runtime
+      // keeps rooting the formation on the previous robot.
+      leaderId: needsLeader ? leaderId : null,
+      anchor: effectiveAnchor,
+      params,
+      custom: program === "custom" ? customSpec : null,
+    };
     const parsed = FormationCommandSchema.safeParse(command);
     if (!parsed.success) {
       setSaveState({ kind: "error", message: parsed.error.issues[0]?.message ?? "Invalid formation command." });
@@ -206,35 +119,69 @@ export function FormationPanel({ onClose }: { onClose: () => void }): React.JSX.
       <div className="modal-container formation-panel" onClick={(event) => event.stopPropagation()}>
         <button type="button" className="modal-close" onClick={onClose} aria-label="Close dialog">✕</button>
         <div className="panel-heading">
-          <div><span className="eyebrow">Swarm</span><h2>Formation &amp; parameters</h2></div>
+          <div><span className="eyebrow">Fleet</span><h2>Formation &amp; parameters</h2></div>
           <span className="retained-tag">{activeLabel ? `ACTIVE · ${activeLabel.toUpperCase()}` : "NO FORMATION YET"}</span>
         </div>
 
-      <div className="formation-picker" role="group" aria-label="Formation program">
-        {FORMATION_DEFINITIONS.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            className={option.value === program ? "active" : ""}
-            aria-pressed={option.value === program}
-            onClick={() => selectProgram(option.value)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
+      {GROUP_ORDER.map((group) => (
+        <div className="formation-group" key={group}>
+          <span className="formation-group-label">{GROUP_LABELS[group]}</span>
+          <div className="formation-picker" role="group" aria-label={GROUP_LABELS[group]}>
+            {FORMATION_DEFINITIONS.filter((option) => option.group === group).map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={option.value === program ? "active" : ""}
+                aria-pressed={option.value === program}
+                onClick={() => selectProgram(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
       <p className="muted">{definition.description}</p>
+
+      {anchorApplies && (
+        <div className="formation-group">
+          <span className="formation-group-label">Built around</span>
+          <div className="segmented-control" aria-label="Formation anchor">
+            {definition.anchors.map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={option === effectiveAnchor ? "active" : ""}
+                aria-pressed={option === effectiveAnchor}
+                onClick={() => setAnchor(option)}
+              >
+                {ANCHOR_LABELS[option]}
+              </button>
+            ))}
+          </div>
+          <p className="muted">{ANCHOR_DESCRIPTIONS[effectiveAnchor]}</p>
+        </div>
+      )}
 
       <div className="formation-form-grid">
         <label className="field-label">
           Leader
           <select
             aria-label="Formation leader"
-            value={leaderId ?? ""}
+            value={needsLeader ? leaderId ?? "" : ""}
+            disabled={!needsLeader}
             onChange={(event) => setLeaderId(event.target.value || null)}
           >
-            <option value="">{robotIds.length === 0 ? "No robots detected" : "Select a robot"}</option>
-            {robotIds.map((id) => <option key={id} value={id}>{id}</option>)}
+            <option value="">
+              {!anchorApplies
+                ? "Not used by this formation"
+                : effectiveAnchor === "auto"
+                  ? "Elected by the fleet"
+                  : robotIds.length === 0
+                    ? "No robots detected"
+                    : "Select a robot"}
+            </option>
+            {needsLeader && robotIds.map((id) => <option key={id} value={id}>{id}</option>)}
           </select>
         </label>
         <div className="save-row">
@@ -245,6 +192,13 @@ export function FormationPanel({ onClose }: { onClose: () => void }): React.JSX.
         </div>
       </div>
       {needsLeader && !leaderId && <p className="formation-hint">Pick a leader before applying this formation.</p>}
+      {program === "custom" && (
+        <p className="formation-hint">
+          {customSpec
+            ? `Designed in the swarm chat${customSpec.label ? `: ${customSpec.label}` : ""}. The sliders below resize it.`
+            : "Ask the swarm chat to design a shape before applying a custom formation."}
+        </p>
+      )}
 
       {definition.params.length > 0 && (
         <div className="formation-params">

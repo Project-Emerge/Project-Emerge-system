@@ -15,6 +15,15 @@ import {
   validateClientPublication,
 } from "../shared/protocol.js";
 import { FirmwareStore } from "./firmware-store.js";
+import {
+  CHAT_AUDIO_MAX_BYTES,
+  CHAT_MESSAGE_MAX_LENGTH,
+  ChatRequestSchema,
+} from "../shared/chat.js";
+import { createDesignLog } from "./design-log.js";
+import { deriveFleetSnapshot } from "./fleet-snapshot.js";
+import { createFormationAgent, DEFAULT_CHAT_MODEL, type FormationAgent } from "./chat-agent.js";
+import { createTranscriber, isSupportedAudioType, type Transcriber } from "./transcribe.js";
 
 try {
   process.loadEnvFile(join(process.cwd(), "../../.env"));
@@ -29,6 +38,29 @@ const firmwareDirectory = process.env.FIRMWARE_DIRECTORY ?? join(process.cwd(), 
 const firmwareStore = new FirmwareStore(firmwareDirectory);
 // The Dropbot OTA slots are 0x1e0000 bytes each (see the firmware's partitions.csv).
 const maximumFirmwareSize = 0x1e0000;
+// Server-side only, and deliberately not VITE_-prefixed: that prefix is this repo's marker for
+// values Vite inlines into the browser bundle, which is the one place this key must never reach.
+//
+// `optional` rather than `??` throughout, because Compose passes an unset variable through as an
+// empty string: `${GEMINI_MODEL:-}` with nothing in .env arrives as "", which `??` would happily
+// accept as the model name.
+function optional(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+const geminiApiKey = optional(process.env.GEMINI_API_KEY);
+const geminiModel = optional(process.env.GEMINI_MODEL) ?? DEFAULT_CHAT_MODEL;
+const chatEnabled = Boolean(geminiApiKey);
+// Every geometry the agent invents, appended as one JSON line, so an operator can read back what
+// a shape actually was once the next command has overwritten the retained topic.
+const designLog = createDesignLog(
+  optional(process.env.CUSTOM_FORMATION_LOG) ?? join(process.cwd(), "logs", "custom-formations.jsonl"),
+);
+// A chat request body is a short conversation, so the cap is generous rather than tight.
+const maximumChatBodySize = CHAT_MESSAGE_MAX_LENGTH * 32;
+// Built on first use, so a gateway with no key never constructs a Gemini client.
+let formationAgent: FormationAgent | null = null;
+let transcriber: Transcriber | null = null;
 const snapshots = new Map<string, GatewayMqttMessage>();
 let brokerStatus: GatewayStatus = "connecting";
 
@@ -47,6 +79,87 @@ const server = createServer((request, response) => {
 
 async function handleHttpRequest(request: import("node:http").IncomingMessage, response: import("node:http").ServerResponse): Promise<void> {
   const requestPath = request.url?.split("?")[0] ?? "/";
+
+  if (request.method === "GET" && requestPath === "/api/chat/status") {
+    sendJson(response, 200, { enabled: chatEnabled, model: chatEnabled ? geminiModel : null });
+    return;
+  }
+
+  if (request.method === "POST" && requestPath === "/api/chat") {
+    if (!chatEnabled) {
+      sendJson(response, 503, { error: "Set GEMINI_API_KEY in the root .env to use the swarm chat." });
+      return;
+    }
+    if (!request.headers["content-type"]?.startsWith("application/json")) {
+      sendJson(response, 415, { error: "Send the conversation as application/json." });
+      return;
+    }
+    try {
+      const body = await readRequestBody(request, maximumChatBodySize);
+      const parsed = ChatRequestSchema.safeParse(JSON.parse(body.toString("utf8")));
+      if (!parsed.success) {
+        sendJson(response, 400, { error: parsed.error.issues[0]?.message ?? "Invalid chat request." });
+        return;
+      }
+      formationAgent ??= createFormationAgent({
+        apiKey: geminiApiKey,
+        model: geminiModel,
+        onDesign: (record) => designLog.record(record),
+      });
+      const reply = await formationAgent.run(parsed.data.messages, deriveFleetSnapshot(snapshots));
+      sendJson(response, 200, reply);
+    } catch (error) {
+      if (error instanceof RequestTooLargeError) {
+        sendJson(response, 413, { error: error.message });
+        return;
+      }
+      if (error instanceof SyntaxError) {
+        sendJson(response, 400, { error: "The conversation was not valid JSON." });
+        return;
+      }
+      // A model or network failure is upstream's fault, not the caller's.
+      console.error("Swarm chat failed", error);
+      sendJson(response, 502, {
+        error: error instanceof Error ? `The model could not be reached: ${error.message}` : "The model could not be reached.",
+      });
+    }
+    return;
+  }
+
+  if (request.method === "POST" && requestPath === "/api/chat/transcribe") {
+    if (!chatEnabled) {
+      sendJson(response, 503, { error: "Set GEMINI_API_KEY in the root .env to use voice input." });
+      return;
+    }
+    const contentType = request.headers["content-type"];
+    if (!contentType || !isSupportedAudioType(contentType)) {
+      sendJson(response, 415, { error: "Send the recording as audio/webm, audio/ogg or audio/mp4." });
+      return;
+    }
+    const declaredLength = Number(request.headers["content-length"]);
+    if (Number.isFinite(declaredLength) && declaredLength > CHAT_AUDIO_MAX_BYTES) {
+      request.resume();
+      sendJson(response, 413, { error: "That recording is too long. Keep it under a few minutes." });
+      return;
+    }
+    try {
+      const audio = await readRequestBody(request, CHAT_AUDIO_MAX_BYTES);
+      transcriber ??= createTranscriber({ apiKey: geminiApiKey, model: geminiModel });
+      const text = await transcriber.transcribe(audio, contentType);
+      sendJson(response, 200, { text });
+    } catch (error) {
+      if (error instanceof RequestTooLargeError) {
+        sendJson(response, 413, { error: error.message });
+        return;
+      }
+      console.error("Transcription failed", error);
+      sendJson(response, 502, {
+        error: error instanceof Error ? `Could not transcribe that: ${error.message}` : "Could not transcribe that.",
+      });
+    }
+    return;
+  }
+
   if (request.method === "GET" && requestPath === "/api/firmware/latest") {
     const manifest = await firmwareStore.latest();
     if (!manifest) {
@@ -245,4 +358,7 @@ webSocketServer.on("connection", (socket) => {
 
 server.listen(port, () => {
   console.log(`Gateway dashboard in ascolto su http://localhost:${port} (MQTT: ${mqttUrl})`);
+  if (chatEnabled) {
+    console.log(`Formazioni personalizzate registrate su ${designLog.path}`);
+  }
 });

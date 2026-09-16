@@ -26,7 +26,7 @@ class AllDemoToLoad(demos: (String, BaseDemo)*) extends BaseDemo {
 
   override def main(): EXPORT = {
     val ctx = vm.context
-    val currentProgram = sense[String]("program")
+    val currentProgram = sense[String](BaseDemo.Program)
     val programToRun = demosToMap.get(currentProgram) match {
       case Some(demo) => demo
       case None =>
@@ -42,17 +42,9 @@ class AllDemoToLoad(demos: (String, BaseDemo)*) extends BaseDemo {
 object ResearchNightDemos extends IOApp.Simple:
 
   override def run: IO[Unit] =
-    val defaults = Map(
-      "program" -> "pointToLeader",
-      "leader" -> 12,
-      "collisionArea" -> 0.3,
-      "stabilityThreshold" -> 0.1,
-    ) ++ LineFormation.DEFAULTS 
-      ++ VFormation.DEFAULTS
-      ++ VerticalLineFormation.DEFAULTS 
-      ++ CircleFormation.DEFAULTS
-      ++ SquareFormation.DEFAULTS
-      ++ HeartFormation.DEFAULTS
+    // Every molecule a program can `sense` needs a default, or the round throws and the robot
+    // halts; see FormationDefaults for why the map lives there rather than here.
+    val defaults = FormationDefaults.All
 
     val makeResources: Resource[IO, (MqttContext, Dispatcher[IO], Ref[IO, Map[String, Any]], Ref[IO, Map[ID, TimedPose]], Ref[IO, Map[ID, Set[ID]]])] =
       for {
@@ -74,17 +66,10 @@ object ResearchNightDemos extends IOApp.Simple:
       given Dispatcher[IO] = dispatcher
 
       val provider = MqttProvider(configRef, worldMapRef, neighborhoodRef)
-      val demoToLaunch = AllDemoToLoad(
-        "pointToLeader" -> PointTheLeader(),
-        "vShape" -> VFormation(),
-        "squareShape" -> SquareFormation(),
-        "circleShape" -> CircleFormation(),
-        "lineShape" -> LineFormation(),
-        "verticalLineShape" -> VerticalLineFormation(),
-        "heartShape" -> HeartFormation(),
-        "stop" -> Stop()
-      )
-      val aggregateOrchestrator = AggregateOrchestrator[Position, Actuation](demoToLaunch)
+      val demoToLaunch = AllDemoToLoad(FormationDefaults.Programs*)
+      // Halt a robot whose round failed rather than leaving it to drive on a stale command.
+      val aggregateOrchestrator =
+        AggregateOrchestrator[Position, Actuation](demoToLaunch, haltOnFailure = Some(Actuation.Stop))
 
       val render = new Boundary[ID, Position, Info]:
         override def output(environment: Environment[ID, Position, Info]): IO[Unit] =

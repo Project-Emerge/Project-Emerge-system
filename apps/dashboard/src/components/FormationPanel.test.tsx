@@ -27,7 +27,15 @@ describe("pannello di formazione dello sciame", () => {
     expect(gateway.publish).toHaveBeenCalledWith("/config/formation", {
       program: "vShape",
       leaderId: "A1B2C3",
-      params: { interDistanceV: 0.4, angleV: -0.79, collisionArea: 0.3, stabilityThreshold: 0.1 },
+      anchor: "leader",
+      params: {
+        interDistanceV: 0.4,
+        angleV: -0.79,
+        collisionArea: 0.3,
+        stabilityThreshold: 0.1,
+        electionGrain: 8,
+      },
+          custom: null,
     });
   });
 
@@ -51,7 +59,9 @@ describe("pannello di formazione dello sciame", () => {
     expect(gateway.publish).toHaveBeenCalledWith("/config/formation", {
       program: "stop",
       leaderId: null,
+      anchor: "leader",
       params: {},
+          custom: null,
     });
   });
 
@@ -62,6 +72,7 @@ describe("pannello di formazione dello sciame", () => {
       formation: {
         program: "circleShape",
         leaderId: "D4E5F6",
+        anchor: "leader",
         params: { radius: 0.8, collisionArea: 0.3, stabilityThreshold: 0.1 },
       },
     });
@@ -70,6 +81,127 @@ describe("pannello di formazione dello sciame", () => {
     expect(screen.getByText("ACTIVE · CIRCLE")).toBeInTheDocument();
     expect(screen.getByLabelText("Formation leader")).toHaveValue("D4E5F6");
     expect(screen.getByLabelText("Circle radius")).toHaveValue(0.8);
+  });
+
+  it("elegge il leader nello sciame quando si sceglie l'ancora automatica", () => {
+    useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3"] });
+    render(<FormationPanel onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Circle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Elected leader" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply formation" }));
+
+    expect(gateway.publish).toHaveBeenCalledWith("/config/formation", {
+      program: "circleShape",
+      leaderId: null,
+      anchor: "auto",
+      params: {
+        radius: 0.6,
+        collisionArea: 0.3,
+        stabilityThreshold: 0.1,
+        electionGrain: 8,
+      },
+          custom: null,
+    });
+  });
+
+  it("non chiede un leader quando lo elegge la flotta", () => {
+    useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3"] });
+    render(<FormationPanel onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Circle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Elected leader" }));
+
+    expect(screen.getByLabelText("Formation leader")).toBeDisabled();
+    expect(screen.queryByText("Pick a leader before applying this formation.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Apply formation" })).toBeEnabled();
+  });
+
+  it("dimentica il leader scelto quando si passa all'elezione", () => {
+    useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3"] });
+    render(<FormationPanel onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Circle" }));
+    fireEvent.change(screen.getByLabelText("Formation leader"), { target: { value: "A1B2C3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Elected leader" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply formation" }));
+
+    expect(gateway.publish).toHaveBeenCalledWith(
+      "/config/formation",
+      expect.objectContaining({ anchor: "auto", leaderId: null }),
+    );
+  });
+
+  it("non mostra l'ancora per le formazioni senza leader", () => {
+    useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3"] });
+    render(<FormationPanel onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+
+    expect(screen.queryByLabelText("Formation anchor")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Formation leader")).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply formation" }));
+    expect(gateway.publish).toHaveBeenCalledWith("/config/formation", {
+      program: "stop",
+      leaderId: null,
+      anchor: "leader",
+      params: {},
+      custom: null,
+    });
+  });
+
+  it("pubblica i parametri della formazione dinamica a onda", () => {
+    useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3"] });
+    render(<FormationPanel onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Ring wave" }));
+    fireEvent.click(screen.getByRole("button", { name: "Elected leader" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply formation" }));
+
+    expect(gateway.publish).toHaveBeenCalledWith(
+      "/config/formation",
+      expect.objectContaining({
+        program: "ringWave",
+        anchor: "auto",
+        params: expect.objectContaining({ wavePeriod: 6, waveAmplitude: 0.2, waveNumber: 1, radius: 0.6 }),
+      }),
+    );
+  });
+
+  it("pubblica i parametri dell'onda sinusoidale su linea", () => {
+    useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3"] });
+    render(<FormationPanel onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Sine line" }));
+    fireEvent.click(screen.getByRole("button", { name: "Elected leader" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply formation" }));
+
+    expect(gateway.publish).toHaveBeenCalledWith(
+      "/config/formation",
+      expect.objectContaining({
+        program: "sineLine",
+        anchor: "auto",
+        leaderId: null,
+        params: expect.objectContaining({
+          interDistanceLine: 0.4,
+          waveAmplitude: 0.2,
+          waveNumber: 1,
+          wavePeriod: 6,
+        }),
+      }),
+    );
+  });
+
+  it("propone solo il leader scelto o eletto come ancora", () => {
+    useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3"] });
+    render(<FormationPanel onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Orbit" }));
+
+    const anchors = screen.getByLabelText("Formation anchor");
+    expect(anchors.querySelectorAll("button")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Swarm centre" })).not.toBeInTheDocument();
   });
 
   it("chiama onClose quando si fa clic sul pulsante di chiusura (X)", () => {

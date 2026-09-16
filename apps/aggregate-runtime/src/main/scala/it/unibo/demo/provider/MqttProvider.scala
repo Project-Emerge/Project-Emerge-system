@@ -6,6 +6,7 @@ import cats.effect.std.Dispatcher
 import it.unibo.core.{Environment, EnvironmentProvider}
 import it.unibo.demo.environment.MqttEnvironment
 import it.unibo.demo.provider.MqttProtocol.{Formation, Neighborhood, RobotPosition}
+import it.unibo.demo.scenarios.{BaseDemo, CustomFormation, CustomSpec}
 import it.unibo.demo.{ID, Info, Position}
 import it.unibo.mqtt.MqttContext
 import org.eclipse.paho.client.mqttv3.*
@@ -29,7 +30,11 @@ object MqttProtocol:
   object Neighborhood:
     val topic: String = "/neighbors/+"
 
-  // Retained payload: {"program": String, "leaderId": String (6-hex) | null, "params": {String: Double}} (see apps/dashboard/shared/protocol.ts).
+  // Retained payload: {"program": String, "leaderId": String (6-hex) | null, "anchor": "leader" | "auto",
+  //                     "params": {String: Double},
+  //                     "custom": {"kind": "points" | "cartesian" | "polar", ...} | null}
+  // (see apps/dashboard/shared/protocol.ts). `custom` is optional and only read by the `custom`
+  // program; omitting the key leaves whatever spec was published before it in place.
   object Formation:
     val topic: String = "/config/formation"
 
@@ -90,18 +95,50 @@ class MqttProvider(
     })
     client.subscribeWithResponse(Formation.topic, (topic: String, message: MqttMessage) => {
       dispatcher.unsafeRunAndForget {
-        for {
+        val applied = for {
           command <- IO(ujson.read(message.getPayload))
-          params = command.obj.get("params").map(_.obj.toMap.view.mapValues(_.num).toMap).getOrElse(Map.empty)
-          leaderUpdate = command.obj.get("leaderId").flatMap(_.strOpt)
-            .map(deviceId => Map("leader" -> Integer.parseInt(deviceId, 16)))
-            .getOrElse(Map.empty)
+          // `numOpt`, not `num`: `num` throws on a non-number, and that failure would take the
+          // whole message down with it -- program, leaderId and anchor included. The dashboard's
+          // schema guarantees numbers, but anything else publishing to this broker does not.
+          params = command.obj.get("params")
+            .flatMap(_.objOpt)
+            .map(_.flatMap((key, value) => value.numOpt.map(key -> _)).toMap)
+            .getOrElse(Map.empty[String, Double])
+          // The geometry of a data-driven formation, compiled here rather than in a round.
+          custom = CustomSpecCodec.fromCommand(command)
+          // A null leaderId has to clear the previous choice, not leave it in place: otherwise
+          // the runtime keeps rooting every gradient on a stale device id and the fleet never
+          // gets the chance to elect its own leader.
+          leader = command.obj.get("leaderId").flatMap(_.strOpt)
+            .map(deviceId => Integer.parseInt(deviceId, 16))
+            .getOrElse(BaseDemo.NoLeader)
+          anchor = command.obj.get("anchor").flatMap(_.strOpt).getOrElse(BaseDemo.AnchorLeader)
+          _ <- IO(custom.foreach {
+            // Say so out loud. A rejected geometry replaces the stored one, so the fleet drops to
+            // CustomFormation's ring fallback rather than keeping the shape it was holding -- this
+            // log line is the only account of why the shape an author published never appeared.
+            case CustomSpec.Invalid(reason) =>
+              logger.warn(s"Rejected the published custom formation: $reason")
+            case _ => ()
+          })
           _ <- initialConfigRef.update { current =>
-            val updated = current ++ params ++ leaderUpdate + ("program" -> command("program").str)
+            // These three go last so that a shape parameter can never shadow them.
+            val updated = current ++ params
+              ++ custom.map(CustomFormation.SPEC_SENSING -> _).toMap
+              ++ Map(
+                BaseDemo.Leader -> leader,
+                BaseDemo.Anchor -> anchor,
+                BaseDemo.Program -> command("program").str
+              )
             logger.info(s"Configuration updated via MQTT: $updated")
             updated
           }
         } yield ()
+        // Without this a malformed payload disappears into an unhandled fiber error rather than a
+        // log line, which is exactly the diagnostic whoever published it needs.
+        applied.handleErrorWith { error =>
+          IO(logger.warn("Ignored a malformed /config/formation payload", error))
+        }
       }
     })
     client.subscribeWithResponse(Neighborhood.topic, (topic: String, message: MqttMessage) => {

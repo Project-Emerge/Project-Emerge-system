@@ -13,12 +13,21 @@ services:
       FIRMWARE_DIRECTORY: /var/lib/project-emerge/firmware
       HTTP_PORT: "8787"
       MQTT_URL: mqtt://mosquitto:1883
+      # Empty by default: with no key the swarm chat reports itself unavailable and the rest of
+      # the dashboard behaves exactly as before.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
+      CUSTOM_FORMATION_LOG: /var/lib/project-emerge/logs/custom-formations.jsonl
     ports:
       - "${DASHBOARD_PORT:-8787}:8787"
     restart: unless-stopped
     stop_grace_period: 15s
     volumes:
       - dashboard-firmware:/var/lib/project-emerge/firmware
+      # A bind mount rather than a named volume: the whole point of this log is that an operator
+      # can open it without reaching inside the container. Create ./logs before the first `up` --
+      # Docker creates a missing bind source as root, and the image runs as `node`.
+      - ./logs:/var/lib/project-emerge/logs
     networks:
       - emerge-backplane
 

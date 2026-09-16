@@ -57,15 +57,96 @@ export const FORMATION_PROGRAMS = [
   "squareShape",
   "verticalLineShape",
   "heartShape",
+  "orbitCircle",
+  "breathingCircle",
+  "ringWave",
+  "sineLine",
+  // Geometry supplied as data on this same message rather than compiled into the runtime.
+  "custom",
   "stop",
 ] as const;
 
 export type FormationProgram = (typeof FORMATION_PROGRAMS)[number];
 
+/**
+ * How the robot a formation is built around is chosen.
+ * - `leader` uses the operator's `leaderId`.
+ * - `auto` lets the fleet elect one itself (sparse choice).
+ */
+export const FORMATION_ANCHORS = ["leader", "auto"] as const;
+
+export type FormationAnchor = (typeof FORMATION_ANCHORS)[number];
+
+/**
+ * How far from the anchor a designed slot may be asked to sit. Mirrors
+ * `CustomSlots.AbsoluteMaxRadius` in the aggregate runtime, which clamps again on arrival --
+ * this bound is the operator-facing gate, that one is the ceiling no message can raise.
+ */
+export const CUSTOM_MAX_COORDINATE = 3;
+
+/** Mirrors `FormulaLimits.MaxSourceLength`, so a formula this accepts is one the runtime parses. */
+export const CUSTOM_FORMULA_MAX_LENGTH = 512;
+
+/** Mirrors `CustomSpec.MaxPoints`. */
+export const CUSTOM_MAX_POINTS = 256;
+
+const customCoordinate = finiteNumber
+  .min(-CUSTOM_MAX_COORDINATE)
+  .max(CUSTOM_MAX_COORDINATE);
+
+const customFormula = z.string().min(1).max(CUSTOM_FORMULA_MAX_LENGTH);
+
+/** A name for the shape, shown on the chat's action chip and the arena toolbar. */
+const customLabel = z.string().min(1).max(60).optional();
+
+/**
+ * A formation geometry described as data, so one the runtime has never seen costs no
+ * recompilation and no restart.
+ *
+ * `points` is an explicit path in metres, resampled at equal arc length to however many robots
+ * are present. The two formula modes are evaluated once per slot with `i` (0-based slot index),
+ * `n` (slot count) and `t` (shared phase, wrapped to one turn) in scope; `polar` follows the
+ * runtime's bearing convention, where `x = r*sin(theta)` and `y = r*cos(theta)`.
+ */
+export const CustomFormationSpecSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("points"),
+    points: z.array(z.tuple([customCoordinate, customCoordinate])).min(1).max(CUSTOM_MAX_POINTS),
+    closed: z.boolean().optional(),
+    label: customLabel,
+  }),
+  z.object({
+    kind: z.literal("cartesian"),
+    x: customFormula,
+    y: customFormula,
+    label: customLabel,
+  }),
+  z.object({
+    kind: z.literal("polar"),
+    r: customFormula,
+    theta: customFormula,
+    label: customLabel,
+  }),
+]);
+
+export type CustomFormationSpec = z.infer<typeof CustomFormationSpecSchema>;
+
 export const FormationCommandSchema = z.object({
   program: z.enum(FORMATION_PROGRAMS),
   leaderId: z.string().regex(DEVICE_ID_PATTERN, "Robot ID must be 6 uppercase hex characters.").nullable(),
+  // Optional with a default, so retained commands published before anchors existed still parse.
+  anchor: z.enum(FORMATION_ANCHORS).default("leader"),
   params: z.record(z.string(), finiteNumber),
+  // Optional, so a retained command published before custom formations existed still parses.
+  custom: CustomFormationSpecSchema.nullish(),
+}).superRefine((command, context) => {
+  if (command.program === "custom" && !command.custom) {
+    context.addIssue({
+      code: "custom",
+      path: ["custom"],
+      message: "A custom formation must carry the geometry it is built from.",
+    });
+  }
 });
 
 export type MotorConfiguration = z.infer<typeof MotorConfigurationSchema>;

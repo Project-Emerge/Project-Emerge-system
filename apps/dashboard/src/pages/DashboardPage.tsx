@@ -1,13 +1,16 @@
 import { useState } from "react";
 import { SceneCanvas, type SceneMode } from "../components/SceneCanvas";
 import { RobotDetailsSidebar } from "../components/RobotDetailsSidebar";
-import { FormationPanel, getFormationLabel } from "../components/FormationPanel";
+import { FormationPanel } from "../components/FormationPanel";
+import { ChatPanel } from "../components/ChatPanel";
+import { getFormationLabel } from "../../shared/formations";
 import { useDashboardStore } from "../store/dashboard-store";
 
 export function DashboardPage(): React.JSX.Element {
   const [mode, setMode] = useState<SceneMode>("3d");
   const [resetToken, setResetToken] = useState(0);
   const [isFormationOpen, setIsFormationOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const robotIds = useDashboardStore((state) => state.robotIds);
   const posedRobotIds = useDashboardStore((state) => state.posedRobotIds);
   const activeFormation = useDashboardStore((state) => state.formation);
@@ -32,7 +35,19 @@ export function DashboardPage(): React.JSX.Element {
             >
               <span className={`formation-status-dot ${activeFormation ? "active" : "inactive"}`} />
               Formation: <strong>{activeFormation ? getFormationLabel(activeFormation.program) : "None"}</strong>
-              {activeFormation?.leaderId && <span className="formation-leader-chip">★ {activeFormation.leaderId}</span>}
+              {activeFormation?.leaderId
+                ? <span className="formation-leader-chip">★ {activeFormation.leaderId}</span>
+                : activeFormation?.anchor === "auto"
+                  ? <span className="formation-leader-chip">★ AUTO</span>
+                  : null}
+            </button>
+            <button
+              type="button"
+              className="secondary-button chat-trigger"
+              aria-pressed={isChatOpen}
+              onClick={() => setIsChatOpen((open) => !open)}
+            >
+              Ask the swarm
             </button>
             <div className="segmented-control" aria-label="View mode">
               <button type="button" className={mode === "2d" ? "active" : ""} onClick={() => setMode("2d")}>2D</button>
@@ -42,6 +57,7 @@ export function DashboardPage(): React.JSX.Element {
           </div>
         </section>
         {isFormationOpen && <FormationPanel onClose={() => setIsFormationOpen(false)} />}
+        {isChatOpen && <ChatPanel onClose={() => setIsChatOpen(false)} />}
         {robotsWithoutPose > 0 && <div className="scene-notice">{robotsWithoutPose} robot{robotsWithoutPose === 1 ? "" : "s"} without a position. Details appear after the first position update.</div>}
         <section className="scene-panel">
           <SceneCanvas mode={mode} resetToken={resetToken} />
