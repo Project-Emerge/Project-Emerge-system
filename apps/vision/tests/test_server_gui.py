@@ -21,6 +21,7 @@ from vision_system.apps.server_gui import (
     fit_viewport,
     roster_from_config,
 )
+from vision_system.apps.server_gui.presenters import describe_message
 from vision_system.core.config import (
     AppConfig,
     ArucoConfig,
@@ -29,6 +30,8 @@ from vision_system.core.config import (
     ReferenceMarkerConfig,
     save_json,
 )
+from vision_system.monitoring.deployment import CameraIssue
+from vision_system.transport.payloads import PoseUpdate, parse
 
 
 def _options(**overrides) -> ServerLaunchOptions:
@@ -121,15 +124,34 @@ def test_process_stop_is_safe_before_start_and_after_exit():
     assert process.exit_code is not None
 
 
+
+def _apply(status, topic, body, now_ns):
+    """Decode like the panel does, feed the model, return the console line if any."""
+    message = parse(topic, body)
+    if message is None:
+        return None
+    status.apply(message, now_ns)
+    return describe_message(message)
+
+
+def _apply_pose(world, body, now_ns):
+    pose = PoseUpdate.from_body(body)
+    if pose is None:
+        return None
+    return world.apply(pose, now_ns)
+
+
 def test_status_merges_node_and_coordinator_views():
     status = DeploymentStatus(["cam_0", "cam_1"])
     now = 10 * PRESENCE_TIMEOUT_NS
-    status.apply(
+    _apply(
+        status,
         "vision/default/indoor-01/metrics",
         {"role": "node", "camera_id": "cam_0", "observations_published": 120},
         now_ns=now,
     )
-    status.apply(
+    _apply(
+        status,
         "vision/default/indoor-01/metrics",
         {
             "role": "coordinator",
@@ -158,20 +180,22 @@ def test_status_merges_node_and_coordinator_views():
     assert rows["cam_0"].node_online and rows["cam_0"].server_online
     assert rows["cam_0"].node_observations == 120
     assert rows["cam_0"].observations_received == 118
-    assert rows["cam_0"].note == ""
+    assert rows["cam_0"].issues == ()
     assert rows["cam_1"].server_online is False
-    assert "calibrazione assente" in rows["cam_1"].note
+    assert CameraIssue.CALIBRATION_MISSING_ON_SERVER in rows["cam_1"].issues
 
 
 def test_status_flags_node_publishing_without_reaching_the_server():
     status = DeploymentStatus(["cam_0"])
     now = 10 * PRESENCE_TIMEOUT_NS
-    status.apply(
+    _apply(
+        status,
         "vision/default/indoor-01/metrics",
         {"role": "node", "camera_id": "cam_0", "observations_published": 5},
         now_ns=now,
     )
-    status.apply(
+    _apply(
+        status,
         "vision/default/indoor-01/metrics",
         {"role": "coordinator", "poses_published": 0, "cameras": {"cam_0": {"online": False}}},
         now_ns=now,
@@ -179,18 +203,20 @@ def test_status_flags_node_publishing_without_reaching_the_server():
     row = status.rows(now_ns=now)[0]
     assert row.node_online is True
     assert row.server_online is False
-    assert "nessuna osservazione al server" in row.note
+    assert CameraIssue.NODE_UP_NO_OBSERVATIONS in row.issues
 
 
 def test_status_expires_silent_processes():
     status = DeploymentStatus(["cam_0"])
     start = 10 * PRESENCE_TIMEOUT_NS
-    status.apply(
+    _apply(
+        status,
         "vision/default/indoor-01/metrics",
         {"role": "node", "camera_id": "cam_0", "observations_published": 5},
         now_ns=start,
     )
-    status.apply(
+    _apply(
+        status,
         "vision/default/indoor-01/metrics",
         {"role": "coordinator", "cameras": {"cam_0": {"online": True}}},
         now_ns=start,
@@ -205,7 +231,8 @@ def test_status_expires_silent_processes():
 def test_status_discovers_unexpected_cameras_and_reports_drift():
     status = DeploymentStatus()
     now = 10 * PRESENCE_TIMEOUT_NS
-    status.apply(
+    _apply(
+        status,
         "vision/default/indoor-01/metrics",
         {
             "role": "node",
@@ -217,13 +244,14 @@ def test_status_discovers_unexpected_cameras_and_reports_drift():
     )
     row = status.rows(now_ns=now)[0]
     assert row.camera_id == "cam_3"
-    assert "drift" in row.note
+    assert CameraIssue.DRIFT_RECALIBRATE in row.issues
 
 
 def test_status_formats_events_and_status_messages():
     status = DeploymentStatus()
     now = 10 * PRESENCE_TIMEOUT_NS
-    line = status.apply(
+    line = _apply(
+        status,
         "vision/default/indoor-01/event",
         {
             "code": "MISSING_CALIBRATION",
@@ -235,10 +263,11 @@ def test_status_formats_events_and_status_messages():
     )
     assert line is not None and line.startswith("[WARNING] MISSING_CALIBRATION")
     assert "cam_2" in line
-    assert status.apply(
+    assert _apply(
+        status,
         "vision/default/indoor-01/status", {"online": True, "reason": "running"}, now_ns=now
     )
-    assert status.apply("vision/default/indoor-01/pose/7", {"tag_id": 7}, now_ns=now) is None
+    assert _apply(status, "vision/default/indoor-01/pose/7", {"tag_id": 7}, now_ns=now) is None
 
 
 def test_monitor_subscribes_to_the_configured_base_topic():
@@ -300,8 +329,8 @@ def _pose(tag_id: int, x: float, y: float, yaw_deg: float = 0.0, **overrides) ->
 def test_world_model_tracks_positions_and_trail():
     world = WorldModel(trail_seconds=2.0)
     start = 10 * STALE_POSE_NS
-    world.apply_pose(_pose(7, 1.0, 2.0, yaw_deg=90.0), now_ns=start)
-    world.apply_pose(_pose(7, 1.2, 2.1), now_ns=start + 100_000_000)
+    _apply_pose(world, _pose(7, 1.0, 2.0, yaw_deg=90.0), now_ns=start)
+    _apply_pose(world, _pose(7, 1.2, 2.1), now_ns=start + 100_000_000)
     tag = world.tags()[0]
     assert (tag.tag_id, tag.x_m, tag.y_m) == (7, 1.2, 2.1)
     assert tag.cameras == ("cam_0", "cam_1")
@@ -312,8 +341,8 @@ def test_world_model_tracks_positions_and_trail():
 def test_world_model_drops_trail_points_older_than_the_window():
     world = WorldModel(trail_seconds=1.0)
     start = 10 * STALE_POSE_NS
-    world.apply_pose(_pose(7, 0.0, 0.0), now_ns=start)
-    world.apply_pose(_pose(7, 1.0, 0.0), now_ns=start + 2_000_000_000)
+    _apply_pose(world, _pose(7, 0.0, 0.0), now_ns=start)
+    _apply_pose(world, _pose(7, 1.0, 0.0), now_ns=start + 2_000_000_000)
     world.expire(start + 2_000_000_000)
     assert world.trail(7) == [(1.0, 0.0)]
 
@@ -328,17 +357,18 @@ def test_world_model_falls_back_to_the_quaternion_for_heading():
         "z": math.sin(math.pi / 4),
         "w": math.cos(math.pi / 4),
     }
-    tag = world.apply_pose(body, now_ns=STALE_POSE_NS)
+    tag = _apply_pose(world, body, now_ns=STALE_POSE_NS)
     assert tag is not None
     assert tag.heading_rad == pytest.approx(math.pi / 2, abs=1e-6)
 
 
 def test_world_model_ignores_malformed_pose_payloads():
     world = WorldModel()
-    assert world.apply_pose({"tag_id": 1}, now_ns=STALE_POSE_NS) is None
-    assert world.apply_pose({"position_m": {"x": 1.0, "y": 2.0}}, now_ns=STALE_POSE_NS) is None
+    assert _apply_pose(world, {"tag_id": 1}, now_ns=STALE_POSE_NS) is None
+    assert _apply_pose(world, {"position_m": {"x": 1.0, "y": 2.0}}, now_ns=STALE_POSE_NS) is None
     assert (
-        world.apply_pose(
+        _apply_pose(
+            world,
             {"tag_id": "sette", "position_m": {"x": 1.0, "y": 2.0}}, now_ns=STALE_POSE_NS
         )
         is None
@@ -349,7 +379,7 @@ def test_world_model_ignores_malformed_pose_payloads():
 def test_world_model_marks_stale_tags_and_forgets_the_oldest():
     world = WorldModel()
     start = 10 * STALE_POSE_NS
-    world.apply_pose(_pose(7, 1.0, 1.0), now_ns=start)
+    _apply_pose(world, _pose(7, 1.0, 1.0), now_ns=start)
     stale_moment = start + STALE_POSE_NS + 1
     assert world.tags()[0].stale(stale_moment) is True
     world.expire(start + 6 * STALE_POSE_NS)
@@ -392,7 +422,7 @@ def test_world_model_scene_uses_references_and_calibrated_cameras():
 
 def test_world_bounds_contain_scene_and_tags():
     world = WorldModel()
-    world.apply_pose(_pose(7, 4.0, -1.0), now_ns=STALE_POSE_NS)
+    _apply_pose(world, _pose(7, 4.0, -1.0), now_ns=STALE_POSE_NS)
     min_x, min_y, max_x, max_y = world.bounds(margin_m=0.5)
     assert min_x <= -0.5 and min_y <= -1.5
     assert max_x >= 4.5 and max_y >= 0.5
@@ -400,7 +430,7 @@ def test_world_bounds_contain_scene_and_tags():
 
 def test_world_reset_forgets_every_tag():
     world = WorldModel()
-    world.apply_pose(_pose(7, 1.0, 1.0), now_ns=STALE_POSE_NS)
+    _apply_pose(world, _pose(7, 1.0, 1.0), now_ns=STALE_POSE_NS)
     world.reset()
     assert world.tags() == []
     assert world.trail(7) == []

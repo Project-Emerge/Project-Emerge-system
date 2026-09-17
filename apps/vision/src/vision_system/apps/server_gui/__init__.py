@@ -25,6 +25,8 @@ from ...monitoring.world import STALE_POSE_NS, WORLD_MARGIN_M, TrackedTag, World
 from ...pipeline.calibration_store import CalibrationStore
 from ...transport.diagnostics import configure_diagnostics
 from ...transport.mqtt import MqttSettings
+from ...transport.payloads import PoseUpdate, parse
+from .presenters import describe_issues, describe_message
 from .supervisor import (
     DEFAULT_CACHE,
     DEFAULT_CALIBRATIONS,
@@ -352,10 +354,14 @@ class ServerGuiApp:
             self.append_log(line)
         if self.monitor is not None:
             for topic, body in self.monitor.drain():
-                if "/pose/" in topic:
-                    self.world.apply_pose(body, now_ns)
+                message = parse(topic, body)
+                if message is None:
                     continue
-                line = self.status.apply(topic, body, now_ns)
+                if isinstance(message, PoseUpdate):
+                    self.world.apply(message, now_ns)
+                    continue
+                self.status.apply(message, now_ns)
+                line = describe_message(message)
                 if line:
                     self.append_log(line)
         self.world.expire(now_ns)
@@ -420,7 +426,7 @@ class ServerGuiApp:
                 _format_optional(row.observations_received),
                 _format_optional(row.age_ms),
                 "—" if row.calibrated is None else ("sì" if row.calibrated else "no"),
-                row.note,
+                describe_issues(row.issues),
             )
             if row.camera_id in existing:
                 if tuple(self.table.item(row.camera_id, "values")) != tuple(

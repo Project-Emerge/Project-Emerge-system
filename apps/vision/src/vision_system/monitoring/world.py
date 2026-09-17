@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from ..core.config import AppConfig, CameraCalibration
+from ..transport.payloads import PoseUpdate
 
 # A pose older than this is drawn as stale: the fusion publishes several times per
 # second, so half a second of silence already means "this tag is not being seen".
@@ -33,23 +34,6 @@ class TrackedTag:
 
     def stale(self, now_ns: int, timeout_ns: int = STALE_POSE_NS) -> bool:
         return now_ns - self.updated_ns >= timeout_ns
-
-
-def _yaw_from_payload(body: dict) -> float:
-    euler = body.get("euler_deg")
-    if isinstance(euler, dict) and "yaw" in euler:
-        try:
-            return math.radians(float(euler["yaw"]))
-        except (TypeError, ValueError):
-            return 0.0
-    quaternion = body.get("orientation_xyzw")
-    if isinstance(quaternion, dict):
-        try:
-            x, y, z, w = (float(quaternion[axis]) for axis in ("x", "y", "z", "w"))
-        except (KeyError, TypeError, ValueError):
-            return 0.0
-        return math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
-    return 0.0
 
 
 class WorldModel:
@@ -89,32 +73,22 @@ class WorldModel:
             )
         self.cameras = cameras
 
-    def apply_pose(self, body: dict, now_ns: int) -> TrackedTag | None:
-        position = body.get("position_m")
-        if not isinstance(position, dict):
-            return None
-        try:
-            tag_id = int(body["tag_id"])
-            x_m = float(position["x"])
-            y_m = float(position["y"])
-            z_m = float(position.get("z", 0.0))
-        except (KeyError, TypeError, ValueError):
-            return None
-        cameras = body.get("visible_by")
+    def apply(self, pose: PoseUpdate, now_ns: int) -> TrackedTag:
+        """Record a decoded pose and extend its trail."""
         tag = TrackedTag(
-            tag_id=tag_id,
-            x_m=x_m,
-            y_m=y_m,
-            z_m=z_m,
-            heading_rad=_yaw_from_payload(body),
-            quality=float(body.get("quality", 0.0) or 0.0),
-            predicted=bool(body.get("predicted", False)),
-            cameras=tuple(str(camera) for camera in cameras) if isinstance(cameras, list) else (),
+            tag_id=pose.tag_id,
+            x_m=pose.x_m,
+            y_m=pose.y_m,
+            z_m=pose.z_m,
+            heading_rad=pose.heading_rad,
+            quality=pose.quality,
+            predicted=pose.predicted,
+            cameras=pose.cameras,
             updated_ns=now_ns,
         )
-        self.tags_by_id[tag_id] = tag
-        trail = self.trails[tag_id]
-        trail.append((now_ns, (x_m, y_m)))
+        self.tags_by_id[pose.tag_id] = tag
+        trail = self.trails[pose.tag_id]
+        trail.append((now_ns, (pose.x_m, pose.y_m)))
         self._expire_trail(trail, now_ns)
         return tag
 
