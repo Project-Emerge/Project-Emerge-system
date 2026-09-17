@@ -302,3 +302,17 @@ def test_roster_follows_the_configured_cameras(cameras):
     controller.connect(controller.options)
     snapshot, _, _ = controller.tick()
     assert tuple(row.camera_id for row in snapshot.rows) == cameras
+
+
+def test_roster_reads_the_camera_ids_from_the_config(tmp_path):
+    from vision_system.apps.server_gui.controller import roster_from_config
+    from vision_system.core.config import save_json
+
+    config_path = tmp_path / "config.local.json"
+    save_json(
+        config_path,
+        AppConfig(cameras=[CameraConfig(id="cam_0", source=0), CameraConfig(id="cam_1", source=1)]),
+    )
+    config, cameras = roster_from_config(config_path, tmp_path / "missing.json")
+    assert cameras == ["cam_0", "cam_1"]
+    assert config.base_topic == "vision/default/indoor-01"
