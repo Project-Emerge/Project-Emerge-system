@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import time
 from collections.abc import Sequence
 
 from ..monitoring.world import TrackedTag, WorldModel
@@ -95,8 +94,7 @@ class WorldCanvas:
             height / 2 - (y_m - center_y) * self._scale_px_m,
         )
 
-    def redraw(self, now_ns: int | None = None) -> None:
-        now_ns = time.monotonic_ns() if now_ns is None else now_ns
+    def redraw(self, now_ns: int) -> None:
         width = self.canvas.winfo_width()
         height = self.canvas.winfo_height()
         if width < 2 * self.MARGIN_PX or height < 2 * self.MARGIN_PX:
@@ -122,7 +120,7 @@ class WorldCanvas:
             self._draw_static(*viewport)
             self.canvas.tag_lower(self.STATIC)
             self._static_signature = signature
-        tags = self.model.tags(now_ns)
+        tags = self.model.tags()
         self._sync_tags(tags, now_ns)
         self._sync_summary(tags, now_ns)
 
@@ -237,7 +235,7 @@ class WorldCanvas:
                 text=f"ID {tag.tag_id}  {tag.x_m:.2f}, {tag.y_m:.2f} m{suffix}",
                 fill=color,
             )
-            self._sync_trail(items["trail"], tag.tag_id, now_ns)
+            self._sync_trail(items["trail"], tag.tag_id)
         for tag_id in set(self._tag_items) - {tag.tag_id for tag in tags}:
             for item in self._tag_items.pop(tag_id).values():
                 self.canvas.delete(item)
@@ -252,8 +250,8 @@ class WorldCanvas:
             ),
         }
 
-    def _sync_trail(self, item: int, tag_id: int, now_ns: int) -> None:
-        trail = self.model.trail(tag_id, now_ns)
+    def _sync_trail(self, item: int, tag_id: int) -> None:
+        trail = self.model.trail(tag_id)
         if len(trail) < 2:
             self.canvas.itemconfigure(item, state="hidden")
             return

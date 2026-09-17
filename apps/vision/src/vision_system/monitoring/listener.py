@@ -10,6 +10,7 @@ from collections.abc import Callable
 
 import paho.mqtt.client as mqtt
 
+from ..core.queues import drain as drain_queue
 from ..transport.mqtt import MQTT_KEEPALIVE_S, MqttSettings
 
 
@@ -75,13 +76,7 @@ class StatusMonitor:
             self.connected.clear()
 
     def drain(self, limit: int = 500) -> list[tuple[str, dict]]:
-        received: list[tuple[str, dict]] = []
-        while len(received) < limit:
-            try:
-                received.append(self.messages.get_nowait())
-            except queue.Empty:
-                break
-        return received
+        return drain_queue(self.messages, limit)
 
     def _on_connect(self, client, userdata, flags, reason_code, properties) -> None:
         if reason_code != 0:

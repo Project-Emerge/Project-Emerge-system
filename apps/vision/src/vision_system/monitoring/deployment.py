@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -39,9 +38,8 @@ class DeploymentStatus:
         self.poses_published = 0
         self.tracked_tags: list[int] = []
 
-    def apply(self, topic: str, body: dict, now_ns: int | None = None) -> str | None:
+    def apply(self, topic: str, body: dict, now_ns: int) -> str | None:
         """Consume one MQTT message; returns a log line when the message is noteworthy."""
-        now_ns = time.monotonic_ns() if now_ns is None else now_ns
         if topic.endswith("/metrics"):
             return self._apply_metrics(body, now_ns)
         if topic.endswith("/event"):
@@ -88,15 +86,13 @@ class DeploymentStatus:
         if camera_id not in self.expected_camera_ids:
             self.expected_camera_ids.append(camera_id)
 
-    def coordinator_online(self, now_ns: int | None = None) -> bool:
-        now_ns = time.monotonic_ns() if now_ns is None else now_ns
+    def coordinator_online(self, now_ns: int) -> bool:
         return (
             self.coordinator_seen_ns is not None
             and now_ns - self.coordinator_seen_ns < PRESENCE_TIMEOUT_NS
         )
 
-    def rows(self, now_ns: int | None = None) -> list[CameraRow]:
-        now_ns = time.monotonic_ns() if now_ns is None else now_ns
+    def rows(self, now_ns: int) -> list[CameraRow]:
         cameras = self.coordinator.get("cameras", {})
         rows: list[CameraRow] = []
         for camera_id in self.expected_camera_ids:

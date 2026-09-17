@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import time
 from collections import defaultdict, deque
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -90,8 +89,7 @@ class WorldModel:
             )
         self.cameras = cameras
 
-    def apply_pose(self, body: dict, now_ns: int | None = None) -> TrackedTag | None:
-        now_ns = time.monotonic_ns() if now_ns is None else now_ns
+    def apply_pose(self, body: dict, now_ns: int) -> TrackedTag | None:
         position = body.get("position_m")
         if not isinstance(position, dict):
             return None
@@ -125,13 +123,21 @@ class WorldModel:
         while trail and now_ns - trail[0][0] > horizon_ns:
             trail.popleft()
 
-    def tags(self, now_ns: int | None = None, keep_ns: int = 5 * STALE_POSE_NS) -> list[TrackedTag]:
-        """Tags seen recently enough to be worth drawing, newest position first."""
-        now_ns = time.monotonic_ns() if now_ns is None else now_ns
+    def expire(self, now_ns: int, keep_ns: int = 5 * STALE_POSE_NS) -> None:
+        """Forget tags nothing has published for a while, and their trails.
+
+        Eviction is a separate step on purpose: the renderer reads this model, and a
+        query that silently mutates it cannot be shared between two views.
+        """
         for tag_id in list(self.tags_by_id):
             if now_ns - self.tags_by_id[tag_id].updated_ns > keep_ns:
                 del self.tags_by_id[tag_id]
                 self.trails.pop(tag_id, None)
+        for trail in self.trails.values():
+            self._expire_trail(trail, now_ns)
+
+    def tags(self) -> list[TrackedTag]:
+        """Currently tracked tags, ordered by id. Pure read."""
         return sorted(self.tags_by_id.values(), key=lambda tag: tag.tag_id)
 
     def reset(self) -> None:
@@ -139,12 +145,11 @@ class WorldModel:
         self.tags_by_id.clear()
         self.trails.clear()
 
-    def trail(self, tag_id: int, now_ns: int | None = None) -> list[tuple[float, float]]:
-        now_ns = time.monotonic_ns() if now_ns is None else now_ns
+    def trail(self, tag_id: int) -> list[tuple[float, float]]:
+        """Recent positions of one tag, oldest first. Pure read; see expire()."""
         trail = self.trails.get(tag_id)
         if not trail:
             return []
-        self._expire_trail(trail, now_ns)
         return [point for _, point in trail]
 
     def bounds(self, margin_m: float = WORLD_MARGIN_M) -> tuple[float, float, float, float]:

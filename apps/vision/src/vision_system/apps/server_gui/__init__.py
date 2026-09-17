@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import os
 import signal
+import time
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
@@ -60,7 +61,6 @@ __all__ = [
 ]
 
 REFRESH_MS = 250
-CALIBRATION_POLL_S = 2.0
 
 
 
@@ -305,7 +305,7 @@ class ServerGuiApp:
             return
         options = self.current_options()
         self.options = options
-        if self.status.coordinator_online():
+        if self.status.coordinator_online(time.monotonic_ns()):
             self.append_log(
                 "[gui] attenzione: un coordinatore sta già pubblicando metriche su questo "
                 "broker; due server pubblicano le stesse pose"
@@ -345,24 +345,28 @@ class ServerGuiApp:
 
     # ----------------------------------------------------------------- refresh
     def _refresh(self) -> None:
+        # One clock reading for the whole tick: presence, staleness and the drawn
+        # frame must agree, and reading the clock per call let them disagree.
+        now_ns = time.monotonic_ns()
         for line in self.process.drain_logs():
             self.append_log(line)
         if self.monitor is not None:
             for topic, body in self.monitor.drain():
                 if "/pose/" in topic:
-                    self.world.apply_pose(body)
+                    self.world.apply_pose(body, now_ns)
                     continue
-                line = self.status.apply(topic, body)
+                line = self.status.apply(topic, body, now_ns)
                 if line:
                     self.append_log(line)
+        self.world.expire(now_ns)
         # Extrinsics change while calibrating a node: the store throttles the rescan
         # itself, so polling every tick costs nothing.
         if self.calibration_store is not None and self.calibration_store.reload_if_changed():
             self.world.update_scene(self.app_config, self.calibration_store.calibrations)
             self.append_log("[gui] calibrazioni ricaricate dal disco")
-        self._refresh_indicators()
-        self._refresh_table()
-        self.world_canvas.redraw()
+        self._refresh_indicators(now_ns)
+        self._refresh_table(now_ns)
+        self.world_canvas.redraw(now_ns)
         self.root.after(REFRESH_MS, self._refresh)
 
     @staticmethod
@@ -370,7 +374,7 @@ class ServerGuiApp:
         if variable.get() != value:
             variable.set(value)
 
-    def _refresh_indicators(self) -> None:
+    def _refresh_indicators(self, now_ns: int) -> None:
         # Widgets are only touched when their value actually changes: reassigning
         # the same text four times a second repaints them for nothing.
         running = self.process.running
@@ -390,7 +394,9 @@ class ServerGuiApp:
         if self.monitor is None:
             broker_state = "broker: non collegato"
         elif self.monitor.connected.is_set():
-            fusion = "coordinatore attivo" if self.status.coordinator_online() else "in attesa"
+            fusion = (
+                "coordinatore attivo" if self.status.coordinator_online(now_ns) else "in attesa"
+            )
             broker_state = (
                 f"broker: {self.monitor.settings.host}:{self.monitor.settings.port} · {fusion}"
             )
@@ -402,8 +408,8 @@ class ServerGuiApp:
             self.fusion_state_var, f"pose pubblicate: {self.status.poses_published} · tag: {tags}"
         )
 
-    def _refresh_table(self) -> None:
-        rows = self.status.rows()
+    def _refresh_table(self, now_ns: int) -> None:
+        rows = self.status.rows(now_ns)
         existing = set(self.table.get_children())
         for row in rows:
             values = (

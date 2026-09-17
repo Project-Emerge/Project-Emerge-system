@@ -222,6 +222,7 @@ def test_status_discovers_unexpected_cameras_and_reports_drift():
 
 def test_status_formats_events_and_status_messages():
     status = DeploymentStatus()
+    now = 10 * PRESENCE_TIMEOUT_NS
     line = status.apply(
         "vision/default/indoor-01/event",
         {
@@ -230,11 +231,14 @@ def test_status_formats_events_and_status_messages():
             "severity": "warning",
             "cameras": ["cam_2"],
         },
+        now_ns=now,
     )
     assert line is not None and line.startswith("[WARNING] MISSING_CALIBRATION")
     assert "cam_2" in line
-    assert status.apply("vision/default/indoor-01/status", {"online": True, "reason": "running"})
-    assert status.apply("vision/default/indoor-01/pose/7", {"tag_id": 7}) is None
+    assert status.apply(
+        "vision/default/indoor-01/status", {"online": True, "reason": "running"}, now_ns=now
+    )
+    assert status.apply("vision/default/indoor-01/pose/7", {"tag_id": 7}, now_ns=now) is None
 
 
 def test_monitor_subscribes_to_the_configured_base_topic():
@@ -298,11 +302,11 @@ def test_world_model_tracks_positions_and_trail():
     start = 10 * STALE_POSE_NS
     world.apply_pose(_pose(7, 1.0, 2.0, yaw_deg=90.0), now_ns=start)
     world.apply_pose(_pose(7, 1.2, 2.1), now_ns=start + 100_000_000)
-    tag = world.tags(now_ns=start + 100_000_000)[0]
+    tag = world.tags()[0]
     assert (tag.tag_id, tag.x_m, tag.y_m) == (7, 1.2, 2.1)
     assert tag.cameras == ("cam_0", "cam_1")
     assert tag.stale(start + 100_000_000) is False
-    assert world.trail(7, now_ns=start + 100_000_000) == [(1.0, 2.0), (1.2, 2.1)]
+    assert world.trail(7) == [(1.0, 2.0), (1.2, 2.1)]
 
 
 def test_world_model_drops_trail_points_older_than_the_window():
@@ -310,7 +314,8 @@ def test_world_model_drops_trail_points_older_than_the_window():
     start = 10 * STALE_POSE_NS
     world.apply_pose(_pose(7, 0.0, 0.0), now_ns=start)
     world.apply_pose(_pose(7, 1.0, 0.0), now_ns=start + 2_000_000_000)
-    assert world.trail(7, now_ns=start + 2_000_000_000) == [(1.0, 0.0)]
+    world.expire(start + 2_000_000_000)
+    assert world.trail(7) == [(1.0, 0.0)]
 
 
 def test_world_model_falls_back_to_the_quaternion_for_heading():
@@ -330,9 +335,14 @@ def test_world_model_falls_back_to_the_quaternion_for_heading():
 
 def test_world_model_ignores_malformed_pose_payloads():
     world = WorldModel()
-    assert world.apply_pose({"tag_id": 1}) is None
-    assert world.apply_pose({"position_m": {"x": 1.0, "y": 2.0}}) is None
-    assert world.apply_pose({"tag_id": "sette", "position_m": {"x": 1.0, "y": 2.0}}) is None
+    assert world.apply_pose({"tag_id": 1}, now_ns=STALE_POSE_NS) is None
+    assert world.apply_pose({"position_m": {"x": 1.0, "y": 2.0}}, now_ns=STALE_POSE_NS) is None
+    assert (
+        world.apply_pose(
+            {"tag_id": "sette", "position_m": {"x": 1.0, "y": 2.0}}, now_ns=STALE_POSE_NS
+        )
+        is None
+    )
     assert world.tags() == []
 
 
@@ -341,8 +351,9 @@ def test_world_model_marks_stale_tags_and_forgets_the_oldest():
     start = 10 * STALE_POSE_NS
     world.apply_pose(_pose(7, 1.0, 1.0), now_ns=start)
     stale_moment = start + STALE_POSE_NS + 1
-    assert world.tags(now_ns=stale_moment)[0].stale(stale_moment) is True
-    assert world.tags(now_ns=start + 6 * STALE_POSE_NS) == []
+    assert world.tags()[0].stale(stale_moment) is True
+    world.expire(start + 6 * STALE_POSE_NS)
+    assert world.tags() == []
 
 
 def test_world_model_scene_uses_references_and_calibrated_cameras():

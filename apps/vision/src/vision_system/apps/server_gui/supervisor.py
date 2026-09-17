@@ -12,6 +12,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from ...core.queues import drain
+
 DEFAULT_CACHE = Path(".state/last_good_config.json")
 DEFAULT_CALIBRATIONS = Path("calibrations")
 MAX_LOG_LINES = 2000
@@ -112,13 +114,7 @@ class ServerProcess:
         self._logs.put(f"[server terminato con codice {process.wait()}]")
 
     def drain_logs(self, limit: int = MAX_LOG_LINES) -> list[str]:
-        lines: list[str] = []
-        while len(lines) < limit:
-            try:
-                lines.append(self._logs.get_nowait())
-            except queue.Empty:
-                break
-        return lines
+        return drain(self._logs, limit)
 
     def stop(self, timeout: float = STOP_TIMEOUT_S) -> None:
         process = self._process
