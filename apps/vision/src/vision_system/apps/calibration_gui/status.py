@@ -83,6 +83,18 @@ class CalibrationOverview:
         """Cameras that cannot move past this stage yet."""
         return tuple(c.camera_id for c in self.cameras if not c.complete(stage))
 
+    def without_intrinsics(self) -> tuple[str, ...]:
+        """Cameras with no artifact at all — distinct from one that went stale."""
+        return tuple(c.camera_id for c in self.cameras if not c.has_intrinsics)
+
+    def poor_intrinsics(self) -> tuple[str, ...]:
+        """Cameras whose artifact exists and is valid, but failed the quality gates."""
+        return tuple(
+            c.camera_id
+            for c in self.cameras
+            if c.has_intrinsics and not c.stale and c.intrinsic_quality_passed is False
+        )
+
     def stale_cameras(self) -> tuple[str, ...]:
         return tuple(c.camera_id for c in self.cameras if c.stale)
 
