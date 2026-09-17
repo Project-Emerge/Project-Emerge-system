@@ -9,6 +9,7 @@ import pytest
 from vision_system.apps.server_gui import (
     PRESENCE_TIMEOUT_NS,
     STALE_POSE_NS,
+    VIEWPORT_QUANTUM_M,
     DeploymentStatus,
     ServerLaunchOptions,
     ServerProcess,
@@ -16,6 +17,7 @@ from vision_system.apps.server_gui import (
     WorldModel,
     build_server_command,
     build_server_environment,
+    fit_viewport,
     roster_from_config,
 )
 from vision_system.core.config import (
@@ -100,6 +102,22 @@ def test_process_refuses_double_start():
     finally:
         process.stop(timeout=5.0)
     assert process.running is False
+
+
+def test_process_stop_is_safe_before_start_and_after_exit():
+    process = ServerProcess()
+    process.stop()                       # mai avviato: nessun errore
+    process._spawn = lambda *args, **kwargs: subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=kwargs["stdout"],
+        stderr=kwargs["stderr"],
+        text=True,
+    )
+    process.start(_options())
+    process.stop(timeout=5.0)
+    assert process.running is False
+    process.stop(timeout=5.0)            # idempotente: la GUI la chiama da piu' punti
+    assert process.exit_code is not None
 
 
 def test_status_merges_node_and_coordinator_views():
@@ -374,3 +392,28 @@ def test_world_reset_forgets_every_tag():
     world.reset()
     assert world.tags() == []
     assert world.trail(7) == []
+
+
+def test_viewport_snaps_to_the_quantum_grid():
+    assert fit_viewport(None, (-0.1, 0.2, 2.6, 1.1)) == (-0.5, 0.0, 3.0, 1.5)
+
+
+def test_viewport_is_kept_while_the_content_still_fits():
+    """Rescaling on every frame is what made the view flicker."""
+    viewport = fit_viewport(None, (0.0, 0.0, 4.0, 3.0))
+    for x_max in (3.2, 3.9, 2.5, 4.0):
+        assert fit_viewport(viewport, (0.0, 0.0, x_max, 3.0)) == viewport
+
+
+def test_viewport_expands_when_a_tag_leaves_it():
+    viewport = fit_viewport(None, (0.0, 0.0, 4.0, 3.0))
+    grown = fit_viewport(viewport, (0.0, 0.0, 4.2, 3.0))
+    assert grown[2] >= 4.2
+    assert grown != viewport
+    assert grown[2] % VIEWPORT_QUANTUM_M == pytest.approx(0.0)
+
+
+def test_viewport_shrinks_only_when_far_too_large():
+    viewport = fit_viewport(None, (0.0, 0.0, 10.0, 10.0))
+    assert fit_viewport(viewport, (0.0, 0.0, 6.0, 6.0)) == viewport
+    assert fit_viewport(viewport, (0.0, 0.0, 2.0, 2.0)) == (0.0, 0.0, 2.0, 2.0)

@@ -16,6 +16,12 @@ from .detection import TagObservation
 from .fusion import FusedPose
 
 LOGGER = logging.getLogger(__name__)
+# The runtime loops run far faster than the cameras and than the fusion output:
+# redrawing at loop speed only burns CPU and makes the windows tear.
+RENDER_PERIOD_S = 1 / 30
+# A tag keeps being drawn this long after its last fused pose. Without it the
+# marker is drawn only on the ticks that produced a pose, so it blinks.
+POSE_HOLD_S = 1.0
 
 
 class DebugRenderer:
@@ -29,6 +35,11 @@ class DebugRenderer:
         # Cache last observations per camera so that the mosaic keeps showing
         # tags between frames (the main loop runs faster than camera FPS).
         self._last_observations: dict[str, list[TagObservation]] = {}
+        # Same reason for the world view: fusion publishes a few times per second
+        # while `render` is called at loop speed.
+        self._last_poses: dict[int, FusedPose] = {}
+        self._last_pose_seen: dict[int, float] = {}
+        self._last_render_s = 0.0
 
     def update(self, config: AppConfig, calibrations: dict[str, CameraCalibration]) -> None:
         self.config = config
@@ -47,6 +58,12 @@ class DebugRenderer:
         merged = dict(self._last_observations)
         merged.update(observations)
         self._last_observations = dict(merged)
+        # Ingest before the frame-rate cap: skipping a redraw must never drop data.
+        self._ingest_poses(poses)
+        now = time.monotonic()
+        if now - self._last_render_s < RENDER_PERIOD_S:
+            return
+        self._last_render_s = now
         try:
             if self.config.debug.mosaic:
                 cv2.imshow("VisionSystem - mosaic", self._mosaic(frames, merged))
@@ -55,7 +72,7 @@ class DebugRenderer:
                 cv2.destroyWindow("VisionSystem - mosaic")
                 self._shown_mosaic = False
             if self.config.debug.world_view:
-                cv2.imshow("VisionSystem - world", self._world(poses))
+                cv2.imshow("VisionSystem - world", self._world())
                 self._shown_world = True
             elif self._shown_world:
                 cv2.destroyWindow("VisionSystem - world")
@@ -131,7 +148,22 @@ class DebugRenderer:
             rows[-1] = np.hstack((rows[-1], padding))
         return np.vstack(rows)
 
-    def _world(self, poses: list[FusedPose]) -> NDArray[np.uint8]:
+    def _ingest_poses(self, poses: list[FusedPose]) -> None:
+        """Record the newest pose per tag and forget the tags that went silent."""
+        now = time.monotonic()
+        for pose in poses:
+            self.trails[pose.tag_id].append((now, pose.position_m.copy()))
+            self._last_poses[pose.tag_id] = pose
+            self._last_pose_seen[pose.tag_id] = now
+        hold_s = max(POSE_HOLD_S, self.config.debug.trail_seconds)
+        for tag_id in list(self._last_poses):
+            if now - self._last_pose_seen[tag_id] <= hold_s:
+                continue
+            del self._last_poses[tag_id]
+            del self._last_pose_seen[tag_id]
+            self.trails.pop(tag_id, None)
+
+    def _world(self) -> NDArray[np.uint8]:
         image = np.full((800, 1000, 3), 245, dtype=np.uint8)
         points: list[NDArray[np.float64]] = [np.zeros(3)]
         for calibration in self.calibrations.values():
@@ -140,7 +172,7 @@ class DebugRenderer:
         points.extend(
             np.asarray(reference.position_m) for reference in self.config.aruco.reference_markers
         )
-        points.extend(pose.position_m for pose in poses)
+        points.extend(pose.position_m for pose in self._last_poses.values())
         xy = np.array([point[:2] for point in points])
         minimum = np.min(xy, axis=0) - 0.5
         maximum = np.max(xy, axis=0) + 0.5
@@ -187,24 +219,19 @@ class DebugRenderer:
                 1,
             )
         now = time.monotonic()
-        for pose in poses:
-            self.trails[pose.tag_id].append((now, pose.position_m.copy()))
-        for tag_id, trail in self.trails.items():
-            while trail and now - trail[0][0] > self.config.debug.trail_seconds:
-                trail.popleft()
-            if len(trail) > 1:
-                cv2.polylines(
-                    image,
-                    [np.array([pixel(point) for _, point in trail])],
-                    False,
-                    (170, 170, 170),
-                    1,
-                )
-            if not trail:
-                continue
-            pose = next((item for item in poses if item.tag_id == tag_id), None)
-            if pose is None:
-                continue
+        for tag_id, pose in self._last_poses.items():
+            trail = self.trails.get(tag_id)
+            if trail is not None:
+                while trail and now - trail[0][0] > self.config.debug.trail_seconds:
+                    trail.popleft()
+                if len(trail) > 1:
+                    cv2.polylines(
+                        image,
+                        [np.array([pixel(point) for _, point in trail])],
+                        False,
+                        (170, 170, 170),
+                        1,
+                    )
             center = pose.position_m
             direction = pose.world_from_tag[:3, :3] @ np.array([0.25, 0, 0]) + center
             color = (0, int(255 * pose.quality), int(255 * (1 - pose.quality)))

@@ -16,6 +16,7 @@ import math
 import os
 import queue
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -47,6 +48,9 @@ STOP_TIMEOUT_S = 10.0
 STALE_POSE_NS = 1_500_000_000
 CALIBRATION_POLL_S = 2.0
 WORLD_MARGIN_M = 0.6
+# The drawn viewport snaps to this grid so that a moving tag does not rescale
+# the whole scene on every frame.
+VIEWPORT_QUANTUM_M = 0.5
 
 
 @dataclass(frozen=True)
@@ -538,8 +542,46 @@ def _format_optional(value: object) -> str:
     return "—" if value is None else str(value)
 
 
+def fit_viewport(
+    current: tuple[float, float, float, float] | None,
+    content: tuple[float, float, float, float],
+    quantum: float = VIEWPORT_QUANTUM_M,
+) -> tuple[float, float, float, float]:
+    """Pick a viewport that stays put while the tracked tags move.
+
+    Deriving the extent from the tag positions on every frame rescales the whole
+    scene a few times per second, which reads as flicker: the viewport is kept as
+    long as the content still fits and is not absurdly smaller than the view.
+    """
+    min_x, min_y, max_x, max_y = content
+    candidate = (
+        math.floor(min_x / quantum) * quantum,
+        math.floor(min_y / quantum) * quantum,
+        max(math.ceil(max_x / quantum) * quantum, math.floor(min_x / quantum) * quantum + quantum),
+        max(math.ceil(max_y / quantum) * quantum, math.floor(min_y / quantum) * quantum + quantum),
+    )
+    if current is None:
+        return candidate
+    fits = (
+        current[0] <= min_x
+        and current[1] <= min_y
+        and current[2] >= max_x
+        and current[3] >= max_y
+    )
+    oversized = (current[2] - current[0]) > 2 * (candidate[2] - candidate[0]) or (
+        current[3] - current[1]
+    ) > 2 * (candidate[3] - candidate[1])
+    return current if fits and not oversized else candidate
+
+
 class WorldCanvas:
-    """Top-down 2D view of the arena: cameras, reference markers and tracked tags."""
+    """Top-down 2D view of the arena: cameras, reference markers and tracked tags.
+
+    Drawing is incremental. The static layer (grid, axes, cameras, references) is
+    rebuilt only when the viewport, the window size or the scene changes, and each
+    tag keeps its own canvas items which are moved with ``coords``; wiping the
+    canvas on every tick made the view flash.
+    """
 
     BACKGROUND = "#0f1216"
     GRID = "#1d242b"
@@ -554,6 +596,7 @@ class WorldCanvas:
     GRID_STEPS_M = (0.25, 0.5, 1.0, 2.0, 5.0, 10.0)
     MIN_GRID_PX = 55
     MARGIN_PX = 28
+    STATIC = "static"
 
     def __init__(self, parent, model: WorldModel, tk_module) -> None:
         self.model = model
@@ -563,6 +606,10 @@ class WorldCanvas:
         self._scale_px_m = 1.0
         self._center = (0.0, 0.0)
         self._size = (0, 0)
+        self._viewport: tuple[float, float, float, float] | None = None
+        self._static_signature: tuple | None = None
+        self._tag_items: dict[int, dict[str, int]] = {}
+        self._summary_item: int | None = None
 
     @property
     def widget(self):
@@ -579,46 +626,65 @@ class WorldCanvas:
 
     def redraw(self, now_ns: int | None = None) -> None:
         now_ns = time.monotonic_ns() if now_ns is None else now_ns
-        canvas = self.canvas
-        width = canvas.winfo_width()
-        height = canvas.winfo_height()
-        canvas.delete("all")
+        width = self.canvas.winfo_width()
+        height = self.canvas.winfo_height()
         if width < 2 * self.MARGIN_PX or height < 2 * self.MARGIN_PX:
             return
         self._size = (width, height)
-        min_x, min_y, max_x, max_y = self.model.bounds()
-        span_x = max(max_x - min_x, 0.5)
-        span_y = max(max_y - min_y, 0.5)
+        viewport = fit_viewport(self._viewport, self.model.bounds())
+        self._viewport = viewport
+        min_x, min_y, max_x, max_y = viewport
         self._scale_px_m = min(
-            (width - 2 * self.MARGIN_PX) / span_x, (height - 2 * self.MARGIN_PX) / span_y
+            (width - 2 * self.MARGIN_PX) / max(max_x - min_x, 0.5),
+            (height - 2 * self.MARGIN_PX) / max(max_y - min_y, 0.5),
         )
         self._center = ((min_x + max_x) / 2, (min_y + max_y) / 2)
-        self._draw_grid(min_x, min_y, max_x, max_y)
-        self._draw_axes()
-        self._draw_references()
-        self._draw_cameras()
+        signature = (
+            viewport,
+            width,
+            height,
+            tuple(self.model.references),
+            tuple(sorted(self.model.cameras.items())),
+        )
+        if signature != self._static_signature:
+            self.canvas.delete(self.STATIC)
+            self._draw_static(*viewport)
+            self.canvas.tag_lower(self.STATIC)
+            self._static_signature = signature
         tags = self.model.tags(now_ns)
-        self._draw_tags(tags, now_ns)
-        self._draw_legend(tags, now_ns)
+        self._sync_tags(tags, now_ns)
+        self._sync_summary(tags, now_ns)
 
+    # ------------------------------------------------------------ static layer
     def _grid_step_m(self) -> float:
         for step in self.GRID_STEPS_M:
             if step * self._scale_px_m >= self.MIN_GRID_PX:
                 return step
         return self.GRID_STEPS_M[-1]
 
+    def _draw_static(self, min_x: float, min_y: float, max_x: float, max_y: float) -> None:
+        self._draw_grid(min_x, min_y, max_x, max_y)
+        self._draw_axes()
+        self._draw_references()
+        self._draw_cameras()
+        self._draw_scale_bar()
+
     def _draw_grid(self, min_x: float, min_y: float, max_x: float, max_y: float) -> None:
         step = self._grid_step_m()
-        start_x = math.floor(min_x / step) * step
-        while start_x <= max_x:
-            x_px, _ = self._to_pixels(start_x, 0.0)
-            self.canvas.create_line(x_px, 0, x_px, self._size[1], fill=self.GRID)
-            start_x += step
-        start_y = math.floor(min_y / step) * step
-        while start_y <= max_y:
-            _, y_px = self._to_pixels(0.0, start_y)
-            self.canvas.create_line(0, y_px, self._size[0], y_px, fill=self.GRID)
-            start_y += step
+        line_x = math.floor(min_x / step) * step
+        while line_x <= max_x:
+            x_px, _ = self._to_pixels(line_x, 0.0)
+            self.canvas.create_line(
+                x_px, 0, x_px, self._size[1], fill=self.GRID, tags=self.STATIC
+            )
+            line_x += step
+        line_y = math.floor(min_y / step) * step
+        while line_y <= max_y:
+            _, y_px = self._to_pixels(0.0, line_y)
+            self.canvas.create_line(
+                0, y_px, self._size[0], y_px, fill=self.GRID, tags=self.STATIC
+            )
+            line_y += step
 
     def _draw_axes(self) -> None:
         origin = self._to_pixels(0.0, 0.0)
@@ -627,9 +693,12 @@ class WorldCanvas:
             ((0.0, 0.5), self.AXIS_Y, "Y"),
         ):
             tip = self._to_pixels(*end)
-            self.canvas.create_line(*origin, *tip, fill=color, width=2, arrow="last")
+            self.canvas.create_line(
+                *origin, *tip, fill=color, width=2, arrow="last", tags=self.STATIC
+            )
             self.canvas.create_text(
-                *tip, text=label, fill=color, anchor="sw", font=("TkDefaultFont", 8)
+                *tip, text=label, fill=color, anchor="sw", font=("TkDefaultFont", 8),
+                tags=self.STATIC,
             )
 
     def _draw_references(self) -> None:
@@ -637,74 +706,105 @@ class WorldCanvas:
             x_px, y_px = self._to_pixels(x_m, y_m)
             self.canvas.create_polygon(
                 x_px, y_px - 5, x_px + 5, y_px, x_px, y_px + 5, x_px - 5, y_px,
-                outline=self.REFERENCE, fill="", width=1,
+                outline=self.REFERENCE, fill="", width=1, tags=self.STATIC,
             )
             self.canvas.create_text(
                 x_px + 8, y_px, text=f"R{marker_id}", fill=self.REFERENCE, anchor="w",
-                font=("TkDefaultFont", 7),
+                font=("TkDefaultFont", 7), tags=self.STATIC,
             )
 
     def _draw_cameras(self) -> None:
         for camera_id, (x_m, y_m, heading) in sorted(self.model.cameras.items()):
             x_px, y_px = self._to_pixels(x_m, y_m)
             self.canvas.create_oval(
-                x_px - 5, y_px - 5, x_px + 5, y_px + 5, outline=self.CAMERA, width=2
+                x_px - 5, y_px - 5, x_px + 5, y_px + 5,
+                outline=self.CAMERA, width=2, tags=self.STATIC,
             )
             tip = self._to_pixels(x_m + 0.4 * math.cos(heading), y_m + 0.4 * math.sin(heading))
-            self.canvas.create_line(x_px, y_px, *tip, fill=self.CAMERA, width=1, arrow="last")
+            self.canvas.create_line(
+                x_px, y_px, *tip, fill=self.CAMERA, width=1, arrow="last", tags=self.STATIC
+            )
             self.canvas.create_text(
                 x_px + 8, y_px - 8, text=camera_id, fill=self.CAMERA, anchor="w",
-                font=("TkDefaultFont", 8),
+                font=("TkDefaultFont", 8), tags=self.STATIC,
             )
 
-    def _draw_tags(self, tags: Sequence[TrackedTag], now_ns: int) -> None:
+    def _draw_scale_bar(self) -> None:
+        step = self._grid_step_m()
+        bar_px = step * self._scale_px_m
+        base_y = self._size[1] - 14
+        self.canvas.create_line(
+            12, base_y, 12 + bar_px, base_y, fill=self.TEXT, width=2, tags=self.STATIC
+        )
+        self.canvas.create_text(
+            16 + bar_px, base_y, text=f"{step:g} m", fill=self.TEXT, anchor="w",
+            font=("TkDefaultFont", 8), tags=self.STATIC,
+        )
+
+    # ----------------------------------------------------------- dynamic layer
+    def _sync_tags(self, tags: Sequence[TrackedTag], now_ns: int) -> None:
         for tag in tags:
-            trail = self.model.trail(tag.tag_id, now_ns)
-            if len(trail) > 1:
-                points: list[float] = []
-                for x_m, y_m in trail:
-                    points.extend(self._to_pixels(x_m, y_m))
-                self.canvas.create_line(*points, fill=self.TRAIL, width=1)
+            items = self._tag_items.get(tag.tag_id) or self._create_tag_items()
+            self._tag_items[tag.tag_id] = items
             stale = tag.stale(now_ns)
             color = self.TAG_STALE if stale else self.TAG_FRESH
             x_px, y_px = self._to_pixels(tag.x_m, tag.y_m)
-            self.canvas.create_oval(
-                x_px - 7, y_px - 7, x_px + 7, y_px + 7,
-                outline=color, fill="" if stale or tag.predicted else color, width=2,
+            self.canvas.coords(items["body"], x_px - 7, y_px - 7, x_px + 7, y_px + 7)
+            self.canvas.itemconfigure(
+                items["body"], outline=color, fill="" if stale or tag.predicted else color
             )
             tip = self._to_pixels(
                 tag.x_m + 0.3 * math.cos(tag.heading_rad),
                 tag.y_m + 0.3 * math.sin(tag.heading_rad),
             )
-            self.canvas.create_line(x_px, y_px, *tip, fill=color, width=2, arrow="last")
-            suffix = " (predetta)" if tag.predicted else ""
-            if stale:
-                suffix = " (ferma)"
-            self.canvas.create_text(
-                x_px + 10, y_px + 10,
+            self.canvas.coords(items["heading"], x_px, y_px, *tip)
+            self.canvas.itemconfigure(items["heading"], fill=color)
+            suffix = " (ferma)" if stale else (" (predetta)" if tag.predicted else "")
+            self.canvas.coords(items["label"], x_px + 10, y_px + 10)
+            self.canvas.itemconfigure(
+                items["label"],
                 text=f"ID {tag.tag_id}  {tag.x_m:.2f}, {tag.y_m:.2f} m{suffix}",
-                fill=color, anchor="w", font=("TkDefaultFont", 8),
+                fill=color,
             )
+            self._sync_trail(items["trail"], tag.tag_id, now_ns)
+        for tag_id in set(self._tag_items) - {tag.tag_id for tag in tags}:
+            for item in self._tag_items.pop(tag_id).values():
+                self.canvas.delete(item)
 
-    def _draw_legend(self, tags: Sequence[TrackedTag], now_ns: int) -> None:
-        width, height = self._size
-        step = self._grid_step_m()
-        bar_px = step * self._scale_px_m
-        base_y = height - 14
-        self.canvas.create_line(12, base_y, 12 + bar_px, base_y, fill=self.TEXT, width=2)
-        self.canvas.create_text(
-            16 + bar_px, base_y, text=f"{step:g} m", fill=self.TEXT, anchor="w",
-            font=("TkDefaultFont", 8),
-        )
+    def _create_tag_items(self) -> dict[str, int]:
+        return {
+            "trail": self.canvas.create_line(0, 0, 0, 0, fill=self.TRAIL, width=1, state="hidden"),
+            "body": self.canvas.create_oval(0, 0, 0, 0, width=2),
+            "heading": self.canvas.create_line(0, 0, 0, 0, width=2, arrow="last"),
+            "label": self.canvas.create_text(
+                0, 0, anchor="w", font=("TkDefaultFont", 8), text=""
+            ),
+        }
+
+    def _sync_trail(self, item: int, tag_id: int, now_ns: int) -> None:
+        trail = self.model.trail(tag_id, now_ns)
+        if len(trail) < 2:
+            self.canvas.itemconfigure(item, state="hidden")
+            return
+        points: list[float] = []
+        for x_m, y_m in trail:
+            points.extend(self._to_pixels(x_m, y_m))
+        self.canvas.coords(item, *points)
+        self.canvas.itemconfigure(item, state="normal")
+
+    def _sync_summary(self, tags: Sequence[TrackedTag], now_ns: int) -> None:
         live = sum(1 for tag in tags if not tag.stale(now_ns))
-        summary = (
+        text = (
             f"tag visibili: {live}/{len(tags)}"
             if tags
             else "nessuna posa ricevuta: il server pubblica su <base>/pose/<tag_id>"
         )
-        self.canvas.create_text(
-            width - 12, 14, text=summary, fill=self.TEXT, anchor="e", font=("TkDefaultFont", 9)
-        )
+        if self._summary_item is None:
+            self._summary_item = self.canvas.create_text(
+                0, 14, fill=self.TEXT, anchor="e", font=("TkDefaultFont", 9)
+            )
+        self.canvas.coords(self._summary_item, self._size[0] - 12, 14)
+        self.canvas.itemconfigure(self._summary_item, text=text)
 
 
 class ServerGuiApp:
@@ -927,6 +1027,11 @@ class ServerGuiApp:
             return
         options = self.current_options()
         self.options = options
+        if self.status.coordinator_online():
+            self.append_log(
+                "[gui] attenzione: un coordinatore sta già pubblicando metriche su questo "
+                "broker; due server pubblicano le stesse pose"
+            )
         try:
             self.process.start(options)
         except (OSError, RuntimeError) as error:
@@ -982,29 +1087,42 @@ class ServerGuiApp:
         self.world_canvas.redraw()
         self.root.after(REFRESH_MS, self._refresh)
 
+    @staticmethod
+    def _set_if_changed(variable, value: str) -> None:
+        if variable.get() != value:
+            variable.set(value)
+
     def _refresh_indicators(self) -> None:
+        # Widgets are only touched when their value actually changes: reassigning
+        # the same text four times a second repaints them for nothing.
         running = self.process.running
-        self.start_button.configure(state="disabled" if running else "normal")
-        self.stop_button.configure(state="normal" if running else "disabled")
+        for button, state in (
+            (self.start_button, "disabled" if running else "normal"),
+            (self.stop_button, "normal" if running else "disabled"),
+        ):
+            if str(button.cget("state")) != state:
+                button.configure(state=state)
         if running:
-            self.server_state_var.set(f"server: in esecuzione (pid {self.process.pid})")
+            server_state = f"server: in esecuzione (pid {self.process.pid})"
         elif self.process.exit_code is None:
-            self.server_state_var.set("server: fermo")
+            server_state = "server: fermo"
         else:
-            self.server_state_var.set(f"server: uscito (codice {self.process.exit_code})")
+            server_state = f"server: uscito (codice {self.process.exit_code})"
+        self._set_if_changed(self.server_state_var, server_state)
         if self.monitor is None:
-            self.broker_state_var.set("broker: non collegato")
+            broker_state = "broker: non collegato"
         elif self.monitor.connected.is_set():
             fusion = "coordinatore attivo" if self.status.coordinator_online() else "in attesa"
-            self.broker_state_var.set(
+            broker_state = (
                 f"broker: {self.monitor.settings.host}:{self.monitor.settings.port} · {fusion}"
             )
         else:
-            self.broker_state_var.set(
-                f"broker: {self.monitor.error or 'connessione in corso…'}"
-            )
+            broker_state = f"broker: {self.monitor.error or 'connessione in corso…'}"
+        self._set_if_changed(self.broker_state_var, broker_state)
         tags = ", ".join(str(tag) for tag in self.status.tracked_tags) or "—"
-        self.fusion_state_var.set(f"pose pubblicate: {self.status.poses_published} · tag: {tags}")
+        self._set_if_changed(
+            self.fusion_state_var, f"pose pubblicate: {self.status.poses_published} · tag: {tags}"
+        )
 
     def _refresh_table(self) -> None:
         rows = self.status.rows()
@@ -1021,22 +1139,44 @@ class ServerGuiApp:
                 row.note,
             )
             if row.camera_id in existing:
-                self.table.item(row.camera_id, values=values)
+                if tuple(self.table.item(row.camera_id, "values")) != tuple(
+                    str(value) for value in values
+                ):
+                    self.table.item(row.camera_id, values=values)
                 existing.discard(row.camera_id)
             else:
                 self.table.insert("", "end", iid=row.camera_id, values=values)
         for stale in existing:
             self.table.delete(stale)
 
-    def on_close(self) -> None:
+    def shutdown(self) -> None:
+        """Stop the child server and the MQTT listener; safe to call more than once.
+
+        The server runs in its own session so that a Ctrl-C in the launching
+        terminal cannot kill it behind the panel's back; the flip side is that the
+        panel must always stop it itself, including when it exits via a signal.
+        """
         if self.process.running:
             self.process.stop()
         if self.monitor is not None:
             self.monitor.stop()
+            self.monitor = None
+
+    def request_stop(self) -> None:
+        """Leave the main loop from a signal handler; cleanup happens in `run`."""
+        self.root.quit()
+
+    def on_close(self) -> None:
+        self.shutdown()
         self.root.destroy()
 
     def run(self) -> None:
-        self.root.mainloop()
+        try:
+            self.root.mainloop()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.shutdown()
 
 
 def server_gui_main() -> None:
@@ -1089,6 +1229,8 @@ def server_gui_main() -> None:
         app = ServerGuiApp(options, list(cameras))
     except tkinter.TclError as error:
         parser.error(f"impossibile aprire la finestra grafica (DISPLAY assente?): {error}")
+    for signal_number in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(signal_number, lambda signum, frame: app.request_stop())
     app.run()
 
 
