@@ -11,26 +11,20 @@ coordinator claims to receive.
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import os
-import queue
 import signal
-import threading
 import time
-import uuid
-from collections import defaultdict, deque
-from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-import numpy as np
-import paho.mqtt.client as mqtt
-
-from ...core.config import AppConfig, CameraCalibration, initial_config
+from ...core.config import AppConfig, initial_config
+from ...monitoring.deployment import PRESENCE_TIMEOUT_NS, CameraRow, DeploymentStatus
+from ...monitoring.listener import StatusMonitor
+from ...monitoring.world import STALE_POSE_NS, WORLD_MARGIN_M, TrackedTag, WorldModel
 from ...pipeline.calibration_store import CalibrationStore
 from ...transport.diagnostics import configure_diagnostics
-from ...transport.mqtt import MQTT_KEEPALIVE_S, MqttSettings
+from ...transport.mqtt import MqttSettings
 from .supervisor import (
     DEFAULT_CACHE,
     DEFAULT_CALIBRATIONS,
@@ -50,10 +44,13 @@ __all__ = [
     "STALE_POSE_NS",
     "STOP_TIMEOUT_S",
     "VIEWPORT_QUANTUM_M",
+    "WORLD_MARGIN_M",
+    "CameraRow",
     "DeploymentStatus",
     "ServerLaunchOptions",
     "ServerProcess",
     "StatusMonitor",
+    "TrackedTag",
     "WorldModel",
     "build_server_command",
     "build_server_environment",
@@ -62,15 +59,8 @@ __all__ = [
     "server_gui_main",
 ]
 
-# Nodes and coordinator publish metrics once per second: three missed reports is a
-# generous "this process is gone" threshold that survives a hiccup on the broker.
-PRESENCE_TIMEOUT_NS = 3_000_000_000
 REFRESH_MS = 250
-# A pose older than this is drawn as stale: the fusion publishes several times per
-# second, so half a second of silence already means "this tag is not being seen".
-STALE_POSE_NS = 1_500_000_000
 CALIBRATION_POLL_S = 2.0
-WORLD_MARGIN_M = 0.6
 # The drawn viewport snaps to this grid so that a moving tag does not rescale
 # the whole scene on every frame.
 VIEWPORT_QUANTUM_M = 0.5
@@ -78,365 +68,10 @@ VIEWPORT_QUANTUM_M = 0.5
 
 
 
-@dataclass(frozen=True)
-class CameraRow:
-    """One roster line as seen from both ends of the distributed pipeline."""
-
-    camera_id: str
-    node_online: bool
-    node_observations: int | None
-    server_online: bool
-    observations_received: int | None
-    age_ms: float | None
-    calibrated: bool | None
-    note: str
 
 
-class DeploymentStatus:
-    """Aggregates coordinator and node metrics into the roster table."""
-
-    def __init__(self, camera_ids: Sequence[str] = ()) -> None:
-        self.expected_camera_ids = list(camera_ids)
-        self.coordinator: dict = {}
-        self.coordinator_seen_ns: int | None = None
-        self.nodes: dict[str, dict] = {}
-        self.node_seen_ns: dict[str, int] = {}
-        self.server_status: dict = {}
-        self.poses_published = 0
-        self.tracked_tags: list[int] = []
-
-    def apply(self, topic: str, body: dict, now_ns: int | None = None) -> str | None:
-        """Consume one MQTT message; returns a log line when the message is noteworthy."""
-        now_ns = time.monotonic_ns() if now_ns is None else now_ns
-        if topic.endswith("/metrics"):
-            return self._apply_metrics(body, now_ns)
-        if topic.endswith("/event"):
-            return self._apply_event(body)
-        if topic.endswith("/status"):
-            self.server_status = body
-            reason = body.get("reason", "")
-            return f"[status] online={body.get('online')} {reason}".strip()
-        return None
-
-    def _apply_metrics(self, body: dict, now_ns: int) -> str | None:
-        role = body.get("role")
-        if role == "coordinator":
-            self.coordinator = body
-            self.coordinator_seen_ns = now_ns
-            self.poses_published = int(body.get("poses_published", 0))
-            self.tracked_tags = [int(tag) for tag in body.get("tracked_tags", [])]
-            for camera_id in body.get("cameras", {}):
-                self._register(camera_id)
-            return None
-        if role == "node":
-            camera_id = body.get("camera_id")
-            if not isinstance(camera_id, str):
-                return None
-            self._register(camera_id)
-            self.nodes[camera_id] = body
-            self.node_seen_ns[camera_id] = now_ns
-            return None
-        return None
-
-    def _apply_event(self, body: dict) -> str:
-        severity = str(body.get("severity", "info")).upper()
-        code = body.get("code", "EVENT")
-        message = body.get("message", "")
-        context = {
-            key: value
-            for key, value in body.items()
-            if key not in {"code", "message", "severity", "timestamp"}
-        }
-        suffix = f" {json.dumps(context, separators=(',', ':'), default=str)}" if context else ""
-        return f"[{severity}] {code}: {message}{suffix}"
-
-    def _register(self, camera_id: str) -> None:
-        if camera_id not in self.expected_camera_ids:
-            self.expected_camera_ids.append(camera_id)
-
-    def coordinator_online(self, now_ns: int | None = None) -> bool:
-        now_ns = time.monotonic_ns() if now_ns is None else now_ns
-        return (
-            self.coordinator_seen_ns is not None
-            and now_ns - self.coordinator_seen_ns < PRESENCE_TIMEOUT_NS
-        )
-
-    def rows(self, now_ns: int | None = None) -> list[CameraRow]:
-        now_ns = time.monotonic_ns() if now_ns is None else now_ns
-        cameras = self.coordinator.get("cameras", {})
-        rows: list[CameraRow] = []
-        for camera_id in self.expected_camera_ids:
-            server_view = cameras.get(camera_id, {})
-            node_view = self.nodes.get(camera_id, {})
-            seen_ns = self.node_seen_ns.get(camera_id)
-            node_online = seen_ns is not None and now_ns - seen_ns < PRESENCE_TIMEOUT_NS
-            server_online = bool(server_view.get("online", False)) and self.coordinator_online(
-                now_ns
-            )
-            calibrated = server_view.get("calibrated")
-            notes: list[str] = []
-            if node_view.get("excluded_for_drift"):
-                notes.append("drift: ricalibrare")
-            if calibrated is False:
-                notes.append("calibrazione assente sul server")
-            if node_online and not server_online:
-                notes.append("nodo attivo ma nessuna osservazione al server")
-            if not node_online and server_online:
-                notes.append("osservazioni senza metriche del nodo")
-            rows.append(
-                CameraRow(
-                    camera_id=camera_id,
-                    node_online=node_online,
-                    node_observations=node_view.get("observations_published"),
-                    server_online=server_online,
-                    observations_received=server_view.get("observations_received"),
-                    age_ms=server_view.get("age_ms"),
-                    calibrated=calibrated,
-                    note="; ".join(notes),
-                )
-            )
-        return rows
 
 
-@dataclass(frozen=True)
-class TrackedTag:
-    """One fused pose as published on ``<base>/pose/<tag_id>``."""
-
-    tag_id: int
-    x_m: float
-    y_m: float
-    z_m: float
-    heading_rad: float
-    quality: float
-    predicted: bool
-    cameras: tuple[str, ...]
-    updated_ns: int
-
-    def stale(self, now_ns: int, timeout_ns: int = STALE_POSE_NS) -> bool:
-        return now_ns - self.updated_ns >= timeout_ns
-
-
-def _yaw_from_payload(body: dict) -> float:
-    euler = body.get("euler_deg")
-    if isinstance(euler, dict) and "yaw" in euler:
-        try:
-            return math.radians(float(euler["yaw"]))
-        except (TypeError, ValueError):
-            return 0.0
-    quaternion = body.get("orientation_xyzw")
-    if isinstance(quaternion, dict):
-        try:
-            x, y, z, w = (float(quaternion[axis]) for axis in ("x", "y", "z", "w"))
-        except (KeyError, TypeError, ValueError):
-            return 0.0
-        return math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
-    return 0.0
-
-
-class WorldModel:
-    """Tag positions decoded from the MQTT pose stream, plus the static scene.
-
-    The panel never recomputes fusion: it draws exactly the poses the coordinator
-    publishes, which is what makes it a usable cross-check of a remote server.
-    """
-
-    def __init__(self, trail_seconds: float = 3.0) -> None:
-        self.trail_seconds = trail_seconds
-        self.tags_by_id: dict[int, TrackedTag] = {}
-        self.trails: dict[int, deque[tuple[int, tuple[float, float]]]] = defaultdict(deque)
-        self.references: list[tuple[int, float, float]] = []
-        self.cameras: dict[str, tuple[float, float, float]] = {}
-
-    def update_scene(
-        self, config: AppConfig | None, calibrations: Mapping[str, CameraCalibration]
-    ) -> None:
-        """Refresh the static backdrop: reference markers and calibrated camera poses."""
-        if config is not None:
-            self.trail_seconds = config.debug.trail_seconds or self.trail_seconds
-            self.references = [
-                (marker.id, float(marker.position_m[0]), float(marker.position_m[1]))
-                for marker in config.aruco.reference_markers
-            ]
-        cameras: dict[str, tuple[float, float, float]] = {}
-        for camera_id, calibration in calibrations.items():
-            if calibration.world_from_camera is None:
-                continue
-            transform = np.asarray(calibration.world_from_camera, dtype=float)
-            forward = transform[:3, :3] @ np.array([0.0, 0.0, 1.0])
-            cameras[camera_id] = (
-                float(transform[0, 3]),
-                float(transform[1, 3]),
-                math.atan2(float(forward[1]), float(forward[0])),
-            )
-        self.cameras = cameras
-
-    def apply_pose(self, body: dict, now_ns: int | None = None) -> TrackedTag | None:
-        now_ns = time.monotonic_ns() if now_ns is None else now_ns
-        position = body.get("position_m")
-        if not isinstance(position, dict):
-            return None
-        try:
-            tag_id = int(body["tag_id"])
-            x_m = float(position["x"])
-            y_m = float(position["y"])
-            z_m = float(position.get("z", 0.0))
-        except (KeyError, TypeError, ValueError):
-            return None
-        cameras = body.get("visible_by")
-        tag = TrackedTag(
-            tag_id=tag_id,
-            x_m=x_m,
-            y_m=y_m,
-            z_m=z_m,
-            heading_rad=_yaw_from_payload(body),
-            quality=float(body.get("quality", 0.0) or 0.0),
-            predicted=bool(body.get("predicted", False)),
-            cameras=tuple(str(camera) for camera in cameras) if isinstance(cameras, list) else (),
-            updated_ns=now_ns,
-        )
-        self.tags_by_id[tag_id] = tag
-        trail = self.trails[tag_id]
-        trail.append((now_ns, (x_m, y_m)))
-        self._expire_trail(trail, now_ns)
-        return tag
-
-    def _expire_trail(self, trail: deque[tuple[int, tuple[float, float]]], now_ns: int) -> None:
-        horizon_ns = int(self.trail_seconds * 1e9)
-        while trail and now_ns - trail[0][0] > horizon_ns:
-            trail.popleft()
-
-    def tags(self, now_ns: int | None = None, keep_ns: int = 5 * STALE_POSE_NS) -> list[TrackedTag]:
-        """Tags seen recently enough to be worth drawing, newest position first."""
-        now_ns = time.monotonic_ns() if now_ns is None else now_ns
-        for tag_id in list(self.tags_by_id):
-            if now_ns - self.tags_by_id[tag_id].updated_ns > keep_ns:
-                del self.tags_by_id[tag_id]
-                self.trails.pop(tag_id, None)
-        return sorted(self.tags_by_id.values(), key=lambda tag: tag.tag_id)
-
-    def reset(self) -> None:
-        """Forget every tracked tag, e.g. after switching broker or configuration."""
-        self.tags_by_id.clear()
-        self.trails.clear()
-
-    def trail(self, tag_id: int, now_ns: int | None = None) -> list[tuple[float, float]]:
-        now_ns = time.monotonic_ns() if now_ns is None else now_ns
-        trail = self.trails.get(tag_id)
-        if not trail:
-            return []
-        self._expire_trail(trail, now_ns)
-        return [point for _, point in trail]
-
-    def bounds(self, margin_m: float = WORLD_MARGIN_M) -> tuple[float, float, float, float]:
-        """World rectangle to draw: references, cameras and tags always fit inside."""
-        xs = [0.0]
-        ys = [0.0]
-        for _, x_m, y_m in self.references:
-            xs.append(x_m)
-            ys.append(y_m)
-        for x_m, y_m, _ in self.cameras.values():
-            xs.append(x_m)
-            ys.append(y_m)
-        for tag in self.tags_by_id.values():
-            xs.append(tag.x_m)
-            ys.append(tag.y_m)
-        return (
-            min(xs) - margin_m,
-            min(ys) - margin_m,
-            max(xs) + margin_m,
-            max(ys) + margin_m,
-        )
-
-
-class StatusMonitor:
-    """Read-only MQTT listener: never publishes, so it cannot disturb the deployment."""
-
-    def __init__(
-        self,
-        base_topic: str,
-        settings: MqttSettings | None = None,
-        client_factory: Callable[[str], mqtt.Client] | None = None,
-    ) -> None:
-        self.base_topic = base_topic
-        self.settings = settings or MqttSettings.from_environment()
-        self.connected = threading.Event()
-        self.error: str | None = None
-        self.messages: queue.SimpleQueue[tuple[str, dict]] = queue.SimpleQueue()
-        client_id = f"vision-gui-{uuid.uuid4().hex[:10]}"
-        self.client = (
-            client_factory(client_id)
-            if client_factory
-            else mqtt.Client(
-                mqtt.CallbackAPIVersion.VERSION2,
-                client_id=client_id,
-                protocol=mqtt.MQTTv311,
-                reconnect_on_failure=True,
-            )
-        )
-        if self.settings.username:
-            self.client.username_pw_set(self.settings.username, self.settings.password)
-        if self.settings.tls:
-            self.client.tls_set()
-        self.client.on_connect = self._on_connect
-        self.client.on_disconnect = self._on_disconnect
-        self.client.on_message = self._on_message
-        self._loop_started = False
-
-    def topics(self) -> list[str]:
-        return [
-            f"{self.base_topic}/metrics",
-            f"{self.base_topic}/event",
-            f"{self.base_topic}/status",
-            f"{self.base_topic}/pose/+",
-        ]
-
-    def start(self) -> None:
-        try:
-            self.client.connect_async(
-                self.settings.host, self.settings.port, keepalive=MQTT_KEEPALIVE_S
-            )
-            self.client.loop_start()
-            self._loop_started = True
-        except OSError as error:
-            self.error = str(error)
-
-    def stop(self) -> None:
-        try:
-            self.client.disconnect()
-        finally:
-            if self._loop_started:
-                self.client.loop_stop()
-                self._loop_started = False
-            self.connected.clear()
-
-    def drain(self, limit: int = 500) -> list[tuple[str, dict]]:
-        received: list[tuple[str, dict]] = []
-        while len(received) < limit:
-            try:
-                received.append(self.messages.get_nowait())
-            except queue.Empty:
-                break
-        return received
-
-    def _on_connect(self, client, userdata, flags, reason_code, properties) -> None:
-        if reason_code != 0:
-            self.error = f"connessione MQTT rifiutata: {reason_code}"
-            return
-        self.error = None
-        self.connected.set()
-        for topic in self.topics():
-            client.subscribe(topic, qos=0)
-
-    def _on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties) -> None:
-        self.connected.clear()
-
-    def _on_message(self, client, userdata, message) -> None:
-        try:
-            body = json.loads(message.payload.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            return
-        if isinstance(body, dict):
-            self.messages.put((message.topic, body))
 
 
 def roster_from_config(config_path: Path | None, cache_path: Path) -> tuple[AppConfig, list[str]]:
