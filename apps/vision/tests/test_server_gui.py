@@ -420,11 +420,12 @@ def test_viewport_shrinks_only_when_far_too_large():
     assert fit_viewport(viewport, (0.0, 0.0, 2.0, 2.0)) == (0.0, 0.0, 2.0, 2.0)
 
 
-def test_importing_the_panel_does_not_pull_in_tkinter():
+@pytest.mark.parametrize("module", ["vision_system.apps.server_gui", "vision_system.gui"])
+def test_importing_the_panel_does_not_pull_in_tkinter(module):
     # The whole suite runs headless only because tkinter is imported lazily, inside
     # the widget classes. A stray module-scope import would break CI on any machine
     # without python3-tk, so assert the contract instead of trusting review.
-    probe = "import vision_system.apps.server_gui, sys; assert 'tkinter' not in sys.modules"
+    probe = f"import {module}, sys; assert 'tkinter' not in sys.modules"
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent / "src")
     result = subprocess.run(
