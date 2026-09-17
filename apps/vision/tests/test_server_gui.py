@@ -1,4 +1,5 @@
 import math
+import os
 import subprocess
 import sys
 import time
@@ -50,7 +51,7 @@ def test_command_uses_console_script_and_flags():
 
 
 def test_command_falls_back_to_module_when_script_missing(monkeypatch):
-    monkeypatch.setattr("vision_system.apps.server_gui.shutil.which", lambda name: None)
+    monkeypatch.setattr("vision_system.apps.server_gui.supervisor.shutil.which", lambda name: None)
     command = build_server_command(_options(config=None, debug=False, no_mqtt=True))
     assert command[:3] == [sys.executable, "-m", "vision_system.apps.coordinator"]
     assert "--config" not in command
@@ -417,3 +418,16 @@ def test_viewport_shrinks_only_when_far_too_large():
     viewport = fit_viewport(None, (0.0, 0.0, 10.0, 10.0))
     assert fit_viewport(viewport, (0.0, 0.0, 6.0, 6.0)) == viewport
     assert fit_viewport(viewport, (0.0, 0.0, 2.0, 2.0)) == (0.0, 0.0, 2.0, 2.0)
+
+
+def test_importing_the_panel_does_not_pull_in_tkinter():
+    # The whole suite runs headless only because tkinter is imported lazily, inside
+    # the widget classes. A stray module-scope import would break CI on any machine
+    # without python3-tk, so assert the contract instead of trusting review.
+    probe = "import vision_system.apps.server_gui, sys; assert 'tkinter' not in sys.modules"
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent / "src")
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, env=environment
+    )
+    assert result.returncode == 0, result.stderr
