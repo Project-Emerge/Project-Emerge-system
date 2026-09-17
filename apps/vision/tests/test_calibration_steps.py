@@ -158,3 +158,19 @@ def test_the_extrinsics_button_is_disabled_with_a_reason():
     assert action.enabled(blocked) is False
     assert action.disabled_hint
     assert action.enabled(_overview(_status("cam_0"))) is True
+
+
+def test_runtime_does_not_call_a_stale_camera_a_missing_one():
+    # Regression: a camera with extrinsics whose settings later changed was
+    # reported as "Extrinsics are missing", which is the wrong thing to fix.
+    overview = _overview(_status("cam_0", extrinsics=True, stale=True))
+    blocked = steps.step("runtime").precondition(overview)
+    assert blocked.ready is False
+    assert "missing" not in blocked.reason
+    assert "settings changed" in blocked.reason
+
+
+def test_runtime_names_a_camera_that_was_never_placed():
+    overview = _overview(_status("cam_0", extrinsics=True), _status("cam_1"))
+    blocked = steps.step("runtime").precondition(overview)
+    assert "Extrinsics are missing for: cam_1" in blocked.reason

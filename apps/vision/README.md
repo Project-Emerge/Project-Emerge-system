@@ -10,6 +10,7 @@ Sistema di localizzazione indoor per marker ArUco basato su camere fisse (da una
 2. [Configurazione delle Camere](#2-configurazione-delle-camere)
    - [2.1 Selezione visiva delle sorgenti](#21-selezione-visiva-delle-sorgenti)
    - [2.2 Regolazione di campo visivo e zoom](#22-regolazione-di-campo-visivo-e-zoom)
+2bis. [Pannello grafico di calibrazione](#2bis-pannello-grafico-di-calibrazione)
 3. [Calibrazione Intrinseca (ChArUco)](#3-calibrazione-intrinseca-charuco)
    - [3.1 Generazione e stampa della board](#31-generazione-e-stampa-della-board)
    - [3.2 Verifica delle sorgenti video (probe)](#32-verifica-delle-sorgenti-video-probe)
@@ -95,6 +96,50 @@ uv run vision-configure-cameras --config config.local.json
   ```
 
 > **Nota:** Qualsiasi variazione di FOV o risoluzione modifica le matrici intrinseche. Dopo aver modificato lo zoom occorre ripetere la calibrazione intrinseca ed estrinseca.
+
+---
+
+## 2bis. Pannello grafico di calibrazione
+
+L'intero flusso di calibrazione e' anche disponibile come pannello Tkinter, che mostra in
+un'unica finestra quali camere sono gia' calibrate e con che errore, e lancia ogni fase con
+gli argomenti giusti:
+
+```bash
+uv run vision-calibrate-gui --config config.local.json --board-format a3
+# oppure
+make calibrate-gui CONFIG=config.local.json BOARD_FORMAT=a3
+```
+
+Richiede `tkinter` (Debian/Ubuntu: `sudo apt install python3-tk`). **Le etichette del
+pannello sono in inglese**; le finestre OpenCV dei wizard restano in italiano, e la console
+del pannello mostra l'output grezzo del comando lanciato.
+
+Il menu a sinistra segue l'ordine del documento — `1 Cameras`, `2 Board`, `3 Intrinsics`,
+`4 Reference markers`, `5 Extrinsics`, `6 Runtime` — con un pallino pieno quando la fase e'
+eseguibile e vuoto quando manca un prerequisito. Selezionando una fase bloccata il pannello
+scrive *perche'*: quali camere non hanno le intrinseche, quali vanno ricalibrate perche' le
+impostazioni camera sono cambiate, o che servono almeno 3 reference marker.
+
+Le fasi interattive (selezione sorgenti, campo visivo, wizard intrinseche ed estrinseche,
+mappa reference, stitching, origine) vengono eseguite **come processi figli**: aprono la loro
+finestra OpenCV con i controlli da tastiera di sempre, e il pannello ne mostra l'output nella
+console. `Cancel` li termina. Le fasi non interattive (generazione board, probe delle sorgenti,
+calibrazione da cartella di foto) girano invece dentro al pannello, con avanzamento per camera.
+
+> **Nota:** il codice di uscita di un wizard non e' un verdetto — annullare con `ESC` esce con
+> codice diverso da zero, e una sessione multi-camera fallita sulla terza camera ha comunque
+> scritto le prime due. Il pannello rilegge sempre `calibrations/` quando un processo termina:
+> **fa fede la tabella**, non il codice di uscita.
+
+La colonna `Board` confronta il `board_checksum` dell'artefatto con il formato selezionato: se
+si calibra in A3 e si apre il pannello in A4 ogni riga risulta `stale` con nota `differs (a4)`.
+Usare `--board-format` coerente con la board realmente stampata.
+
+Il pannello **non scrive mai** `config.local.json` da solo: restano `vision-select-cameras` e
+`vision-configure-cameras` gli unici a modificarlo. Tutti i comandi CLI documentati nelle
+sezioni seguenti continuano a funzionare identici: il pannello e' un client di quei comandi, e
+la CLI resta la via supportata senza display.
 
 ---
 
@@ -418,28 +463,28 @@ uv run vision-server-gui --config config.local.json
 uv run vision-server-gui --config config.local.json --mqtt-host 192.168.1.10
 ```
 
-Richiede `tkinter` (Debian/Ubuntu: `sudo apt install python3-tk`).
+Richiede `tkinter` (Debian/Ubuntu: `sudo apt install python3-tk`). **Le etichette del pannello sono in inglese.**
 
 Il pannello è diviso in tre zone:
 
-1. **Avvio server** — host e porta MQTT, `config`, `calibrations`, cache di stato e i flag `--debug`, `--no-mqtt`, `--verbose`. `Avvia server` lancia `vision-server` come processo figlio (in una sessione separata: chiudere il terminale non lo uccide), `Ferma server` gli invia `SIGTERM` e, se non risponde entro 10 s, `SIGKILL`. Le impostazioni MQTT diventano `VISION_MQTT_HOST`/`VISION_MQTT_PORT` del processo figlio.
-2. **Camere del deployment** — una riga per camera del roster, con le due viste affiancate: *Nodo* (il `vision-node` sta pubblicando le sue metriche) e *Server* (il coordinatore sta effettivamente ricevendo osservazioni da quella camera), più osservazioni pubblicate/ricevute, età dell'ultima osservazione e stato di calibrazione.
-3. **Vista world / Console** — due schede: la mappa 2D dell'arena (camere calibrate in arancio, reference marker in viola, robot tracciati con scia e freccia di heading) e la console del server con gli eventi MQTT (`MISSING_CALIBRATION`, `CALIBRATION_DRIFT`, `CAMERA_DISAGREEMENT`, …).
+1. **Server launch** — host e porta MQTT, `config`, `calibrations`, cache di stato e i flag `--debug`, `--no-mqtt`, `--verbose`. `Start server` lancia `vision-server` come processo figlio (in una sessione separata: chiudere il terminale non lo uccide), `Stop server` gli invia `SIGTERM` e, se non risponde entro 10 s, `SIGKILL`; il pulsante non blocca la finestra mentre aspetta. Le impostazioni MQTT diventano `VISION_MQTT_HOST`/`VISION_MQTT_PORT` del processo figlio.
+2. **Deployment cameras** — una riga per camera del roster, con le due viste affiancate: *Node* (il `vision-node` sta pubblicando le sue metriche) e *Server* (il coordinatore sta effettivamente ricevendo osservazioni da quella camera), più osservazioni pubblicate/ricevute, età dell'ultima osservazione e stato di calibrazione.
+3. **World view / Console** — due schede: la mappa 2D dell'arena (camere calibrate in arancio, reference marker in viola, robot tracciati con scia e freccia di heading) e la console del server con gli eventi MQTT (`MISSING_CALIBRATION`, `CALIBRATION_DRIFT`, `CAMERA_DISAGREEMENT`, …).
 
 La vista world disegna le pose fuse pubblicate su `<base_topic>/pose/<tag_id>`, **non** le ricalcola: è quindi un controllo indipendente di ciò che il server sta realmente mandando al resto del sistema. Un tag disegnato vuoto è una posa predetta o ferma da più di 1,5 s.
 
-Il pannello si limita ad ascoltare il broker (non pubblica nulla): se il server gira su un altro PC basta puntarlo allo stesso broker e usarlo come monitor, senza premere `Avvia server`.
+Il pannello si limita ad ascoltare il broker (non pubblica nulla): se il server gira su un altro PC basta puntarlo allo stesso broker e usarlo come monitor, senza premere `Start server`.
 
 Diagnosi rapida della tabella:
 
 | Sintomo | Causa tipica |
 | --- | --- |
-| Nodo `●`, Server `○` | broker o `base_topic` diversi (`site`/`system_id` nel config), oppure firewall sulla porta 1883 |
-| Nodo `○`, Server `●` | il nodo pubblica osservazioni ma non metriche: processo in avvio o log-level alterato |
+| Node `●`, Server `○` | broker o `base_topic` diversi (`site`/`system_id` nel config), oppure firewall sulla porta 1883 |
+| Node `○`, Server `●` | il nodo pubblica osservazioni ma non metriche: processo in avvio o log-level alterato |
 | Entrambi `●`, età alta | orologi non sincronizzati (NTP/Chrony) o rete satura |
-| `Calibrata: no` | manca `calibrations/cam_X.json` **sul PC del server** |
-| Nota `drift` | la camera si è spostata: ripetere la calibrazione estrinseca |
-| Vista world vuota con camere online | nessun marker mobile visibile, oppure `size_m` dei marker errato (le osservazioni vengono scartate per reprojection error) |
+| `Calibrated: no` | manca `calibrations/cam_X.json` **sul PC del server** |
+| Nota `drift: recalibrate` | la camera si è spostata: ripetere la calibrazione estrinseca |
+| World view vuota con camere online | nessun marker mobile visibile, oppure `size_m` dei marker errato (le osservazioni vengono scartate per reprojection error) |
 
 ### 6.4 Docker: server e nodi su PC diversi
 

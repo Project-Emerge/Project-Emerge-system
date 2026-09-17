@@ -115,9 +115,27 @@ def _extrinsics_ready(overview: CalibrationOverview) -> StepReadiness:
 
 
 def _runtime_ready(overview: CalibrationOverview) -> StepReadiness:
-    missing = overview.missing("extrinsics")
-    if missing:
-        return StepReadiness(False, f"Extrinsics are missing for: {', '.join(missing)}.")
+    # As for extrinsics, an artifact that went stale is not an absent one, and
+    # saying "missing" would send the operator hunting for a file that exists.
+    absent = overview.without_intrinsics()
+    if absent:
+        return StepReadiness(False, f"Intrinsics are missing for: {', '.join(absent)}.")
+    stale = overview.stale_cameras()
+    if stale:
+        return StepReadiness(
+            False,
+            f"The camera settings changed since calibration; recalibrate: {', '.join(stale)}.",
+        )
+    unplaced = overview.without_extrinsics()
+    if unplaced:
+        return StepReadiness(False, f"Extrinsics are missing for: {', '.join(unplaced)}.")
+    poor = tuple(
+        c.camera_id for c in overview.cameras if c.extrinsic_quality_passed is False
+    )
+    if poor:
+        return StepReadiness(
+            False, f"The extrinsics did not pass the quality gates for: {', '.join(poor)}."
+        )
     return READY
 
 

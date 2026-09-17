@@ -87,6 +87,12 @@ class CalibrationOverview:
         """Cameras with no artifact at all — distinct from one that went stale."""
         return tuple(c.camera_id for c in self.cameras if not c.has_intrinsics)
 
+    def without_extrinsics(self) -> tuple[str, ...]:
+        """Cameras that have a lens model but were never placed in the world."""
+        return tuple(
+            c.camera_id for c in self.cameras if c.has_intrinsics and not c.has_extrinsics
+        )
+
     def poor_intrinsics(self) -> tuple[str, ...]:
         """Cameras whose artifact exists and is valid, but failed the quality gates."""
         return tuple(

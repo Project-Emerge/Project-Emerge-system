@@ -4,8 +4,9 @@
 #   make server                                    broker + server di fusione (deployment distribuito)
 #   make client CAMERA=cam_0                       nodo camera sullo stesso PC del server
 #   make client CAMERA=cam_1 MQTT_HOST=192.168.1.10   nodo camera su un PC remoto
-#   make gui                                       pannello di avvio e debug (gira sull'host)
-.PHONY: all server client gui logs logs-server logs-client ps down down-client test
+#   make gui                                       pannello di avvio e debug del server (host)
+#   make calibrate-gui                             pannello di calibrazione (host)
+.PHONY: all server client gui calibrate-gui logs logs-server logs-client ps down down-client test
 
 # Camera gestita da `make client`; un progetto Compose per camera, cosi' sullo
 # stesso PC possono convivere piu' nodi.
@@ -17,6 +18,8 @@ MQTT_PORT ?= 1883
 # Host del broker visto dai processi sull'host (GUI, test manuali).
 GUI_MQTT_HOST ?= localhost
 CONFIG ?= config.local.json
+# Formato della board ChArUco usata in calibrazione: a4 oppure a3.
+BOARD_FORMAT ?= a4
 
 REPO_ROOT := $(abspath $(CURDIR)/../..)
 COMPOSE := docker compose -f $(REPO_ROOT)/compose.yaml
@@ -44,6 +47,11 @@ client:
 # Gira sull'host (serve X/Wayland), non in un container.
 gui:
 	uv run vision-server-gui --config $(CONFIG) --mqtt-host $(GUI_MQTT_HOST)
+
+# Pannello Tkinter di calibrazione: mostra lo stato per camera e lancia le fasi
+# (selezione sorgenti, board, intrinseche, reference, estrinseche). Gira sull'host.
+calibrate-gui:
+	uv run vision-calibrate-gui --config $(CONFIG) --board-format $(BOARD_FORMAT)
 
 logs: logs-server
 

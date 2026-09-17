@@ -16,6 +16,7 @@ dependencies = [
 [project.scripts]
 vision-calibrate = "vision_system.apps.calibrate_cli:calibration_main"
 vision-calibrate-folder = "vision_system.calibration.folder:folder_calibration_main"
+vision-calibrate-gui = "vision_system.apps.calibration_gui:calibration_gui_main"
 vision-localizer = "vision_system.apps.calibrate_cli:runtime_main"
 vision-select-cameras = "vision_system.apps.camera_selector:camera_selector_main"
 vision-configure-cameras = "vision_system.apps.camera_configurator:camera_configurator_main"
