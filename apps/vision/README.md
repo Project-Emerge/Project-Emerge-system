@@ -7,36 +7,38 @@ Sistema di localizzazione indoor per marker ArUco basato su camere fisse (da una
 ## Indice
 
 1. [Requisiti e Installazione](#1-requisiti-e-installazione)
-2. [Configurazione delle Camere](#2-configurazione-delle-camere)
-   - [2.1 Selezione visiva delle sorgenti](#21-selezione-visiva-delle-sorgenti)
-   - [2.2 Regolazione di campo visivo e zoom](#22-regolazione-di-campo-visivo-e-zoom)
-2bis. [Pannello grafico di calibrazione](#2bis-pannello-grafico-di-calibrazione)
-3. [Calibrazione Intrinseca (ChArUco)](#3-calibrazione-intrinseca-charuco)
-   - [3.1 Generazione e stampa della board](#31-generazione-e-stampa-della-board)
-   - [3.2 Verifica delle sorgenti video (probe)](#32-verifica-delle-sorgenti-video-probe)
-   - [3.3 Wizard interattivo intrinseche](#33-wizard-interattivo-intrinseche)
-   - [3.4 Calibrazione da cartella di foto](#34-calibrazione-da-cartella-di-foto)
-4. [Mappa dei Reference Marker](#4-mappa-dei-reference-marker)
-   - [4.1 Mappa da singola camera o foto 2D](#41-mappa-da-singola-camera-o-foto-2d)
-   - [4.2 Selezione degli Anchor Marker (`--mode anchors`)](#42-selezione-degli-anchor-marker---mode-anchors)
-   - [4.3 Arena grande: Stitching multi-camera](#43-arena-grande-stitching-multi-camera)
-   - [4.4 Selezione e rotazione dell'origine del frame](#44-selezione-e-rotazione-dellorigine-del-frame)
-5. [Calibrazione Estrinseca](#5-calibrazione-estrinseca)
-6. [Esecuzione del Runtime](#6-esecuzione-del-runtime)
-   - [6.1 Esecuzione locale (singolo PC)](#61-esecuzione-locale-singolo-pc)
-   - [6.2 Modalità distribuita (un PC per camera)](#62-modalità-distribuita-un-pc-per-camera)
-   - [6.3 GUI di avvio e debug del server](#63-gui-di-avvio-e-debug-del-server)
-   - [6.4 Docker: server e nodi su PC diversi](#64-docker-server-e-nodi-su-pc-diversi)
-7. [Simulatore](#7-simulatore)
-   - [7.1 Simulazione sintetica](#71-simulazione-sintetica)
-   - [7.2 Simulazione live con webcam reali](#72-simulazione-live-con-webcam-reali)
-8. [Protocollo MQTT e Configurazione](#8-protocollo-mqtt-e-configurazione)
-   - [8.1 Tabella dei topic](#81-tabella-dei-topic)
-   - [8.2 Esempio di configurazione completa](#82-esempio-di-configurazione-completa)
-   - [8.3 Target automatici e frame anchor](#83-target-automatici-e-frame-anchor)
-9. [Diagnostica e Convenzioni Geometriche](#9-diagnostica-e-convenzioni-geometriche)
-10. [Collaudo Fisico](#10-collaudo-fisico)
-
+2. [Pannello grafico di calibrazione](#2-pannello-grafico-di-calibrazione)
+3. [Configurazione delle Camere](#3-configurazione-delle-camere)
+   - [3.1 Selezione visiva delle sorgenti](#31-selezione-visiva-delle-sorgenti)
+   - [3.2 Regolazione di campo visivo e zoom](#32-regolazione-di-campo-visivo-e-zoom)
+4. [Calibrazione Intrinseca (ChArUco)](#4-calibrazione-intrinseca-charuco)
+   - [4.1 Generazione e stampa della board](#41-generazione-e-stampa-della-board)
+   - [4.2 Verifica delle sorgenti video (probe)](#42-verifica-delle-sorgenti-video-probe)
+   - [4.3 Wizard interattivo intrinseche](#43-wizard-interattivo-intrinseche)
+   - [4.4 Calibrazione da cartella di foto](#44-calibrazione-da-cartella-di-foto)
+5. [Mappa dei Reference Marker](#5-mappa-dei-reference-marker)
+   - [5.1 Mappa da singola camera o foto 2D](#51-mappa-da-singola-camera-o-foto-2d)
+   - [5.2 Selezione degli Anchor Marker (`--mode anchors`)](#52-selezione-degli-anchor-marker---mode-anchors)
+   - [5.3 Arena grande: Stitching multi-camera](#53-arena-grande-stitching-multi-camera)
+   - [5.4 Selezione e rotazione dell'origine del frame](#54-selezione-e-rotazione-dellorigine-del-frame)
+6. [Calibrazione Estrinseca](#6-calibrazione-estrinseca)
+7. [Esecuzione del Runtime](#7-esecuzione-del-runtime)
+   - [7.0 Esecuzione con Docker Compose](#70-esecuzione-con-docker-compose)
+   - [7.1 Esecuzione locale (singolo PC)](#71-esecuzione-locale-singolo-pc)
+   - [7.2 Modalità distribuita (un PC per camera)](#72-modalità-distribuita-un-pc-per-camera)
+   - [7.3 GUI di avvio e debug del server](#73-gui-di-avvio-e-debug-del-server)
+   - [7.4 Docker: server e nodi su PC diversi](#74-docker-server-e-nodi-su-pc-diversi)
+8. [Simulatore](#8-simulatore)
+   - [8.1 Simulazione sintetica](#81-simulazione-sintetica)
+   - [8.2 Simulazione live con webcam reali](#82-simulazione-live-con-webcam-reali)
+9. [Protocollo MQTT e Configurazione](#9-protocollo-mqtt-e-configurazione)
+   - [9.1 Tabella dei topic](#91-tabella-dei-topic)
+   - [9.2 Esempio di configurazione completa](#92-esempio-di-configurazione-completa)
+   - [9.3 Target automatici e frame anchor](#93-target-automatici-e-frame-anchor)
+   - [9.4 Coerenza fra camere](#94-coerenza-fra-camere)
+   - [9.5 Filtro del tracker](#95-filtro-del-tracker)
+10. [Diagnostica e Convenzioni Geometriche](#10-diagnostica-e-convenzioni-geometriche)
+11. [Collaudo Fisico](#11-collaudo-fisico)
 ---
 
 ## 1. Requisiti e Installazione
@@ -50,9 +52,68 @@ UV_CACHE_DIR=/tmp/visionsystem-uv-cache uv run pytest
 
 ---
 
-## 2. Configurazione delle Camere
+## 2. Pannello grafico di calibrazione
 
-### 2.1 Selezione visiva delle sorgenti
+L'intero flusso delle sezioni 3-7 è disponibile anche come pannello Tkinter: un'unica finestra
+che mostra quali camere sono già calibrate e con che errore, e che lancia ogni fase con gli
+argomenti giusti.
+
+```bash
+uv run vision-calibrate-gui --config config.local.json --board-format a3
+# oppure
+make calibrate-gui CONFIG=config.local.json BOARD_FORMAT=a3
+```
+
+Richiede `tkinter` (Debian/Ubuntu: `sudo apt install python3-tk`). **Le etichette del pannello
+sono in inglese**; le finestre OpenCV dei wizard restano in italiano, e la console del pannello
+mostra l'output grezzo del comando lanciato.
+
+Il menu di sinistra segue l'ordine di questo documento. Ogni voce ha un pallino pieno quando la
+fase è eseguibile e vuoto quando manca un prerequisito:
+
+| Voce del menu | Sezione di riferimento | Comandi lanciati |
+| --- | --- | --- |
+| `1 Cameras` | [3. Configurazione delle Camere](#3-configurazione-delle-camere) | `vision-select-cameras`, `vision-configure-cameras`, probe |
+| `2 Board` | [4.1 Generazione e stampa della board](#41-generazione-e-stampa-della-board) | `vision-calibrate board` |
+| `3 Intrinsics` | [4.3](#43-wizard-interattivo-intrinseche) e [4.4](#44-calibrazione-da-cartella-di-foto) | `vision-calibrate intrinsics`, calibrazione da cartella |
+| `4 Reference markers` | [5. Mappa dei Reference Marker](#5-mappa-dei-reference-marker) | `vision-reference-map`, `vision-reference-stitch`, `vision-select-origin` |
+| `5 Extrinsics` | [6. Calibrazione Estrinseca](#6-calibrazione-estrinseca) | `vision-calibrate extrinsics` |
+| `6 Runtime` | [7. Esecuzione del Runtime](#7-esecuzione-del-runtime) | `vision-localizer`, `vision-server-gui` |
+
+Selezionando una fase bloccata il pannello scrive **perché** lo è, distinguendo casi che
+richiedono interventi diversi: una camera senza intrinseche (manca il file), una camera le cui
+impostazioni sono cambiate dopo la calibrazione (il file c'è ma non è più valido: rifare le
+intrinseche), una calibrazione che non ha superato le soglie di qualità, e la mancanza dei 3
+reference marker minimi per le estrinseche.
+
+**Cosa gira dove.** Le fasi interattive — selezione sorgenti, campo visivo, wizard intrinseche
+ed estrinseche, mappa reference, stitching, origine — vengono eseguite **come processi figli**:
+aprono la loro finestra OpenCV con i controlli da tastiera di sempre (`SPAZIO`, `BACKSPACE`,
+`R`, `ENTER`, `ESC`) e il pannello ne mostra l'output nella console. `Cancel` li termina. Le
+fasi non interattive — generazione board, probe delle sorgenti, calibrazione da cartella di
+foto — girano invece dentro al pannello, con avanzamento per camera e risultati per immagine.
+
+> **Il codice di uscita non è un verdetto.** Annullare un wizard con `ESC` esce con codice
+> diverso da zero, e una sessione multi-camera fallita sulla terza camera ha comunque scritto
+> le prime due. Il pannello rilegge `calibrations/` ogni volta che un processo termina:
+> **fa fede la tabella**, non il codice di uscita.
+
+La colonna `Board` confronta il `board_checksum` dell'artefatto con il formato selezionato: se
+si calibra con la board A3 e si apre il pannello in A4, ogni riga risulta `stale` con nota
+`differs (a4)`. Usare `--board-format` coerente con la board realmente stampata.
+
+Il pannello **non scrive mai** `config.local.json`: restano `vision-select-cameras` e
+`vision-configure-cameras` gli unici a modificarlo, e il pannello si limita a lanciarli. Tutti
+i comandi delle sezioni seguenti continuano a funzionare identici — il pannello è un client di
+quei comandi, e la CLI resta la via supportata su macchine senza display.
+
+---
+
+## 3. Configurazione delle Camere
+
+> Questa fase corrisponde alla voce `1 Cameras` del [pannello grafico](#2-pannello-grafico-di-calibrazione).
+
+### 3.1 Selezione visiva delle sorgenti
 
 Il sistema supporta arene con **2, 3 o 4 camere**: il file base definisce al massimo quattro slot logici (`cam_0`..`cam_3`), ma la configurazione salvata contiene solo le camere effettivamente presenti. Le sorgenti OpenCV iniziali sono `5`, `1`, `2`, `4` a 1920×1080 @ 30 FPS. Per associarle visivamente:
 
@@ -77,7 +138,7 @@ uv run vision-select-cameras \
 - Disponibile anche come sottocomando: `uv run vision-calibrate select-cameras`.
 - Su Linux, dopo l'identificazione, è consigliato sostituire gli indici numerici con i percorsi stabili `/dev/v4l/by-id/...`.
 
-### 2.2 Regolazione di campo visivo e zoom
+### 3.2 Regolazione di campo visivo e zoom
 
 ```bash
 uv run vision-configure-cameras --config config.local.json
@@ -99,53 +160,11 @@ uv run vision-configure-cameras --config config.local.json
 
 ---
 
-## 2bis. Pannello grafico di calibrazione
+## 4. Calibrazione Intrinseca (ChArUco)
 
-L'intero flusso di calibrazione e' anche disponibile come pannello Tkinter, che mostra in
-un'unica finestra quali camere sono gia' calibrate e con che errore, e lancia ogni fase con
-gli argomenti giusti:
+> Questa fase corrisponde alle voci `2 Board` e `3 Intrinsics` del [pannello grafico](#2-pannello-grafico-di-calibrazione).
 
-```bash
-uv run vision-calibrate-gui --config config.local.json --board-format a3
-# oppure
-make calibrate-gui CONFIG=config.local.json BOARD_FORMAT=a3
-```
-
-Richiede `tkinter` (Debian/Ubuntu: `sudo apt install python3-tk`). **Le etichette del
-pannello sono in inglese**; le finestre OpenCV dei wizard restano in italiano, e la console
-del pannello mostra l'output grezzo del comando lanciato.
-
-Il menu a sinistra segue l'ordine del documento — `1 Cameras`, `2 Board`, `3 Intrinsics`,
-`4 Reference markers`, `5 Extrinsics`, `6 Runtime` — con un pallino pieno quando la fase e'
-eseguibile e vuoto quando manca un prerequisito. Selezionando una fase bloccata il pannello
-scrive *perche'*: quali camere non hanno le intrinseche, quali vanno ricalibrate perche' le
-impostazioni camera sono cambiate, o che servono almeno 3 reference marker.
-
-Le fasi interattive (selezione sorgenti, campo visivo, wizard intrinseche ed estrinseche,
-mappa reference, stitching, origine) vengono eseguite **come processi figli**: aprono la loro
-finestra OpenCV con i controlli da tastiera di sempre, e il pannello ne mostra l'output nella
-console. `Cancel` li termina. Le fasi non interattive (generazione board, probe delle sorgenti,
-calibrazione da cartella di foto) girano invece dentro al pannello, con avanzamento per camera.
-
-> **Nota:** il codice di uscita di un wizard non e' un verdetto — annullare con `ESC` esce con
-> codice diverso da zero, e una sessione multi-camera fallita sulla terza camera ha comunque
-> scritto le prime due. Il pannello rilegge sempre `calibrations/` quando un processo termina:
-> **fa fede la tabella**, non il codice di uscita.
-
-La colonna `Board` confronta il `board_checksum` dell'artefatto con il formato selezionato: se
-si calibra in A3 e si apre il pannello in A4 ogni riga risulta `stale` con nota `differs (a4)`.
-Usare `--board-format` coerente con la board realmente stampata.
-
-Il pannello **non scrive mai** `config.local.json` da solo: restano `vision-select-cameras` e
-`vision-configure-cameras` gli unici a modificarlo. Tutti i comandi CLI documentati nelle
-sezioni seguenti continuano a funzionare identici: il pannello e' un client di quei comandi, e
-la CLI resta la via supportata senza display.
-
----
-
-## 3. Calibrazione Intrinseca (ChArUco)
-
-### 3.1 Generazione e stampa della board
+### 4.1 Generazione e stampa della board
 
 Genera il PDF stampabile ad alta risoluzione (con barra millimetrica di controllo da 100 mm) e il PNG sorgente:
 
@@ -162,7 +181,7 @@ uv run vision-calibrate board --format both --output calibration-assets
 
 Stampare il PDF generato al **100% (senza adattamento)**, verificare con un righello la barra da 100 mm e fissare il foglio su un supporto rigido e perfettamente piano.
 
-### 3.2 Verifica delle sorgenti video (probe)
+### 4.2 Verifica delle sorgenti video (probe)
 
 Verifica che tutte le sorgenti video rispondano alla risoluzione configurata, misurando FPS effettivi, formato e duplicati:
 
@@ -170,7 +189,7 @@ Verifica che tutte le sorgenti video rispondano alla risoluzione configurata, mi
 uv run vision-calibrate --config config.local.json probe
 ```
 
-### 3.3 Wizard interattivo intrinseche
+### 4.3 Wizard interattivo intrinseche
 
 Esegue l'assistente a schermo con guida in tempo reale (movimento, orientamento, scala e stabilità):
 
@@ -188,7 +207,7 @@ uv run vision-calibrate --config config.local.json intrinsics --camera cam_0 --b
 - La cattura delle pose è automatica quando la board è ferma e in una posizione valida/inedita.
 - Controlli tastiera: `SPAZIO` attiva/disattiva cattura automatica, `BACKSPACE` rimuove l'ultimo campione, `R` resetta i campioni, `ENTER` conferma e salva, `ESC` annulla.
 
-### 3.4 Calibrazione da cartella di foto
+### 4.4 Calibrazione da cartella di foto
 
 Se le immagini ChArUco sono già state acquisite come file:
 
@@ -216,11 +235,13 @@ uv run vision-calibrate --config config.local.json from-folder --input foto --bo
 
 ---
 
-## 4. Mappa dei Reference Marker
+## 5. Mappa dei Reference Marker
+
+> Questa fase corrisponde alla voce `4 Reference markers` del [pannello grafico](#2-pannello-grafico-di-calibrazione).
 
 Per calcolare le estrinseche delle camere, il sistema ha bisogno delle coordinate 3D dei marker di riferimento fissi posti sul piano di lavoro/pavimento.
 
-### 4.1 Mappa da singola camera o foto 2D
+### 5.1 Mappa da singola camera o foto 2D
 
 Se una singola camera inquadra l'intera area dei reference:
 
@@ -247,7 +268,7 @@ uv run vision-reference-map \
     --output reference-markers.json
   ```
 
-### 4.2 Selezione degli Anchor Marker (`--mode anchors`)
+### 5.2 Selezione degli Anchor Marker (`--mode anchors`)
 
 Invece di cliccare coordinate arbitrarie, i 4 click possono agganciarsi direttamente al centro di 4 marker ArUco "anchor":
 
@@ -282,7 +303,7 @@ uv run vision-reference-map \
     --output reference-markers.json
   ```
 
-### 4.3 Arena grande: Stitching multi-camera
+### 5.3 Arena grande: Stitching multi-camera
 
 In arene ampie dove nessuna camera vede tutti i reference, `vision-reference-stitch` combina le viste parziali in un unico piano world mediante bundle adjustment globale (minimi quadrati non lineari):
 
@@ -327,7 +348,7 @@ uv run vision-reference-stitch \
     --force
   ```
 
-### 4.4 Selezione e rotazione dell'origine del frame
+### 5.4 Selezione e rotazione dell'origine del frame
 
 Per ridefinire quale dei 4 anchor sia l'origine `(0,0,0)` ruotando rigidamente l'intero sistema di riferimento:
 
@@ -347,7 +368,10 @@ Cliccare sull'ancora desiderata e premere `ENTER`. La configurazione viene aggio
 
 ---
 
-## 5. Calibrazione Estrinseca
+## 6. Calibrazione Estrinseca
+
+> Questa fase corrisponde alla voce `5 Extrinsics` del [pannello grafico](#2-pannello-grafico-di-calibrazione), che la blocca
+> finché mancano le intrinseche valide o i 3 reference marker minimi.
 
 Determina la posa 3D di ciascuna camera rispetto al frame world (`world_from_camera`):
 
@@ -370,9 +394,11 @@ uv run vision-calibrate --config config.local.json extrinsics --camera all \
 
 ---
 
-## 6. Esecuzione del Runtime
+## 7. Esecuzione del Runtime
 
-### 6.0 Esecuzione con Docker Compose
+> Questa fase corrisponde alla voce `6 Runtime` del [pannello grafico](#2-pannello-grafico-di-calibrazione).
+
+### 7.0 Esecuzione con Docker Compose
 
 Dalla root del repository, lo stack hardware completo include automaticamente
 VisionSystem:
@@ -394,9 +420,9 @@ Per usare il simulatore robot senza avviare VisionSystem eseguire invece
 Questo servizio esegue il **monolite** `vision-localizer` (tutte le camere su un
 solo PC); da questa cartella lo stesso stack si avvia con `make all`. Per il
 deployment distribuito in Docker — `make server` sul PC di fusione, `make client`
-su ogni PC con una camera — vedere [6.4](#64-docker-server-e-nodi-su-pc-diversi).
+su ogni PC con una camera — vedere [7.4](#74-docker-server-e-nodi-su-pc-diversi).
 
-### 6.1 Esecuzione locale (singolo PC)
+### 7.1 Esecuzione locale (singolo PC)
 
 Avvia il localizzatore aprendo tutte le camere configurate, eseguendo rilevamento, controllo drift e fusione:
 
@@ -413,7 +439,7 @@ uv run vision-localizer --config config.local.json --no-mqtt --debug
 uv run vision-localizer --config config.local.json --no-mqtt --print-poses
 ```
 
-### 6.2 Modalità distribuita (un PC per camera)
+### 7.2 Modalità distribuita (un PC per camera)
 
 Architettura scalabile per arene ampie: da 2 a 4 PC periferici (ciascuno con una sola camera) inviano osservazioni leggere (~8 KB/s) via MQTT a un server di fusione centrale. Il numero di nodi è libero: conta solo che **tutti i nodi e il server condividano lo stesso roster di camere** (`--cameras`), altrimenti il coordinatore continua a segnalare offline gli slot che nessuno pubblica.
 
@@ -451,7 +477,7 @@ uv run vision-server --debug
 
 Il server usa lo stesso roster dei nodi: con 2 camere la fusione lavora su due osservazioni per tag, con 3 o 4 il residuo migliora ma il flusso resta identico.
 
-### 6.3 GUI di avvio e debug del server
+### 7.3 GUI di avvio e debug del server
 
 Nel deployment distribuito i processi sono indipendenti e la domanda tipica non è *cosa calcola la fusione* ma *chi sta parlando con chi*. Il pannello grafico avvia il server sul PC locale e mostra, nella stessa finestra, la vista delle due estremità della catena più la mappa 2D dei robot tracciati:
 
@@ -486,7 +512,7 @@ Diagnosi rapida della tabella:
 | Nota `drift: recalibrate` | la camera si è spostata: ripetere la calibrazione estrinseca |
 | World view vuota con camere online | nessun marker mobile visibile, oppure `size_m` dei marker errato (le osservazioni vengono scartate per reprojection error) |
 
-### 6.4 Docker: server e nodi su PC diversi
+### 7.4 Docker: server e nodi su PC diversi
 
 Tutti i comandi Docker di questo sottoprogetto sono nel `Makefile` di questa
 cartella. Le variabili disponibili sono `CAMERA` (camera gestita dal nodo),
@@ -604,9 +630,9 @@ make down-client CAMERA=cam_1 MQTT_HOST=192.168.1.10   # nodo remoto (dal PC B)
 
 ---
 
-## 7. Simulatore
+## 8. Simulatore
 
-### 7.1 Simulazione sintetica
+### 8.1 Simulazione sintetica
 
 Permette di testare l'intera catena distribuita (4 nodi sintetici + broker MQTT + fusion server) su una singola macchina senza telecamere collegate:
 
@@ -623,7 +649,7 @@ uv run vision-simulate --config config.local.json
   - `--broker none`: usa un broker esterno già attivo.
   - `--keep-broker`: non ferma il container Docker all'uscita.
 
-### 7.2 Simulazione live con webcam reali
+### 8.2 Simulazione live con webcam reali
 
 Avvia 4 processi `vision-node` e il `vision-server` sulla stessa macchina collegandosi a webcam fisiche reali:
 
@@ -636,11 +662,11 @@ uv run vision-simulate --live --config config.local.json --node-debug
 
 ---
 
-## 8. Protocollo MQTT e Configurazione
+## 9. Protocollo MQTT e Configurazione
 
 Base topic predefinito: `vision/<site>/<system_id>`.
 
-### 8.1 Tabella dei topic
+### 9.1 Tabella dei topic
 
 | Topic | QoS | Retained | Direzione | Descrizione |
 |---|:---:|:---:|:---:|---|
@@ -667,7 +693,7 @@ disponibili: quota, orientamento, velocità lineare e angolare, camere coinvolte
 errore di riproiezione e qualità. `position_variance_m2` non viene sintetizzato,
 perché VisionSystem non calcola una covarianza della posizione.
 
-### 8.2 Esempio di configurazione completa
+### 9.2 Esempio di configurazione completa
 
 ```json
 {
@@ -729,12 +755,12 @@ perché VisionSystem non calcola una covarianza della posizione.
 }
 ```
 
-### 8.3 Target automatici e frame anchor
+### 9.3 Target automatici e frame anchor
 
 - **Target automatici (`auto_mobile_markers`)**: se abilitato, qualsiasi marker rilevato che non appartenga a `reference_markers` né a `ignored_ids` viene tracciato come marker mobile con dimensione `default_size_m`.
 - **Frame anchor (`anchor_frame`)**: vincola le posizioni dei 4 marker di riferimento chiave esattamente sui vertici del rettangolo specificato, garantendo un sistema di coordinate world ortogonale e stabile.
 
-### 8.4 Coerenza fra camere
+### 9.4 Coerenza fra camere
 
 Ogni camera che vede il tag produce una propria stima in coordinate world.
 Prima di risolvere la posa congiunta la fusione confronta quelle stime fra loro
@@ -754,7 +780,7 @@ oppure estrinseci non più validi. Una dimensione errata sposta la stima di ogni
 camera lungo il proprio raggio visivo: presa singolarmente ogni camera sembra
 perfettamente stabile, ma le stime non si intersecano e la posa fusa oscilla.
 
-### 8.5 Filtro del tracker
+### 9.5 Filtro del tracker
 
 Il tracker usa di default un **One Euro Filter** sulla posizione. A target quasi
 fermo attenua il jitter, mentre durante un movimento rapido aumenta
@@ -774,7 +800,7 @@ I valori iniziali `2.0`, `5.0`, `1.0` sono un profilo reattivo per acquisizioni 
 
 ---
 
-## 9. Diagnostica e Convenzioni Geometriche
+## 10. Diagnostica e Convenzioni Geometriche
 
 - **Convenzione assi `world`**: Metri, frame destrorso con piano **XY sul pavimento** e asse **Z rivolto verso l'alto**.
 - **Orientamento**: Quaternioni espressi come `(x, y, z, w)` normalizzati.
@@ -783,7 +809,7 @@ I valori iniziali `2.0`, `5.0`, `1.0` sono un profilo reattivo per acquisizioni 
 
 ---
 
-## 10. Collaudo Fisico
+## 11. Collaudo Fisico
 
 La suite di test verifica la correttezza algoritmica, le matrici geometriche e i protocolli di rete:
 
