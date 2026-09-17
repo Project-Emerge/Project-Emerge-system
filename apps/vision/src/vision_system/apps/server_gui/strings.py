@@ -109,3 +109,6 @@ DISPLAY_UNAVAILABLE: Final = "cannot open the GUI window (is DISPLAY set?): {err
 # ---------------------------------------------------------- transport errors
 MQTT_REFUSED: Final = "mqtt connection refused: {reason_code}"
 START_FAILED: Final = "[gui] could not start the server: {error}"
+DEFAULT_ROSTER: Final = (
+    "[gui] no config and no state cache: falling back to the built-in roster ({cameras})"
+)

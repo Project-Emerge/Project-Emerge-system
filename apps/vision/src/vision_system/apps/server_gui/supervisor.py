@@ -69,6 +69,9 @@ class ServerProcess:
 
     def __init__(self, spawn: Callable[..., subprocess.Popen] = subprocess.Popen) -> None:
         self._spawn = spawn
+        # start() runs on the UI thread while stop() is submitted to a worker, so the
+        # two must not interleave around self._process.
+        self._lock = threading.Lock()
         self._process: subprocess.Popen | None = None
         self._logs: queue.SimpleQueue[str] = queue.SimpleQueue()
         self._reader: threading.Thread | None = None
@@ -86,27 +89,28 @@ class ServerProcess:
         return self._process.poll() if self._process is not None else None
 
     def start(self, options: ServerLaunchOptions, cwd: Path | None = None) -> list[str]:
-        if self.running:
-            raise RuntimeError(strings.ALREADY_RUNNING)
-        command = build_server_command(options)
-        self._process = self._spawn(
-            command,
-            cwd=None if cwd is None else str(cwd),
-            env=build_server_environment(options),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            # Own session: closing the panel or hitting Ctrl-C in the terminal that
-            # started it must not take the server down behind the user's back.
-            start_new_session=True,
-        )
-        self._logs.put(f"$ {' '.join(command)}")
-        self._reader = threading.Thread(
-            target=self._pump, args=(self._process,), name="vision-server-logs", daemon=True
-        )
-        self._reader.start()
-        return command
+        with self._lock:
+            if self.running:
+                raise RuntimeError(strings.ALREADY_RUNNING)
+            command = build_server_command(options)
+            self._process = self._spawn(
+                command,
+                cwd=None if cwd is None else str(cwd),
+                env=build_server_environment(options),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                # Own session: closing the panel or hitting Ctrl-C in the terminal that
+                # started it must not take the server down behind the user's back.
+                start_new_session=True,
+            )
+            self._logs.put(f"$ {' '.join(command)}")
+            self._reader = threading.Thread(
+                target=self._pump, args=(self._process,), name="vision-server-logs", daemon=True
+            )
+            self._reader.start()
+            return command
 
     def _pump(self, process: subprocess.Popen) -> None:
         if process.stdout is not None:
@@ -118,13 +122,14 @@ class ServerProcess:
         return drain(self._logs, limit)
 
     def stop(self, timeout: float = STOP_TIMEOUT_S) -> None:
-        process = self._process
-        if process is None or process.poll() is not None:
-            return
-        process.terminate()
-        try:
-            process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            self._logs.put(strings.SIGKILL_LINE)
-            process.kill()
-            process.wait(timeout=timeout)
+        with self._lock:
+            process = self._process
+            if process is None or process.poll() is not None:
+                return
+            process.terminate()
+            try:
+                process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                self._logs.put(strings.SIGKILL_LINE)
+                process.kill()
+                process.wait(timeout=timeout)
