@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 import cv2
 import numpy as np
@@ -82,6 +83,39 @@ def is_novel_signature(
     )
 
 
+_MIN_SCALE_SAMPLES = {
+    "far": MIN_FAR_SAMPLES,
+    "medium": MIN_MEDIUM_SAMPLES,
+    "near": MIN_NEAR_SAMPLES,
+}
+_GRID_LABELS_IT = {
+    "top": "alto",
+    "centre": "centro",
+    "bottom": "basso",
+    "left": "sinistra",
+    "right": "destra",
+}
+_SCALE_LABELS_IT = {
+    "far": "Allontana la board",
+    "medium": "Porta la board a distanza media",
+    "near": "Avvicina la board",
+}
+_TILT_LABELS_IT = {
+    "left": "Inclina il lato sinistro verso la camera",
+    "right": "Inclina il lato destro verso la camera",
+    "up": "Inclina il lato superiore verso la camera",
+    "down": "Inclina il lato inferiore verso la camera",
+}
+
+
+@dataclass(frozen=True)
+class CoverageGap:
+    """What capture diversity is still missing, language-neutral."""
+
+    kind: Literal["grid", "scale", "tilt"]
+    detail: str
+
+
 @dataclass
 class Coverage:
     """Tracks capture diversity (position, distance, tilt) during calibration."""
@@ -135,28 +169,38 @@ class Coverage:
             and all(count >= MIN_TILT_SAMPLES_PER_DIRECTION for count in self.tilts.values())
         )
 
-    def instruction(self) -> str:
+    def gap(self) -> CoverageGap | None:
+        """The next thing the operator should do, as data rather than a sentence.
+
+        ``instruction`` words this in Italian for the OpenCV overlay; a GUI can word
+        the same gap in its own language instead of parsing the sentence back.
+        """
         missing = np.argwhere(self.grid == 0)
         if len(missing):
             row, column = missing[0]
-            vertical = ("alto", "centro", "basso")[row]
-            horizontal = ("sinistra", "centro", "destra")[column]
-            return f"Sposta la board: {vertical} {horizontal}"
-        if self.scales["far"] < MIN_FAR_SAMPLES:
-            return "Allontana la board"
-        if self.scales["medium"] < MIN_MEDIUM_SAMPLES:
-            return "Porta la board a distanza media"
-        if self.scales["near"] < MIN_NEAR_SAMPLES:
-            return "Avvicina la board"
-        for direction, label in (
-            ("left", "Inclina il lato sinistro verso la camera"),
-            ("right", "Inclina il lato destro verso la camera"),
-            ("up", "Inclina il lato superiore verso la camera"),
-            ("down", "Inclina il lato inferiore verso la camera"),
-        ):
+            vertical = ("top", "centre", "bottom")[row]
+            horizontal = ("left", "centre", "right")[column]
+            return CoverageGap("grid", f"{vertical} {horizontal}")
+        for scale in ("far", "medium", "near"):
+            if self.scales[scale] < _MIN_SCALE_SAMPLES[scale]:
+                return CoverageGap("scale", scale)
+        for direction in ("left", "right", "up", "down"):
             if self.tilts[direction] < MIN_TILT_SAMPLES_PER_DIRECTION:
-                return label
-        return "Copertura completa: attendi il calcolo"
+                return CoverageGap("tilt", direction)
+        return None
+
+    def instruction(self) -> str:
+        gap = self.gap()
+        if gap is None:
+            return "Copertura completa: attendi il calcolo"
+        if gap.kind == "grid":
+            vertical, horizontal = gap.detail.split(" ")
+            return (
+                f"Sposta la board: {_GRID_LABELS_IT[vertical]} {_GRID_LABELS_IT[horizontal]}"
+            )
+        if gap.kind == "scale":
+            return _SCALE_LABELS_IT[gap.detail]
+        return _TILT_LABELS_IT[gap.detail]
 
 
 def _quad_from_homography(
