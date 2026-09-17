@@ -26,6 +26,21 @@ def _options(**overrides) -> ServerLaunchOptions:
     return ServerLaunchOptions(**{**defaults, **overrides})
 
 
+
+def _runs(script: str):
+    """A spawn that ignores the real command line and runs `script` instead."""
+
+    def spawn(argv, **kwargs):
+        return subprocess.Popen(
+            [sys.executable, "-c", script],
+            stdout=kwargs["stdout"],
+            stderr=kwargs["stderr"],
+            text=True,
+        )
+
+    return spawn
+
+
 def test_command_uses_console_script_and_flags():
     command = build_server_command(_options(verbose=True), executable="/usr/bin/vision-server")
     assert command[0] == "/usr/bin/vision-server"
@@ -51,11 +66,7 @@ def test_environment_carries_broker_selection():
 
 
 def test_process_streams_output_and_reports_exit():
-    process = ServerProcess()
-    command = [sys.executable, "-c", "print('coordinator_started'); raise SystemExit(3)"]
-    process._spawn = lambda *args, **kwargs: subprocess.Popen(
-        command, stdout=kwargs["stdout"], stderr=kwargs["stderr"], text=True
-    )
+    process = ServerProcess(spawn=_runs("print('coordinator_started'); raise SystemExit(3)"))
     process.start(_options())
     collected: list[str] = []
     deadline = time.monotonic() + 10.0
@@ -73,13 +84,7 @@ def test_process_streams_output_and_reports_exit():
 
 
 def test_process_refuses_double_start():
-    process = ServerProcess()
-    process._spawn = lambda *args, **kwargs: subprocess.Popen(
-        [sys.executable, "-c", "import time; time.sleep(30)"],
-        stdout=kwargs["stdout"],
-        stderr=kwargs["stderr"],
-        text=True,
-    )
+    process = ServerProcess(spawn=_runs("import time; time.sleep(30)"))
     process.start(_options())
     try:
         with pytest.raises(RuntimeError):
@@ -90,14 +95,8 @@ def test_process_refuses_double_start():
 
 
 def test_process_stop_is_safe_before_start_and_after_exit():
-    process = ServerProcess()
-    process.stop()                       # mai avviato: nessun errore
-    process._spawn = lambda *args, **kwargs: subprocess.Popen(
-        [sys.executable, "-c", "import time; time.sleep(30)"],
-        stdout=kwargs["stdout"],
-        stderr=kwargs["stderr"],
-        text=True,
-    )
+    process = ServerProcess(spawn=_runs("import time; time.sleep(30)"))
+    process.stop()                       # never started: must not raise
     process.start(_options())
     process.stop(timeout=5.0)
     assert process.running is False

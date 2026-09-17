@@ -85,7 +85,6 @@ STOPPING: Final = "[gui] stopping the server…"
 # ------------------------------------------------------- supervisor messages
 ALREADY_RUNNING: Final = "the server is already running"
 SERVER_EXIT_LINE: Final = "[server exited with code {code}]"
-SIGKILL_LINE: Final = "[the server ignored SIGTERM: killing it]"
 
 # --------------------------------------------------------------- cli messages
 CLI_DESCRIPTION: Final = (

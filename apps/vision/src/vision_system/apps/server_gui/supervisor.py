@@ -7,12 +7,12 @@ import queue
 import shutil
 import subprocess
 import sys
-import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from ...core.queues import drain
+from ...gui.process import CommandSpec, ProcessEventKind, ProcessRunner
 from . import strings
 
 DEFAULT_CACHE = Path(".state/last_good_config.json")
@@ -65,71 +65,55 @@ def build_server_environment(
 
 
 class ServerProcess:
-    """Owns the spawned ``vision-server`` process and its captured console output."""
+    """The vision-server child, specifically: its command line and its log stream.
+
+    The supervision mechanics live in gui.process.ProcessRunner, shared with the
+    calibration panel; what stays here is the policy — which binary to run, which
+    environment carries the broker, and what the panel prints about it.
+    """
 
     def __init__(self, spawn: Callable[..., subprocess.Popen] = subprocess.Popen) -> None:
-        self._spawn = spawn
-        # start() runs on the UI thread while stop() is submitted to a worker, so the
-        # two must not interleave around self._process.
-        self._lock = threading.Lock()
-        self._process: subprocess.Popen | None = None
+        self._runner = ProcessRunner(spawn=spawn)
         self._logs: queue.SimpleQueue[str] = queue.SimpleQueue()
-        self._reader: threading.Thread | None = None
 
     @property
     def running(self) -> bool:
-        return self._process is not None and self._process.poll() is None
+        return self._runner.running
 
     @property
     def pid(self) -> int | None:
-        return self._process.pid if self._process is not None else None
+        return self._runner.pid
 
     @property
     def exit_code(self) -> int | None:
-        return self._process.poll() if self._process is not None else None
+        return self._runner.exit_code
 
     def start(self, options: ServerLaunchOptions, cwd: Path | None = None) -> list[str]:
-        with self._lock:
-            if self.running:
-                raise RuntimeError(strings.ALREADY_RUNNING)
-            command = build_server_command(options)
-            self._process = self._spawn(
-                command,
-                cwd=None if cwd is None else str(cwd),
+        if self.running:
+            raise RuntimeError(strings.ALREADY_RUNNING)
+        command = build_server_command(options)
+        self._runner.start(
+            CommandSpec(
+                argv=tuple(command),
+                title="vision-server",
                 env=build_server_environment(options),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                # Own session: closing the panel or hitting Ctrl-C in the terminal that
-                # started it must not take the server down behind the user's back.
-                start_new_session=True,
+                cwd=cwd,
             )
-            self._logs.put(f"$ {' '.join(command)}")
-            self._reader = threading.Thread(
-                target=self._pump, args=(self._process,), name="vision-server-logs", daemon=True
-            )
-            self._reader.start()
-            return command
-
-    def _pump(self, process: subprocess.Popen) -> None:
-        if process.stdout is not None:
-            for line in process.stdout:
-                self._logs.put(line.rstrip("\n"))
-        self._logs.put(strings.SERVER_EXIT_LINE.format(code=process.wait()))
+        )
+        return command
 
     def drain_logs(self, limit: int = MAX_LOG_LINES) -> list[str]:
+        """Console lines, with the child's exit folded in as one more line.
+
+        Keeping the exit notice in the same stream is deliberate: it has to appear
+        interleaved with the server's own output, in the order it happened.
+        """
+        for event in self._runner.drain(limit):
+            if event.kind is ProcessEventKind.EXITED:
+                self._logs.put(strings.SERVER_EXIT_LINE.format(code=event.exit_code))
+            else:
+                self._logs.put(event.message)
         return drain(self._logs, limit)
 
     def stop(self, timeout: float = STOP_TIMEOUT_S) -> None:
-        with self._lock:
-            process = self._process
-            if process is None or process.poll() is not None:
-                return
-            process.terminate()
-            try:
-                process.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                self._logs.put(strings.SIGKILL_LINE)
-                process.kill()
-                process.wait(timeout=timeout)
+        self._runner.stop(timeout=timeout)
