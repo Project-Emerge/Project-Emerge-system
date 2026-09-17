@@ -80,11 +80,11 @@ def test_process_streams_output_and_reports_exit():
     deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline:
         collected += process.drain_logs()
-        if any("codice 3" in line for line in collected):
+        if any("code 3" in line for line in collected):
             break
         time.sleep(0.05)
     else:
-        pytest.fail("il processo non ha riportato il codice di uscita")
+        pytest.fail("the process never reported its exit code")
     assert collected[0].startswith("$ ")
     assert any("coordinator_started" in line for line in collected)
     assert process.running is False
@@ -120,7 +120,7 @@ def test_process_stop_is_safe_before_start_and_after_exit():
     process.start(_options())
     process.stop(timeout=5.0)
     assert process.running is False
-    process.stop(timeout=5.0)            # idempotente: la GUI la chiama da piu' punti
+    process.stop(timeout=5.0)            # idempotent: the panel calls it from several places
     assert process.exit_code is not None
 
 

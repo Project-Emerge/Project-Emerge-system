@@ -26,6 +26,7 @@ from ...pipeline.calibration_store import CalibrationStore
 from ...transport.diagnostics import configure_diagnostics
 from ...transport.mqtt import MqttSettings
 from ...transport.payloads import PoseUpdate, parse
+from . import strings
 from .presenters import describe_issues, describe_message
 from .supervisor import (
     DEFAULT_CACHE,
@@ -104,7 +105,7 @@ class ServerGuiApp:
         self.app_config: AppConfig | None = None
         self.calibration_store: CalibrationStore | None = None
         self.root = tk.Tk()
-        self.root.title("VisionSystem · server di fusione (modalità distribuita)")
+        self.root.title(strings.WINDOW_TITLE)
         self.root.geometry("1040x720")
         self.root.minsize(820, 560)
         self.host_var = tk.StringVar(value=options.mqtt_host)
@@ -115,9 +116,11 @@ class ServerGuiApp:
         self.debug_var = tk.BooleanVar(value=options.debug)
         self.no_mqtt_var = tk.BooleanVar(value=options.no_mqtt)
         self.verbose_var = tk.BooleanVar(value=options.verbose)
-        self.server_state_var = tk.StringVar(value="server: fermo")
-        self.broker_state_var = tk.StringVar(value="broker: non collegato")
-        self.fusion_state_var = tk.StringVar(value="pose pubblicate: 0 · tag: —")
+        self.server_state_var = tk.StringVar(value=strings.SERVER_STOPPED)
+        self.broker_state_var = tk.StringVar(value=strings.BROKER_DISCONNECTED)
+        self.fusion_state_var = tk.StringVar(
+            value=strings.FUSION_SUMMARY.format(poses=0, tags=strings.UNKNOWN)
+        )
         self._build_layout()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.connect_monitor()
@@ -132,22 +135,24 @@ class ServerGuiApp:
         root.rowconfigure(1, weight=1)
         root.rowconfigure(2, weight=2)
 
-        launcher = ttk.LabelFrame(root, text="Avvio server", padding=8)
+        launcher = ttk.LabelFrame(root, text=strings.LAUNCHER_FRAME, padding=8)
         launcher.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
         for column in (1, 4):
             launcher.columnconfigure(column, weight=1)
 
-        ttk.Label(launcher, text="MQTT host").grid(row=0, column=0, sticky="w")
+        ttk.Label(launcher, text=strings.MQTT_HOST_LABEL).grid(row=0, column=0, sticky="w")
         ttk.Entry(launcher, textvariable=self.host_var).grid(row=0, column=1, sticky="ew", padx=4)
-        ttk.Label(launcher, text="porta").grid(row=0, column=2, sticky="w")
+        ttk.Label(launcher, text=strings.MQTT_PORT_LABEL).grid(row=0, column=2, sticky="w")
         ttk.Entry(launcher, textvariable=self.port_var, width=8).grid(row=0, column=3, sticky="w")
-        ttk.Button(launcher, text="Riconnetti", command=self.connect_monitor).grid(
+        ttk.Button(launcher, text=strings.RECONNECT_BUTTON, command=self.connect_monitor).grid(
             row=0, column=4, sticky="e"
         )
 
-        self._path_row(launcher, 1, "config", self.config_var, directory=False)
-        self._path_row(launcher, 2, "calibrations", self.calibrations_var, directory=True)
-        self._path_row(launcher, 3, "cache stato", self.cache_var, directory=False)
+        self._path_row(launcher, 1, strings.CONFIG_LABEL, self.config_var, directory=False)
+        self._path_row(
+            launcher, 2, strings.CALIBRATIONS_LABEL, self.calibrations_var, directory=True
+        )
+        self._path_row(launcher, 3, strings.CACHE_LABEL, self.cache_var, directory=False)
 
         flags = ttk.Frame(launcher)
         flags.grid(row=4, column=0, columnspan=5, sticky="w", pady=(6, 0))
@@ -161,35 +166,27 @@ class ServerGuiApp:
 
         actions = ttk.Frame(launcher)
         actions.grid(row=5, column=0, columnspan=5, sticky="ew", pady=(8, 0))
-        self.start_button = ttk.Button(actions, text="Avvia server", command=self.start_server)
+        self.start_button = ttk.Button(
+            actions, text=strings.START_BUTTON, command=self.start_server
+        )
         self.start_button.pack(side="left")
         self.stop_button = ttk.Button(
-            actions, text="Ferma server", command=self.stop_server, state="disabled"
+            actions, text=strings.STOP_BUTTON, command=self.stop_server, state="disabled"
         )
         self.stop_button.pack(side="left", padx=8)
         ttk.Label(actions, textvariable=self.server_state_var).pack(side="left", padx=12)
         ttk.Label(actions, textvariable=self.broker_state_var).pack(side="left", padx=12)
         ttk.Label(actions, textvariable=self.fusion_state_var).pack(side="right")
 
-        table_frame = ttk.LabelFrame(root, text="Camere del deployment", padding=8)
+        table_frame = ttk.LabelFrame(root, text=strings.ROSTER_FRAME, padding=8)
         table_frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=4)
         table_frame.columnconfigure(0, weight=1)
         table_frame.rowconfigure(0, weight=1)
-        columns = ("camera", "nodo", "pubblicate", "server", "ricevute", "age", "calib", "note")
+        columns = tuple(column for column, _, _ in strings.ROSTER_COLUMNS)
         self.table = ttk.Treeview(table_frame, columns=columns, show="headings", height=6)
-        headings = {
-            "camera": ("Camera", 90),
-            "nodo": ("Nodo", 60),
-            "pubblicate": ("Oss. pubblicate", 120),
-            "server": ("Server", 70),
-            "ricevute": ("Oss. ricevute", 110),
-            "age": ("Età (ms)", 90),
-            "calib": ("Calibrata", 90),
-            "note": ("Note", 320),
-        }
-        for column, (title, width) in headings.items():
+        for column, title, width in strings.ROSTER_COLUMNS:
             self.table.heading(column, text=title)
-            self.table.column(column, width=width, anchor="w", stretch=column == "note")
+            self.table.column(column, width=width, anchor="w", stretch=column == "issues")
         self.table.grid(row=0, column=0, sticky="nsew")
         scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.table.yview)
         self.table.configure(yscrollcommand=scroll.set)
@@ -205,12 +202,9 @@ class ServerGuiApp:
         self.world_canvas.widget.grid(row=0, column=0, sticky="nsew")
         ttk.Label(
             world_frame,
-            text=(
-                "Pose fuse pubblicate dal server: ● tag visibile, ○ posa predetta o ferma, "
-                "arancio = camere calibrate, viola = reference marker."
-            ),
+            text=strings.WORLD_CAPTION,
         ).grid(row=1, column=0, sticky="w", pady=(6, 0))
-        notebook.add(world_frame, text="Vista world (robot tracciati)")
+        notebook.add(world_frame, text=strings.WORLD_TAB)
 
         log_frame = ttk.Frame(notebook, padding=6)
         log_frame.columnconfigure(0, weight=1)
@@ -220,10 +214,10 @@ class ServerGuiApp:
         log_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.log.yview)
         self.log.configure(yscrollcommand=log_scroll.set)
         log_scroll.grid(row=0, column=1, sticky="ns")
-        ttk.Button(log_frame, text="Pulisci", command=self.clear_log).grid(
+        ttk.Button(log_frame, text=strings.CLEAR_BUTTON, command=self.clear_log).grid(
             row=1, column=0, sticky="w", pady=(6, 0)
         )
-        notebook.add(log_frame, text="Console ed eventi")
+        notebook.add(log_frame, text=strings.CONSOLE_TAB)
 
     def _path_row(self, parent, row: int, label: str, variable, directory: bool) -> None:
         ttk = self._ttk
@@ -232,7 +226,7 @@ class ServerGuiApp:
             row=row, column=1, columnspan=3, sticky="ew", padx=4, pady=2
         )
         ttk.Button(
-            parent, text="Sfoglia…", command=lambda: self._browse(variable, directory)
+            parent, text=strings.BROWSE_BUTTON, command=lambda: self._browse(variable, directory)
         ).grid(row=row, column=4, sticky="e", pady=2)
 
     def _browse(self, variable, directory: bool) -> None:
@@ -244,7 +238,7 @@ class ServerGuiApp:
             filedialog.askdirectory(initialdir=initial)
             if directory
             else filedialog.askopenfilename(
-                initialdir=initial, filetypes=[("JSON", "*.json"), ("Tutti i file", "*.*")]
+                initialdir=initial, filetypes=[("JSON", "*.json"), (strings.ALL_FILES, "*.*")]
             )
         )
         if chosen:
@@ -258,7 +252,7 @@ class ServerGuiApp:
         except ValueError:
             port = self.options.mqtt_port
             self.port_var.set(str(port))
-            self.append_log("[gui] porta MQTT non valida: uso quella precedente")
+            self.append_log(strings.INVALID_PORT)
         return ServerLaunchOptions(
             config=Path(config) if config else None,
             calibrations=Path(self.calibrations_var.get().strip() or DEFAULT_CALIBRATIONS),
@@ -280,7 +274,7 @@ class ServerGuiApp:
         try:
             config, cameras = roster_from_config(options.config, options.cache)
         except (OSError, ValueError) as error:
-            self.append_log(f"[gui] configurazione non leggibile: {error}")
+            self.append_log(strings.CONFIG_UNREADABLE.format(error=error))
             return
         self.status = DeploymentStatus(cameras)
         self.app_config = config
@@ -298,8 +292,10 @@ class ServerGuiApp:
         self.monitor = StatusMonitor(config.base_topic, settings)
         self.monitor.start()
         self.append_log(
-            f"[gui] in ascolto su {options.mqtt_host}:{options.mqtt_port} "
-            f"topic {config.base_topic}/# (camere: {', '.join(cameras) or 'nessuna'})"
+            strings.LISTENING.format(
+                topic=config.base_topic,
+                cameras=", ".join(cameras) or strings.NO_CAMERAS,
+            )
         )
 
     def start_server(self) -> None:
@@ -309,13 +305,12 @@ class ServerGuiApp:
         self.options = options
         if self.status.coordinator_online(time.monotonic_ns()):
             self.append_log(
-                "[gui] attenzione: un coordinatore sta già pubblicando metriche su questo "
-                "broker; due server pubblicano le stesse pose"
+                strings.SECOND_COORDINATOR
             )
         try:
             self.process.start(options)
         except (OSError, RuntimeError) as error:
-            self.append_log(f"[gui] avvio fallito: {error}")
+            self.append_log(strings.START_FAILED.format(error=error))
             return
         # Reconnecting resets the roster view, so only do it when the launcher fields
         # no longer match the broker the panel is listening to.
@@ -328,7 +323,7 @@ class ServerGuiApp:
     def stop_server(self) -> None:
         if not self.process.running:
             return
-        self.append_log("[gui] arresto del server in corso…")
+        self.append_log(strings.STOPPING)
         self.process.stop()
 
     def clear_log(self) -> None:
@@ -369,7 +364,7 @@ class ServerGuiApp:
         # itself, so polling every tick costs nothing.
         if self.calibration_store is not None and self.calibration_store.reload_if_changed():
             self.world.update_scene(self.app_config, self.calibration_store.calibrations)
-            self.append_log("[gui] calibrazioni ricaricate dal disco")
+            self.append_log(strings.CALIBRATIONS_RELOADED)
         self._refresh_indicators(now_ns)
         self._refresh_table(now_ns)
         self.world_canvas.redraw(now_ns)
@@ -391,27 +386,37 @@ class ServerGuiApp:
             if str(button.cget("state")) != state:
                 button.configure(state=state)
         if running:
-            server_state = f"server: in esecuzione (pid {self.process.pid})"
+            server_state = strings.SERVER_RUNNING.format(pid=self.process.pid)
         elif self.process.exit_code is None:
-            server_state = "server: fermo"
+            server_state = strings.SERVER_STOPPED
         else:
-            server_state = f"server: uscito (codice {self.process.exit_code})"
+            server_state = strings.SERVER_EXITED.format(code=self.process.exit_code)
         self._set_if_changed(self.server_state_var, server_state)
         if self.monitor is None:
-            broker_state = "broker: non collegato"
+            broker_state = strings.BROKER_DISCONNECTED
         elif self.monitor.connected.is_set():
             fusion = (
-                "coordinatore attivo" if self.status.coordinator_online(now_ns) else "in attesa"
+                strings.FUSION_ACTIVE
+                if self.status.coordinator_online(now_ns)
+                else strings.FUSION_WAITING
             )
             broker_state = (
-                f"broker: {self.monitor.settings.host}:{self.monitor.settings.port} · {fusion}"
+                strings.BROKER_CONNECTED.format(
+                    host=self.monitor.settings.host, port=self.monitor.settings.port
+                )
+                + f" · {fusion}"
             )
         else:
-            broker_state = f"broker: {self.monitor.error or 'connessione in corso…'}"
+            broker_state = (
+                strings.BROKER_ERROR.format(error=self.monitor.error)
+                if self.monitor.error
+                else strings.BROKER_CONNECTING
+            )
         self._set_if_changed(self.broker_state_var, broker_state)
-        tags = ", ".join(str(tag) for tag in self.status.tracked_tags) or "—"
+        tags = ", ".join(str(tag) for tag in self.status.tracked_tags) or strings.UNKNOWN
         self._set_if_changed(
-            self.fusion_state_var, f"pose pubblicate: {self.status.poses_published} · tag: {tags}"
+            self.fusion_state_var,
+            strings.FUSION_SUMMARY.format(poses=self.status.poses_published, tags=tags),
         )
 
     def _refresh_table(self, now_ns: int) -> None:
@@ -425,7 +430,9 @@ class ServerGuiApp:
                 _format_flag(row.server_online),
                 _format_optional(row.observations_received),
                 _format_optional(row.age_ms),
-                "—" if row.calibrated is None else ("sì" if row.calibrated else "no"),
+                strings.UNKNOWN
+                if row.calibrated is None
+                else (strings.YES if row.calibrated else strings.NO),
                 describe_issues(row.issues),
             )
             if row.camera_id in existing:
@@ -471,16 +478,15 @@ class ServerGuiApp:
 
 def server_gui_main() -> None:
     parser = argparse.ArgumentParser(
-        description=(
-            "Pannello grafico per avviare il server di fusione e sorvegliare "
-            "nodi e camere nel deployment distribuito"
-        )
+        description=strings.CLI_DESCRIPTION
     )
-    parser.add_argument("--config", type=Path, help="config iniziale mostrata nel pannello")
+    parser.add_argument("--config", type=Path, help=strings.CLI_CONFIG_HELP)
     parser.add_argument("--calibrations", type=Path, default=DEFAULT_CALIBRATIONS)
     parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE)
     parser.add_argument(
-        "--mqtt-host", default=os.getenv("VISION_MQTT_HOST", "localhost"), help="broker MQTT"
+        "--mqtt-host",
+        default=os.getenv("VISION_MQTT_HOST", "localhost"),
+        help=strings.CLI_MQTT_HOST_HELP,
     )
     parser.add_argument(
         "--mqtt-port", type=int, default=int(os.getenv("VISION_MQTT_PORT", "1883"))
@@ -489,11 +495,11 @@ def server_gui_main() -> None:
     parser.add_argument(
         "--no-debug-window",
         action="store_true",
-        help="non pre-selezionare --debug (vista world) per il server",
+        help=strings.CLI_NO_DEBUG_HELP,
     )
     args = parser.parse_args()
     diagnostic_path = configure_diagnostics("vision-server-gui", verbose=args.verbose)
-    print(f"Log diagnostico: {diagnostic_path}")
+    print(strings.DIAGNOSTIC_LOG.format(path=diagnostic_path))
     options = ServerLaunchOptions(
         config=args.config,
         calibrations=args.calibrations,
@@ -507,18 +513,15 @@ def server_gui_main() -> None:
     try:
         _, cameras = roster_from_config(options.config, options.cache)
     except (OSError, ValueError) as error:
-        print(f"Configurazione non leggibile ({error}): il roster verrà scoperto da MQTT")
+        print(strings.CONFIG_UNREADABLE.format(error=error))
     try:
         import tkinter
     except ImportError:
-        parser.error(
-            "tkinter non è disponibile: installare il pacchetto python3-tk "
-            "(Debian/Ubuntu: sudo apt install python3-tk)"
-        )
+        parser.error(strings.TKINTER_MISSING)
     try:
         app = ServerGuiApp(options, list(cameras))
     except tkinter.TclError as error:
-        parser.error(f"impossibile aprire la finestra grafica (DISPLAY assente?): {error}")
+        parser.error(strings.DISPLAY_UNAVAILABLE.format(error=error))
     for signal_number in (signal.SIGINT, signal.SIGTERM):
         signal.signal(signal_number, lambda signum, frame: app.request_stop())
     app.run()

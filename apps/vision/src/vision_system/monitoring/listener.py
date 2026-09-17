@@ -80,7 +80,7 @@ class StatusMonitor:
 
     def _on_connect(self, client, userdata, flags, reason_code, properties) -> None:
         if reason_code != 0:
-            self.error = f"connessione MQTT rifiutata: {reason_code}"
+            self.error = f"mqtt connection refused: {reason_code}"
             return
         self.error = None
         self.connected.set()

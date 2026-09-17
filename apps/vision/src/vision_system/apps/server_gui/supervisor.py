@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ...core.queues import drain
+from . import strings
 
 DEFAULT_CACHE = Path(".state/last_good_config.json")
 DEFAULT_CALIBRATIONS = Path("calibrations")
@@ -86,7 +87,7 @@ class ServerProcess:
 
     def start(self, options: ServerLaunchOptions, cwd: Path | None = None) -> list[str]:
         if self.running:
-            raise RuntimeError("il server è già in esecuzione")
+            raise RuntimeError(strings.ALREADY_RUNNING)
         command = build_server_command(options)
         self._process = self._spawn(
             command,
@@ -111,7 +112,7 @@ class ServerProcess:
         if process.stdout is not None:
             for line in process.stdout:
                 self._logs.put(line.rstrip("\n"))
-        self._logs.put(f"[server terminato con codice {process.wait()}]")
+        self._logs.put(strings.SERVER_EXIT_LINE.format(code=process.wait()))
 
     def drain_logs(self, limit: int = MAX_LOG_LINES) -> list[str]:
         return drain(self._logs, limit)
@@ -124,6 +125,6 @@ class ServerProcess:
         try:
             process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            self._logs.put("[il server non ha risposto a SIGTERM: kill]")
+            self._logs.put(strings.SIGKILL_LINE)
             process.kill()
             process.wait(timeout=timeout)
