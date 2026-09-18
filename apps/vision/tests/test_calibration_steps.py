@@ -1,5 +1,6 @@
 """The workflow registry: gates, per-camera expansion and the action wiring."""
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -49,7 +50,7 @@ def _context(overview, camera_id=None):
 def test_the_workflow_is_ordered_and_uniquely_identified():
     ids = [step.id for step in steps.CALIBRATION_STEPS]
     assert ids == sorted(set(ids), key=ids.index), "duplicate step id"
-    assert [step.index for step in steps.CALIBRATION_STEPS] == [1, 2, 3, 4, 5, 6]
+    assert [step.index for step in steps.CALIBRATION_STEPS] == [1, 2, 3, 4, 5, 6, 7]
 
 
 def test_every_action_declares_a_kind_the_controller_can_run():
@@ -58,10 +59,29 @@ def test_every_action_declares_a_kind_the_controller_can_run():
             assert action.kind in ("process", "task"), f"{step.id}.{action.id}"
 
 
-def test_choosing_sources_and_the_board_need_nothing_in_place():
-    empty = _overview(config=None)
-    assert steps.step("cameras").precondition(empty).ready is True
-    assert steps.step("board").precondition(empty).ready is True
+def test_printing_the_board_needs_nothing_in_place():
+    assert steps.step("board").precondition(_overview(config=None)).ready is True
+
+
+def test_no_file_named_blocks_every_step_that_edits_the_configuration():
+    nowhere = _overview(config=None)
+    assert steps.step("deployment").precondition(nowhere).ready is False
+    assert steps.step("cameras").precondition(nowhere).ready is False
+
+
+def test_the_deployment_step_runs_on_a_file_that_does_not_exist_yet():
+    """It is the step that creates it; gating it on the file would be a deadlock."""
+    named_but_empty = _overview(config=Path("c.json"))
+    assert steps.step("deployment").precondition(named_but_empty).ready is True
+    # The steps that consume the configuration wait, and say where to go.
+    blocked = steps.step("cameras").precondition(named_but_empty)
+    assert blocked.ready is False
+    assert "step 1" in blocked.reason
+
+
+def test_the_sources_step_opens_once_the_roster_exists():
+    ready = _overview(_status("cam_0"))
+    assert steps.step("cameras").precondition(ready).ready is True
 
 
 def test_intrinsics_waits_for_a_configuration_file():
@@ -174,3 +194,39 @@ def test_runtime_names_a_camera_that_was_never_placed():
     overview = _overview(_status("cam_0", extrinsics=True), _status("cam_1"))
     blocked = steps.step("runtime").precondition(overview)
     assert "Extrinsics are missing for: cam_1" in blocked.reason
+
+
+def _selected(settings_cameras, local):
+    """The ids step 2's 'Select sources' would hand the wizard."""
+    overview = _overview(_status("cam_0"), _status("cam_1"), _status("cam_2"))
+    context = steps.ActionContext(
+        settings=GuiSettings(config_path=Path("c.json"), cameras=settings_cameras),
+        overview=replace(overview, local_camera_ids=local),
+    )
+    action = next(a for a in steps.step("cameras").actions if a.id == "select")
+    argv = action.build(context).argv
+    start = argv.index("--local-cameras") + 1
+    return list(argv[start : argv.index("--force")])
+
+
+def test_step_two_defaults_to_this_pcs_cameras():
+    assert _selected((), ("cam_0",)) == ["cam_0"]
+
+
+def test_step_two_can_be_widened_to_the_whole_roster_or_narrowed_to_a_pick():
+    # "all" is the operator who is setting up the arena from one machine; naming
+    # ids is the one who only wants to redo a couple of them.
+    assert _selected(("all",), ("cam_0",)) == ["cam_0", "cam_1", "cam_2"]
+    assert _selected(("cam_1", "cam_2"), ("cam_0",)) == ["cam_1", "cam_2"]
+
+
+def test_the_field_of_view_button_follows_the_same_pick():
+    overview = replace(
+        _overview(_status("cam_0"), _status("cam_1")), local_camera_ids=("cam_0",)
+    )
+    context = steps.ActionContext(
+        settings=GuiSettings(config_path=Path("c.json"), cameras=("all",)),
+        overview=overview,
+    )
+    action = next(a for a in steps.step("cameras").actions if a.id == "configure")
+    assert action.build(context).argv[-2:] == ("cam_0", "cam_1")

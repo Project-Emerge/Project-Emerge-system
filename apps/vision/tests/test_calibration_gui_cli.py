@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from vision_system.apps import calibration_gui
+from vision_system.core.config import load_config
 from vision_system.gui.toolkit import GuiUnavailable
 
 
@@ -84,3 +85,82 @@ def test_importing_the_panel_does_not_pull_in_tkinter():
 def test_the_package_exposes_its_public_names(name):
     assert hasattr(calibration_gui, name)
     assert name in calibration_gui.__all__
+
+
+def test_the_roster_flag_is_optional_and_takes_ids_or_a_count():
+    assert calibration_gui.parse_args([]).roster == ()
+    assert calibration_gui.parse_args(["--cameras", "3"]).roster == ("3",)
+    assert calibration_gui.parse_args(
+        ["--cameras", "cam_2", "cam_3"]
+    ).roster == ("cam_2", "cam_3")
+
+
+def test_an_impossible_roster_is_refused_with_a_message_not_a_traceback(tmp_path):
+    settings = calibration_gui.parse_args(
+        ["--config", str(tmp_path / "c.json"), "--cameras", "5"]
+    )
+    with pytest.raises(SystemExit, match="1 to 4 cameras"):
+        calibration_gui.force_roster(settings)
+
+
+def test_forcing_a_named_roster_writes_exactly_those_cameras(tmp_path):
+    """--cameras cam_2 cam_3 is the command line spelling of step 1's field."""
+    config_path = tmp_path / "config.local.json"
+    calibration_gui.force_roster(
+        calibration_gui.parse_args(["--config", str(config_path), "--cameras", "4"])
+    )
+    sources = {c.id: c.source for c in load_config(config_path).cameras}
+
+    calibration_gui.force_roster(
+        calibration_gui.parse_args(
+            ["--config", str(config_path), "--cameras", "cam_2", "cam_3"]
+        )
+    )
+
+    kept = load_config(config_path)
+    assert [camera.id for camera in kept.cameras] == ["cam_2", "cam_3"]
+    assert [camera.source for camera in kept.cameras] == [sources["cam_2"], sources["cam_3"]]
+
+
+def test_forcing_the_roster_rewrites_the_configuration(tmp_path):
+    config_path = tmp_path / "config.local.json"
+    settings = calibration_gui.parse_args(["--config", str(config_path), "--cameras", "3"])
+    calibration_gui.force_roster(settings)
+    config = load_config(config_path)
+    assert [camera.id for camera in config.cameras] == ["cam_0", "cam_1", "cam_2"]
+    # Shrinking is a --force, not a merge: the tail goes, the survivors keep
+    # their sources so their calibration stays valid.
+    sources = [camera.source for camera in config.cameras[:2]]
+    calibration_gui.force_roster(calibration_gui.parse_args(
+        ["--config", str(config_path), "--cameras", "2"]
+    ))
+    shrunk = load_config(config_path)
+    assert [camera.id for camera in shrunk.cameras] == ["cam_0", "cam_1"]
+    assert [camera.source for camera in shrunk.cameras] == sources
+
+
+def test_forcing_the_roster_without_a_configuration_is_refused():
+    with pytest.raises(SystemExit):
+        calibration_gui.force_roster(calibration_gui.parse_args(["--cameras", "2"]))
+
+
+def test_forcing_a_roster_from_the_command_line_also_cuts_it_from_the_example(tmp_path):
+    """--cameras is step 1 without the clicking, base configuration included."""
+    from vision_system.apps.calibration_gui import force_roster, parse_args
+    from vision_system.core.config import load_config
+
+    config_path = tmp_path / "config.local.json"
+    example = Path(__file__).resolve().parents[1] / "config.example.json"
+    settings = parse_args(
+        ["--config", str(config_path), "--cameras", "3", "--base", str(example)]
+    )
+
+    force_roster(settings)
+
+    written = load_config(config_path)
+    assert [(c.id, c.source) for c in written.cameras] == [
+        ("cam_0", 5),
+        ("cam_1", 1),
+        ("cam_2", 2),
+    ]
+    assert written.site == "lab"

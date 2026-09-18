@@ -33,8 +33,8 @@ logs:
 ps:
 	docker compose ps
 
-# VisionSystem: i target completi (e le variabili CAMERA/MQTT_HOST) stanno in
-# apps/vision/Makefile, questi sono solo scorciatoie dalla root.
+# VisionSystem: the complete targets (and CAMERA/MQTT_HOST variables) are in
+# apps/vision/Makefile; these are shortcuts from the root.
 vision-all:
 	$(MAKE) -C apps/vision all
 

@@ -117,3 +117,46 @@ def test_event_without_context_has_no_suffix():
 def test_server_status_keeps_an_absent_online_flag_distinguishable():
     assert ServerStatus.from_body({"reason": "starting"}).online is None
     assert ServerStatus.from_body({"online": False}).online is False
+
+
+def test_node_metrics_decode_the_capture_state_the_node_reports():
+    message = parse(
+        "vision/s/i/metrics",
+        {
+            "role": "node",
+            "camera_id": "cam_2",
+            "observations_published": 0,
+            "capture_online": False,
+            "capture_error": "cannot open source 3",
+            "frames_received": 0,
+            "source": "/dev/v4l/by-id/usb-Acme-video-index0",
+            "calibrated": True,
+            "detecting": False,
+        },
+    )
+    assert message.capture_online is False
+    assert message.capture_error == "cannot open source 3"
+    assert message.frames_received == 0
+    assert message.source == "/dev/v4l/by-id/usb-Acme-video-index0"
+    assert message.calibrated is True
+    assert message.detecting is False
+
+
+def test_node_metrics_without_the_capture_fields_stay_undecided_about_them():
+    """None is "this node does not say", which is not the same as "the camera is down"."""
+    message = parse(
+        "vision/s/i/metrics",
+        {"role": "node", "camera_id": "cam_0", "observations_published": 3},
+    )
+    assert message.capture_online is None
+    assert message.capture_error is None
+    assert message.frames_received is None
+    assert message.source is None
+
+
+def test_an_empty_capture_error_is_no_error():
+    message = parse(
+        "vision/s/i/metrics",
+        {"role": "node", "camera_id": "cam_0", "capture_online": True, "capture_error": None},
+    )
+    assert message.capture_error is None

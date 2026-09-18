@@ -1,49 +1,51 @@
 # VisionSystem
 
-Sistema di localizzazione indoor per marker ArUco basato su camere fisse (da una a quattro), calibrazione ChArUco guidata, fusione multi-camera e pubblicazione real-time su MQTT di posizione e orientamento.
+Indoor localization system for ArUco markers based on fixed overhead cameras (one to four), guided ChArUco calibration, multi-camera fusion, and real-time MQTT publication of position and heading.
 
 ---
 
-## Indice
+## Table of Contents
 
-1. [Requisiti e Installazione](#1-requisiti-e-installazione)
-2. [Pannello grafico di calibrazione](#2-pannello-grafico-di-calibrazione)
-3. [Configurazione delle Camere](#3-configurazione-delle-camere)
-   - [3.1 Selezione visiva delle sorgenti](#31-selezione-visiva-delle-sorgenti)
-   - [3.2 Regolazione di campo visivo e zoom](#32-regolazione-di-campo-visivo-e-zoom)
-4. [Calibrazione Intrinseca (ChArUco)](#4-calibrazione-intrinseca-charuco)
-   - [4.1 Generazione e stampa della board](#41-generazione-e-stampa-della-board)
-   - [4.2 Verifica delle sorgenti video (probe)](#42-verifica-delle-sorgenti-video-probe)
-   - [4.3 Wizard interattivo intrinseche](#43-wizard-interattivo-intrinseche)
-   - [4.4 Calibrazione da cartella di foto](#44-calibrazione-da-cartella-di-foto)
-5. [Mappa dei Reference Marker](#5-mappa-dei-reference-marker)
-   - [5.1 Mappa da singola camera o foto 2D](#51-mappa-da-singola-camera-o-foto-2d)
-   - [5.2 Selezione degli Anchor Marker (`--mode anchors`)](#52-selezione-degli-anchor-marker---mode-anchors)
-   - [5.3 Arena grande: Stitching multi-camera](#53-arena-grande-stitching-multi-camera)
-   - [5.4 Selezione e rotazione dell'origine del frame](#54-selezione-e-rotazione-dellorigine-del-frame)
-6. [Calibrazione Estrinseca](#6-calibrazione-estrinseca)
-7. [Esecuzione del Runtime](#7-esecuzione-del-runtime)
-   - [7.0 Esecuzione con Docker Compose](#70-esecuzione-con-docker-compose)
-   - [7.1 Esecuzione locale (singolo PC)](#71-esecuzione-locale-singolo-pc)
-   - [7.2 Modalità distribuita (un PC per camera)](#72-modalità-distribuita-un-pc-per-camera)
-   - [7.3 GUI di avvio e debug del server](#73-gui-di-avvio-e-debug-del-server)
-   - [7.4 Docker: server e nodi su PC diversi](#74-docker-server-e-nodi-su-pc-diversi)
-8. [Simulatore](#8-simulatore)
-   - [8.1 Simulazione sintetica](#81-simulazione-sintetica)
-   - [8.2 Simulazione live con webcam reali](#82-simulazione-live-con-webcam-reali)
-9. [Protocollo MQTT e Configurazione](#9-protocollo-mqtt-e-configurazione)
-   - [9.1 Tabella dei topic](#91-tabella-dei-topic)
-   - [9.2 Esempio di configurazione completa](#92-esempio-di-configurazione-completa)
-   - [9.3 Target automatici e frame anchor](#93-target-automatici-e-frame-anchor)
-   - [9.4 Coerenza fra camere](#94-coerenza-fra-camere)
-   - [9.5 Filtro del tracker](#95-filtro-del-tracker)
-10. [Diagnostica e Convenzioni Geometriche](#10-diagnostica-e-convenzioni-geometriche)
-11. [Collaudo Fisico](#11-collaudo-fisico)
+1. [Requirements and Installation](#1-requirements-and-installation)
+2. [Graphical Calibration Panel](#2-graphical-calibration-panel)
+   - [2.1 Camera Count and Allocation on this PC](#21-camera-count-and-allocation-on-this-pc)
+3. [Camera Configuration](#3-camera-configuration)
+   - [3.1 Visual Source Selection](#31-visual-source-selection)
+   - [3.2 Field of View and Zoom Adjustment](#32-field-of-view-and-zoom-adjustment)
+4. [Intrinsic Calibration (ChArUco)](#4-intrinsic-calibration-charuco)
+   - [4.1 Board Generation and Printing](#41-board-generation-and-printing)
+   - [4.2 Video Source Verification (Probe)](#42-video-source-verification-probe)
+   - [4.3 Interactive Intrinsics Wizard](#43-interactive-intrinsics-wizard)
+   - [4.4 Calibration from Photo Directory](#44-calibration-from-photo-directory)
+5. [Reference Marker Map](#5-reference-marker-map)
+   - [5.1 Map from Single Camera or 2D Photo](#51-map-from-single-camera-or-2d-photo)
+   - [5.2 Anchor Marker Selection (`--mode anchors`)](#52-anchor-marker-selection---mode-anchors)
+   - [5.3 Large Arena: Multi-Camera Stitching](#53-large-arena-multi-camera-stitching)
+   - [5.4 Selection and Rotation of Frame Origin](#54-selection-and-rotation-of-frame-origin)
+6. [Extrinsic Calibration](#6-extrinsic-calibration)
+7. [Runtime Execution](#7-runtime-execution)
+   - [7.0 Execution with Docker Compose](#70-execution-with-docker-compose)
+   - [7.1 Local Execution (Single PC)](#71-local-execution-single-pc)
+   - [7.2 Distributed Mode (One PC per Camera)](#72-distributed-mode-one-pc-per-camera)
+   - [7.3 Server Launch and Debug GUI](#73-server-launch-and-debug-gui)
+   - [7.4 Docker: Server and Nodes on Separate PCs](#74-docker-server-and-nodes-on-separate-pcs)
+8. [Simulator](#8-simulator)
+   - [8.1 Synthetic Simulation](#81-synthetic-simulation)
+   - [8.2 Live Simulation with Real Webcams](#82-live-simulation-with-real-webcams)
+9. [MQTT Protocol and Configuration](#9-mqtt-protocol-and-configuration)
+   - [9.1 Topic Table](#91-topic-table)
+   - [9.2 Complete Configuration Example](#92-complete-configuration-example)
+   - [9.3 Automatic Targets and Anchor Frame](#93-automatic-targets-and-anchor-frame)
+   - [9.4 Inter-Camera Consistency](#94-inter-camera-consistency)
+   - [9.5 Tracker Filter](#95-tracker-filter)
+10. [Diagnostics and Geometric Conventions](#10-diagnostics-and-geometric-conventions)
+11. [Physical Acceptance Testing](#11-physical-acceptance-testing)
+
 ---
 
-## 1. Requisiti e Installazione
+## 1. Requirements and Installation
 
-Il progetto richiede **Python >= 3.12** e gestisce dipendenze e lockfile tramite `uv`.
+The project requires **Python >= 3.12** and manages dependencies and lockfiles using `uv`.
 
 ```bash
 UV_CACHE_DIR=/tmp/visionsystem-uv-cache uv sync --all-groups
@@ -52,70 +54,94 @@ UV_CACHE_DIR=/tmp/visionsystem-uv-cache uv run pytest
 
 ---
 
-## 2. Pannello grafico di calibrazione
+## 2. Graphical Calibration Panel
 
-L'intero flusso delle sezioni 3-7 è disponibile anche come pannello Tkinter: un'unica finestra
-che mostra quali camere sono già calibrate e con che errore, e che lancia ogni fase con gli
-argomenti giusti.
+The entire workflow from Sections 3 through 7 is also available as a unified Tkinter panel: a single window showing which cameras are already calibrated and with what reprojection error, launching each phase with the correct arguments.
 
 ```bash
 uv run vision-calibrate-gui --config config.local.json --board-format a3
-# oppure
+# or
 make calibrate-gui CONFIG=config.local.json BOARD_FORMAT=a3
 ```
 
-Richiede `tkinter` (Debian/Ubuntu: `sudo apt install python3-tk`). **Le etichette del pannello
-sono in inglese**; le finestre OpenCV dei wizard restano in italiano, e la console del pannello
-mostra l'output grezzo del comando lanciato.
+The panel works on the roster stored in the configuration. `--cameras` forces it before the window opens, rewriting `config.local.json` exactly as saving step 1 would. It takes the same two spellings as the step's field: the camera ids, or just how many.
 
-Il menu di sinistra segue l'ordine di questo documento. Ogni voce ha un pallino pieno quando la
-fase è eseguibile e vuoto quando manca un prerequisito:
+```bash
+# The arena has these two cameras, whatever the file said before.
+uv run vision-calibrate-gui --config config.local.json --cameras cam_2 cam_3
 
-| Voce del menu | Sezione di riferimento | Comandi lanciati |
+# Three cameras, names left to the panel: cam_0, cam_1, cam_2.
+uv run vision-calibrate-gui --config config.local.json --cameras 3
+# or
+make calibrate-gui CAMERAS=3
+```
+
+Requires `tkinter` (Debian/Ubuntu: `sudo apt install python3-tk`). Panel labels are in English; OpenCV wizard windows display their step guidance, and the panel console streams the raw output of invoked child commands.
+
+The left-hand navigation follows the order of this guide. Each step indicates a filled dot when executable and a hollow dot when prerequisites are missing:
+
+| Menu Item | Reference Section | Launched Commands |
 | --- | --- | --- |
-| `1 Cameras` | [3. Configurazione delle Camere](#3-configurazione-delle-camere) | `vision-select-cameras`, `vision-configure-cameras`, probe |
-| `2 Board` | [4.1 Generazione e stampa della board](#41-generazione-e-stampa-della-board) | `vision-calibrate board` |
-| `3 Intrinsics` | [4.3](#43-wizard-interattivo-intrinseche) e [4.4](#44-calibrazione-da-cartella-di-foto) | `vision-calibrate intrinsics`, calibrazione da cartella |
-| `4 Reference markers` | [5. Mappa dei Reference Marker](#5-mappa-dei-reference-marker) | `vision-reference-map`, `vision-reference-stitch`, `vision-select-origin` |
-| `5 Extrinsics` | [6. Calibrazione Estrinseca](#6-calibrazione-estrinseca) | `vision-calibrate extrinsics` |
-| `6 Runtime` | [7. Esecuzione del Runtime](#7-esecuzione-del-runtime) | `vision-localizer`, `vision-server-gui` |
+| `1 Deployment` | [2.1 Camera Count and Allocation on this PC](#21-camera-count-and-allocation-on-this-pc) | writes `config.local.json` and `config.local.setup.json`, opens `vision-server-gui` |
+| `2 Cameras` | [3. Camera Configuration](#3-camera-configuration) | `vision-select-cameras`, `vision-configure-cameras`, probe |
+| `3 Board` | [4.1 Board Generation and Printing](#41-board-generation-and-printing) | `vision-calibrate board` |
+| `4 Intrinsics` | [4.3](#43-interactive-intrinsics-wizard) and [4.4](#44-calibration-from-photo-directory) | `vision-calibrate intrinsics`, folder calibration |
+| `5 Reference markers` | [5. Reference Marker Map](#5-reference-marker-map) | `vision-reference-map`, `vision-reference-stitch`, `vision-select-origin` |
+| `6 Extrinsics` | [6. Extrinsic Calibration](#6-extrinsic-calibration) | `vision-calibrate extrinsics` |
+| `7 Runtime` | [7. Runtime Execution](#7-runtime-execution) | `vision-localizer`, `vision-server-gui` |
 
-Selezionando una fase bloccata il pannello scrive **perché** lo è, distinguendo casi che
-richiedono interventi diversi: una camera senza intrinseche (manca il file), una camera le cui
-impostazioni sono cambiate dopo la calibrazione (il file c'è ma non è più valido: rifare le
-intrinseche), una calibrazione che non ha superato le soglie di qualità, e la mancanza dei 3
-reference marker minimi per le estrinseche.
+Step 2 works on the cameras attached to this PC. Its **Cameras to reconfigure** field overrides that for the three buttons: `all` covers the whole roster (useful when one machine sets the arena up), or name the ones to redo, e.g. `cam_0 cam_2`.
 
-**Cosa gira dove.** Le fasi interattive — selezione sorgenti, campo visivo, wizard intrinseche
-ed estrinseche, mappa reference, stitching, origine — vengono eseguite **come processi figli**:
-aprono la loro finestra OpenCV con i controlli da tastiera di sempre (`SPAZIO`, `BACKSPACE`,
-`R`, `ENTER`, `ESC`) e il pannello ne mostra l'output nella console. `Cancel` li termina. Le
-fasi non interattive — generazione board, probe delle sorgenti, calibrazione da cartella di
-foto — girano invece dentro al pannello, con avanzamento per camera e risultati per immagine.
+Selecting a blocked step displays **why** it is blocked, distinguishing between scenarios that require different actions: a camera missing intrinsics (missing file), a camera whose settings changed after calibration (file exists but is invalidated: recalibrate intrinsics), a calibration that failed quality thresholds, or fewer than the required 3 reference markers for extrinsics.
 
-> **Il codice di uscita non è un verdetto.** Annullare un wizard con `ESC` esce con codice
-> diverso da zero, e una sessione multi-camera fallita sulla terza camera ha comunque scritto
-> le prime due. Il pannello rilegge `calibrations/` ogni volta che un processo termina:
-> **fa fede la tabella**, non il codice di uscita.
+**Process Execution Architecture.** Interactive phases (camera selection, field of view, intrinsics/extrinsics wizards, reference map, stitching, origin selection) run as **child processes**: they open their OpenCV window with standard keyboard controls (`SPACE`, `BACKSPACE`, `R`, `ENTER`, `ESC`), streaming stdout to the panel console. `Cancel` terminates them cleanly. Non-interactive phases (board generation, source probe, folder calibration) run directly inside the panel, with per-camera progress and per-image feedback.
 
-La colonna `Board` confronta il `board_checksum` dell'artefatto con il formato selezionato: se
-si calibra con la board A3 e si apre il pannello in A4, ogni riga risulta `stale` con nota
-`differs (a4)`. Usare `--board-format` coerente con la board realmente stampata.
+> **Exit code is not the final verdict.** Canceling a wizard with `ESC` exits with a non-zero code, and a multi-camera session that aborted on the third camera still recorded the first two. The panel re-reads `calibrations/` whenever a process terminates: **the status table is authoritative**, not the exit code.
 
-Il pannello **non scrive mai** `config.local.json`: restano `vision-select-cameras` e
-`vision-configure-cameras` gli unici a modificarlo, e il pannello si limita a lanciarli. Tutti
-i comandi delle sezioni seguenti continuano a funzionare identici — il pannello è un client di
-quei comandi, e la CLI resta la via supportata su macchine senza display.
+The `Board` column checks the artifact's `board_checksum` against the selected format: calibrating with an A3 board and opening the panel in A4 marks rows as `stale` with note `differs (a4)`. Always ensure `--board-format` matches the physically printed board.
+
+The panel writes `config.local.json` **only from step 1**, and only when clicking `Save deployment`: other steps continue to delegate to `vision-select-cameras` and `vision-configure-cameras`. All standalone CLI commands described in subsequent sections remain fully functional — the panel is a client of these commands, and the CLI remains the primary interface on headless hosts.
+
+### 2.1 Camera Count and Allocation on this PC
+
+Step `1 Deployment` resolves two distinct deployment questions:
+
+| Field | Meaning |
+| --- | --- |
+| `Deployment` | `single-pc` (all webcams attached to this host, one process fuses) or `distributed` (one `vision-node` per camera, across multiple PCs) |
+| `Cameras in the deployment` | **the cameras the whole arena has**, named — `cam_2 cam_3` — or simply counted — `4`. This is the shared roster: must be identical on all PCs |
+| `Base configuration` | the example anything not yet configured is cut from; `config.example.json` by default |
+| `Webcams attached to this PC` | **which of those cameras are plugged in here**, e.g. `cam_1 cam_2`. Empty = all |
+| `MQTT broker` / `Broker port` | broker endpoint as seen from this machine |
+
+Clicking `Save deployment` writes two adjacent files:
+
+- `config.local.json` — the **shared roster**. Copied identically to each PC in the deployment: server and nodes must agree on `site`, `system_id`, and the `cameras` list, or the coordinator will indefinitely await observations from unassigned cameras.
+- `config.local.setup.json` — the **local configuration** that stays on this machine: deployment mode, locally attached cameras, broker host. Never read by remote nodes.
+
+**The roster field is the roster.** Typing `cam_2 cam_3` makes the deployment exactly those two, in that order — the same thing `vision-select-cameras --cameras cam_2 cam_3` has always done, which is why there is no separate "remove these" list: dropping a camera is naming the ones that stay. Typing a number instead is the shorthand for "this many, you pick the names": it keeps the cameras already configured and fills up from `cam_0`. Either way the field comes back showing ids, so saving twice cannot cut the roster twice.
+
+Cameras that survive are **never overwritten**: ID, video source, and settings are carried across untouched, and files in `calibrations/` are left alone, so reshaping the roster never discards a calibration. A camera that is named but does not exist yet is created.
+
+**New cameras come from the example, not from library defaults.** Setting the roster is starting from scratch, so whatever does not exist yet is cut from `Base configuration` (`config.example.json`). With no configuration file at all, the whole document comes from there — `site`, ArUco dictionary, marker sizes, fusion settings. With one already present, each added `cam_N` takes its settings and its documented source from the example (`cam_0` → 5, `cam_1` → 1, `cam_2` → 2, `cam_3` → 4). A source another camera already holds is replaced with the first free one, so reshaping the roster cannot put two cameras on one device. Nothing already configured is ever overwritten, and a missing example is reported rather than fatal: the roster falls back to the built-in defaults. The path is editable in the field, or with `--base`.
+
+The `Config` field in the header may point at a file that **does not exist yet** — step 1 is the step that creates it. Until it does, the later steps stay blocked and say to come back here.
+
+**Example 1+2+1.** A 4-camera arena across 3 PCs: server PC has `cam_0`, first client has `cam_1` and `cam_2`, second client has `cam_3`. On **every** PC, set `Cameras in the deployment = cam_0 cam_1 cam_2 cam_3` (or just `4`) and `Deployment = distributed`; only `Webcams attached to this PC` varies (`cam_0`, `cam_1 cam_2`, and `cam_3` respectively).
+
+From that point on, the panel operates **only on local cameras**: probe, FOV, intrinsics, and extrinsics see `cam_1 cam_2` without waiting for the others, while the Step 1 table continues displaying the full roster with the `Attached to` column distinguishing `this PC` from `another PC`. Step `7 Runtime` is the only step requiring all roster cameras to be calibrated, because the server reconstructs observations across all cameras: remote extrinsics must be copied to the server (see [7.4](#74-docker-server-and-nodes-on-separate-pcs)).
+
+`Show launch commands` prints ready-to-run `make` invocations to the console — one per local camera with the correct broker address — and `Open server panel` opens the server monitoring GUI ([7.3](#73-server-launch-and-debug-gui)) **even before any calibrations exist**, which is where inter-process communication diagnostics are inspected.
 
 ---
 
-## 3. Configurazione delle Camere
+## 3. Camera Configuration
 
-> Questa fase corrisponde alla voce `1 Cameras` del [pannello grafico](#2-pannello-grafico-di-calibrazione).
+> Corresponds to `2 Cameras` in the [graphical calibration panel](#2-graphical-calibration-panel).
 
-### 3.1 Selezione visiva delle sorgenti
+### 3.1 Visual Source Selection
 
-Il sistema supporta arene con **2, 3 o 4 camere**: il file base definisce al massimo quattro slot logici (`cam_0`..`cam_3`), ma la configurazione salvata contiene solo le camere effettivamente presenti. Le sorgenti OpenCV iniziali sono `5`, `1`, `2`, `4` a 1920×1080 @ 30 FPS. Per associarle visivamente:
+The system supports arenas with **2, 3, or 4 cameras**: the template defines up to four logical slots (`cam_0`..`cam_3`), but the saved configuration contains only the cameras actually present. Default OpenCV sources are `5`, `1`, `2`, `4` at 1920×1080 @ 30 FPS. To associate them visually:
 
 ```bash
 uv run vision-select-cameras \
@@ -123,127 +149,133 @@ uv run vision-select-cameras \
   --output config.local.json
 ```
 
-- Cliccare su un riquadro video e premere `1`, `2`, `3` o `4` per assegnarlo alla camera logica corrispondente (`cam_0`..`cam_3`).
-- `C` cancella le assegnazioni, `R` ripete la scansione delle periferiche, `ENTER` salva il file, `ESC` annulla.
-- **Meno di quattro camere:** basta assegnare solo le camere disponibili; gli slot non assegnati non finiscono nel file. Per dichiarare esplicitamente il roster (consigliato, così i tasti e gli ID corrispondono alle camere reali):
+- Click a video frame and press `1`, `2`, `3`, or `4` to assign it to the corresponding logical camera (`cam_0`..`cam_3`).
+- `C` clears assignments, `R` rescans connected devices, `ENTER` saves the file, `ESC` cancels.
+- **Fewer than four cameras:** assign only available cameras; unassigned slots are omitted from the output. To declare the roster explicitly (recommended so keybindings match physical cameras):
   ```bash
   uv run vision-select-cameras --base config.example.json \
     --cameras cam_0 cam_1 --output config.local.json
   ```
-  Con due camere la finestra mostra due slot e si assegnano con i tasti `1` e `2`.
-- Per limitare la scansione a indici noti:
+  With two cameras, the window displays two slots mapped to keys `1` and `2`.
+- **Distributed deployment: assign only cameras on this PC.** `--cameras` *reduces* the roster, which on a client with two of four cameras would strip the other two from the file. To assign local cameras while preserving the global roster, use `--local-cameras`:
+  ```bash
+  uv run vision-select-cameras --base config.local.json --output config.local.json --force \
+    --local-cameras cam_1 cam_2
+  ```
+  The window displays all four cameras but accepts only keys `2` and `3`: the others remain labeled `(other PC)` with the sources their respective PCs chose. This is identical to what Step `2 Cameras` executes in distributed mode.
+- To restrict scanning to known device indices:
   ```bash
   uv run vision-select-cameras --sources 5 1 2 4 --output config.local.json
   ```
-- Disponibile anche come sottocomando: `uv run vision-calibrate select-cameras`.
-- Su Linux, dopo l'identificazione, è consigliato sostituire gli indici numerici con i percorsi stabili `/dev/v4l/by-id/...`.
+- Available as a subcommand: `uv run vision-calibrate select-cameras`.
+- **Stable video sources.** On Linux, `/dev/videoN` device indices depend on enumeration order: a camera that was `source 3` at calibration time may become `source 1` after rebooting or reconnecting a USB hub, causing the node to fail with `cannot open source 3`. On save, assigned numeric indices are automatically substituted with the stable `/dev/v4l/by-id/...` symlink whenever available. Remote cameras are preserved as-is. Use `--keep-source-numbers` to retain numeric indices.
 
-### 3.2 Regolazione di campo visivo e zoom
+### 3.2 Field of View and Zoom Adjustment
 
 ```bash
 uv run vision-configure-cameras --config config.local.json
 ```
 
-- Mostra contemporaneamente tutte le camere configurate (due, tre o quattro). Cliccare su una vista e usare `+`/`-` per regolare lo zoom digitale (`digital_zoom`).
-- `N` imposta il preset normale `1.75x`; `W` ripristina il grandangolo completo `1.00x`.
-- `A` applica lo zoom selezionato a tutte le camere configurate; `ENTER` salva la configurazione (incrementando `revision`), `ESC` annulla.
-- Per salvare su un file diverso:
+- Displays all configured cameras simultaneously (two, three, or four). Click any view and use `+`/`-` to adjust digital zoom (`digital_zoom`).
+- `N` sets standard preset `1.75x`; `W` restores full wide-angle `1.00x`.
+- `A` applies selected zoom to all configured cameras; `ENTER` saves configuration (bumping `revision`), `ESC` cancels.
+- Save to an alternate file:
   ```bash
   uv run vision-configure-cameras --config config.local.json --output config.con-fov.json
   ```
-- Per pubblicare direttamente sul broker MQTT (`config/set`):
+- Publish directly to the MQTT broker (`config/set`):
   ```bash
   uv run vision-configure-cameras --config config.local.json --publish-mqtt
   ```
 
-> **Nota:** Qualsiasi variazione di FOV o risoluzione modifica le matrici intrinseche. Dopo aver modificato lo zoom occorre ripetere la calibrazione intrinseca ed estrinseca.
+> **Note:** Any FOV or resolution change modifies intrinsic camera matrices. After modifying zoom, intrinsic and extrinsic calibrations must be repeated.
 
 ---
 
-## 4. Calibrazione Intrinseca (ChArUco)
+## 4. Intrinsic Calibration (ChArUco)
 
-> Questa fase corrisponde alle voci `2 Board` e `3 Intrinsics` del [pannello grafico](#2-pannello-grafico-di-calibrazione).
+> Corresponds to `2 Board` and `3 Intrinsics` in the [graphical calibration panel](#2-graphical-calibration-panel).
 
-### 4.1 Generazione e stampa della board
+### 4.1 Board Generation and Printing
 
-Genera il PDF stampabile ad alta risoluzione (con barra millimetrica di controllo da 100 mm) e il PNG sorgente:
+Generates a high-resolution printable PDF (with a 100 mm verification ruler) and source PNG:
 
 ```bash
-# Formato A4 (board 6x8, quadrati 30 mm, marker 22 mm)
+# A4 format (6x8 board, 30 mm squares, 22 mm markers)
 uv run vision-calibrate board --format a4 --output calibration-assets
 
-# Formato A3 (board 7x9, quadrati 40 mm, marker 30 mm, ideale per arene ampie)
+# A3 format (7x9 board, 40 mm squares, 30 mm markers, recommended for larger arenas)
 uv run vision-calibrate board --format a3 --output calibration-assets
 
-# Entrambi i formati
+# Both formats
 uv run vision-calibrate board --format both --output calibration-assets
 ```
 
-Stampare il PDF generato al **100% (senza adattamento)**, verificare con un righello la barra da 100 mm e fissare il foglio su un supporto rigido e perfettamente piano.
+Print the PDF at **100% scale (no page scaling)**, measure the 100 mm ruler with a physical scale, and mount the sheet on a rigid, completely flat surface.
 
-### 4.2 Verifica delle sorgenti video (probe)
+### 4.2 Video Source Verification (Probe)
 
-Verifica che tutte le sorgenti video rispondano alla risoluzione configurata, misurando FPS effettivi, formato e duplicati:
+Verifies that all video sources respond at the configured resolution, measuring actual FPS, pixel format, and duplicate frames:
 
 ```bash
 uv run vision-calibrate --config config.local.json probe
 ```
 
-### 4.3 Wizard interattivo intrinseche
+### 4.3 Interactive Intrinsics Wizard
 
-Esegue l'assistente a schermo con guida in tempo reale (movimento, orientamento, scala e stabilità):
+Runs on-screen interactive guidance in real time (tracking motion, orientation, scale, and stability):
 
 ```bash
-# Calibra tutte le camere in sequenza (board A4 di default)
+# Calibrate all cameras sequentially (A4 board by default)
 uv run vision-calibrate --config config.local.json intrinsics --camera all
 
-# Con board A3
+# With A3 board
 uv run vision-calibrate --config config.local.json intrinsics --camera all --board-format a3
 
-# Singola camera
+# Single camera
 uv run vision-calibrate --config config.local.json intrinsics --camera cam_0 --board-format a3
 ```
 
-- La cattura delle pose è automatica quando la board è ferma e in una posizione valida/inedita.
-- Controlli tastiera: `SPAZIO` attiva/disattiva cattura automatica, `BACKSPACE` rimuove l'ultimo campione, `R` resetta i campioni, `ENTER` conferma e salva, `ESC` annulla.
+- Pose capture is automatic when the board is held still in a valid, unseen position.
+- Keyboard controls: `SPACE` toggles auto-capture, `BACKSPACE` removes latest sample, `R` resets all samples, `ENTER` confirms and saves, `ESC` cancels.
 
-### 4.4 Calibrazione da cartella di foto
+### 4.4 Calibration from Photo Directory
 
-Se le immagini ChArUco sono già state acquisite come file:
+If ChArUco images have already been acquired as image files:
 
 ```bash
-# Singola cartella
+# Single folder
 uv run vision-calibrate-folder \
   --config config.local.json \
-  --input foto/cam_0 \
+  --input photos/cam_0 \
   --camera cam_0 \
   --board-format a3 \
   --output calibrations
 
-# Struttura multi-camera (sottocartelle cam_0/, cam_1/, cam_2/, cam_3/)
+# Multi-camera hierarchy (subfolders cam_0/, cam_1/, cam_2/, cam_3/)
 uv run vision-calibrate-folder \
   --config config.local.json \
-  --input foto \
+  --input photos \
   --board-format a3 \
   --output calibrations
 ```
 
-Disponibile anche come sottocomando:
+Also available as a subcommand:
 ```bash
-uv run vision-calibrate --config config.local.json from-folder --input foto --board-format a3
+uv run vision-calibrate --config config.local.json from-folder --input photos --board-format a3
 ```
 
 ---
 
-## 5. Mappa dei Reference Marker
+## 5. Reference Marker Map
 
-> Questa fase corrisponde alla voce `4 Reference markers` del [pannello grafico](#2-pannello-grafico-di-calibrazione).
+> Corresponds to `4 Reference markers` in the [graphical calibration panel](#2-graphical-calibration-panel).
 
-Per calcolare le estrinseche delle camere, il sistema ha bisogno delle coordinate 3D dei marker di riferimento fissi posti sul piano di lavoro/pavimento.
+To compute camera extrinsics, the system requires 3D coordinates for fixed reference markers placed on the arena floor or work plane.
 
-### 5.1 Mappa da singola camera o foto 2D
+### 5.1 Map from Single Camera or 2D Photo
 
-Se una singola camera inquadra l'intera area dei reference:
+If a single camera captures the entire reference marker area:
 
 ```bash
 uv run vision-reference-map \
@@ -255,12 +287,12 @@ uv run vision-reference-map \
   --output reference-markers.json
 ```
 
-- Nel mosaico live, selezionare la camera con `1`–`4` e premere `SPAZIO` per catturare.
-- Nella finestra interattiva, cliccare in ordine: **origine (0,0)**, **punto +X**, **angolo opposto (+X,+Y)** e **punto +Y**.
-- Se si usa un'immagine statica o una piantina:
+- In the live mosaic, select camera with `1`–`4` and press `SPACE` to capture.
+- In the interactive window, click in order: **origin (0,0)**, **+X point**, **opposite corner (+X,+Y)**, and **+Y point**.
+- Using a static image or floor plan:
   ```bash
   uv run vision-reference-map \
-    --image stanza.jpg \
+    --image room.jpg \
     --config config.local.json \
     --width-m 5.40 \
     --height-m 3.80 \
@@ -268,9 +300,9 @@ uv run vision-reference-map \
     --output reference-markers.json
   ```
 
-### 5.2 Selezione degli Anchor Marker (`--mode anchors`)
+### 5.2 Anchor Marker Selection (`--mode anchors`)
 
-Invece di cliccare coordinate arbitrarie, i 4 click possono agganciarsi direttamente al centro di 4 marker ArUco "anchor":
+Instead of clicking arbitrary points, the 4 clicks snap to the centers of 4 ArUco "anchor" markers:
 
 ```bash
 uv run vision-reference-map \
@@ -282,7 +314,7 @@ uv run vision-reference-map \
   --output reference-markers.json
 ```
 
-- Con `--auto-capture`, lo scatto avviene automaticamente non appena i marker sono stabili:
+- With `--auto-capture`, snapshot occurs automatically as soon as markers stabilize:
   ```bash
   uv run vision-reference-map \
     --config config.local.json \
@@ -291,7 +323,7 @@ uv run vision-reference-map \
     --marker-size-m 0.07 \
     --output reference-markers.json
   ```
-- Con `--anchor-ids` espliciti (origine, +X, +X+Y, +Y), la mappa viene calcolata senza richiedere click manuali:
+- With explicit `--anchor-ids` (origin, +X, +X+Y, +Y), the map is computed with no manual clicks:
   ```bash
   uv run vision-reference-map \
     --config config.local.json \
@@ -303,18 +335,18 @@ uv run vision-reference-map \
     --output reference-markers.json
   ```
 
-### 5.3 Arena grande: Stitching multi-camera
+### 5.3 Large Arena: Multi-Camera Stitching
 
-In arene ampie dove nessuna camera vede tutti i reference, `vision-reference-stitch` combina le viste parziali in un unico piano world mediante bundle adjustment globale (minimi quadrati non lineari):
+In large arenas where no single camera sees all reference markers, `vision-reference-stitch` merges partial views into a single world plane via global bundle adjustment (non-linear least squares):
 
-**Requisiti geometrici:**
-- 4 anchor marker distribuiti ai vertici dell'arena con distanze note;
-- Almeno due reference visibili per ogni camera;
-- Camere adiacenti con almeno un reference in comune (catena interamente connessa);
-- Marker complanari con lato nero identico (`--marker-size-m`).
+**Geometric Requirements:**
+- 4 anchor markers placed at the corners of the arena with known metric distances;
+- At least two reference markers visible to each camera;
+- Adjacent cameras sharing at least one common reference marker (fully connected graph);
+- Coplanar markers with identical outer black border size (`--marker-size-m`).
 
 ```bash
-# Acquisizione live coordinata con selezione visiva del rettangolo anchor
+# Coordinated live capture with visual selection of anchor rectangle
 uv run vision-reference-stitch \
   --config config.local.json \
   --camera all \
@@ -323,9 +355,9 @@ uv run vision-reference-stitch \
   --force
 ```
 
-- Il sistema scatta automaticamente quando tutte le camere sono stabili e connesse.
-- Sull'omografia top-down visualizzata, cliccare in sequenza vicino ai 4 marker: `origine`, `+X`, `+X+Y`, `+Y`, quindi premere `ENTER`. Il terminale richiederà le distanze reali X e Y in metri (evitabili con `--width-m` e `--height-m`).
-- Se gli anchor sono già noti:
+- Captures automatically when all cameras are stable and connected.
+- On the displayed top-down homography, click near the 4 markers: `origin`, `+X`, `+X+Y`, `+Y`, then press `ENTER`. The terminal prompts for physical X and Y distances in meters (can be supplied with `--width-m` and `--height-m`).
+- When anchor IDs are known in advance:
   ```bash
   uv run vision-reference-stitch \
     --config config.local.json \
@@ -337,7 +369,7 @@ uv run vision-reference-stitch \
     --output reference-markers.json \
     --force
   ```
-- È possibile elaborare anche foto pre-acquisite:
+- Pre-acquired photos can also be processed:
   ```bash
   uv run vision-reference-stitch \
     --config config.local.json \
@@ -348,45 +380,44 @@ uv run vision-reference-stitch \
     --force
   ```
 
-### 5.4 Selezione e rotazione dell'origine del frame
+### 5.4 Selection and Rotation of Frame Origin
 
-Per ridefinire quale dei 4 anchor sia l'origine `(0,0,0)` ruotando rigidamente l'intero sistema di riferimento:
+To redefine which of the 4 anchors serves as `(0,0,0)`, rigidly rotating the coordinate system:
 
 ```bash
-# Da vista live
+# From live view
 uv run vision-select-origin --config config.local.json
 
-# Da foto esistente
+# From existing image
 uv run vision-select-origin \
   --image reference-markers-capture.jpg \
   --config config.local.json
 ```
 
-Cliccare sull'ancora desiderata e premere `ENTER`. La configurazione viene aggiornata mantenendo un frame destrorso coerente.
+Click the desired anchor and press `ENTER`. Configuration updates while preserving a right-handed coordinate frame.
 
-> **Importante:** La modifica dell'origine world rende necessarie nuove calibrazioni estrinseche per tutte le camere (le intrinseche restano invece invariate).
+> **Important:** Modifying the world origin requires new extrinsic calibrations for all cameras (intrinsic calibrations remain valid).
 
 ---
 
-## 6. Calibrazione Estrinseca
+## 6. Extrinsic Calibration
 
-> Questa fase corrisponde alla voce `5 Extrinsics` del [pannello grafico](#2-pannello-grafico-di-calibrazione), che la blocca
-> finché mancano le intrinseche valide o i 3 reference marker minimi.
+> Corresponds to `5 Extrinsics` in the [graphical calibration panel](#2-graphical-calibration-panel), which locks the step until valid intrinsics and at least 3 reference markers are present.
 
-Determina la posa 3D di ciascuna camera rispetto al frame world (`world_from_camera`):
+Computes the 3D pose of each camera relative to the world frame (`world_from_camera`):
 
 ```bash
-# Calibra tutte le camere usando i reference nel file config/MQTT
+# Calibrate all cameras using reference markers from config / MQTT
 uv run vision-calibrate --config config.local.json extrinsics --camera all
 
-# Con file reference separato
+# Using separate reference markers file
 uv run vision-calibrate --config config.local.json extrinsics --camera all \
   --reference-markers reference-markers.json
 ```
 
-- La finestra live mostra gli ID visti, i reference utili, gli scarti e l'errore di riproiezione.
-- Raccoglie 100 campioni stabili ed esegue il calcolo con RANSAC + LM refinement.
-- Per collaudo rapido con tolleranze RANSAC allargate (da 3 a 30 px):
+- The live window displays detected IDs, matching references, outliers, and reprojection error.
+- Collects 100 stable samples and computes pose using RANSAC + Levenberg-Marquardt refinement.
+- For rapid bench testing with relaxed RANSAC reprojection thresholds (3 to 30 px):
   ```bash
   uv run vision-calibrate --config config.local.json extrinsics --camera all \
     --reference-markers reference-markers.json --allow-low-quality
@@ -394,184 +425,169 @@ uv run vision-calibrate --config config.local.json extrinsics --camera all \
 
 ---
 
-## 7. Esecuzione del Runtime
+## 7. Runtime Execution
 
-> Questa fase corrisponde alla voce `6 Runtime` del [pannello grafico](#2-pannello-grafico-di-calibrazione).
+> Corresponds to `6 Runtime` in the [graphical calibration panel](#2-graphical-calibration-panel).
 
-### 7.0 Esecuzione con Docker Compose
+### 7.0 Execution with Docker Compose
 
-Dalla root del repository, lo stack hardware completo include automaticamente
-VisionSystem:
+From repository root, the full hardware stack automatically starts VisionSystem:
 
 ```bash
 docker compose up --build -d
 docker compose logs --follow vision
 ```
 
-Il container usa `config.local.json` e la directory `calibrations/` presenti in
-questa applicazione, accede alle camere USB V4L2 del sistema Linux e comunica con
-il broker Compose tramite `mosquitto:1883`. Stato e log diagnostici sono
-conservati nei volumi Docker `vision-state` e `vision-diagnostics`.
+The container uses `config.local.json` and the `calibrations/` directory from this application, accesses host Linux V4L2 USB camera devices, and communicates with the broker at `mosquitto:1883`. State and diagnostic logs are persisted in named Docker volumes `vision-state` and `vision-diagnostics`.
 
-Per usare il simulatore robot senza avviare VisionSystem eseguire invece
-`make up-simulator` dalla root. Il target arresta anche un eventuale container
-`vision` già attivo.
+To run the robot emulator without launching VisionSystem, run `make up-simulator` from repository root instead. That target stops any running `vision` container before launching the simulator stack.
 
-Questo servizio esegue il **monolite** `vision-localizer` (tutte le camere su un
-solo PC); da questa cartella lo stesso stack si avvia con `make all`. Per il
-deployment distribuito in Docker — `make server` sul PC di fusione, `make client`
-su ogni PC con una camera — vedere [7.4](#74-docker-server-e-nodi-su-pc-diversi).
+This service runs the **monolith** `vision-localizer` (all cameras on a single PC); from this folder the same stack is started with `make all`. For distributed Docker deployments — `make server` on the fusion PC, `make client` on each camera PC — see [7.4](#74-docker-server-and-nodes-on-separate-pcs).
 
-### 7.1 Esecuzione locale (singolo PC)
+### 7.1 Local Execution (Single PC)
 
-Avvia il localizzatore aprendo tutte le camere configurate, eseguendo rilevamento, controllo drift e fusione:
+Starts the localizer opening all configured cameras, performing tag detection, drift checks, and fusion:
 
 ```bash
-# Modalità di produzione (connesso al broker MQTT)
+# Production mode (connected to MQTT broker)
 export VISION_MQTT_HOST=localhost
 export VISION_MQTT_PORT=1883
 uv run vision-localizer --config config.local.json
 
-# Modalità offline con debug visivo (mosaico camere + mappa world 2D)
+# Offline mode with visual debug (camera mosaic + 2D world map)
 uv run vision-localizer --config config.local.json --no-mqtt --debug
 
-# Stampa posa JSON su stdout ad ogni ciclo
+# Output JSON pose stream to stdout on each cycle
 uv run vision-localizer --config config.local.json --no-mqtt --print-poses
 ```
 
-### 7.2 Modalità distribuita (un PC per camera)
+### 7.2 Distributed Mode (One PC per Camera)
 
-Architettura scalabile per arene ampie: da 2 a 4 PC periferici (ciascuno con una sola camera) inviano osservazioni leggere (~8 KB/s) via MQTT a un server di fusione centrale. Il numero di nodi è libero: conta solo che **tutti i nodi e il server condividano lo stesso roster di camere** (`--cameras`), altrimenti il coordinatore continua a segnalare offline gli slot che nessuno pubblica.
+Scalable architecture for expansive arenas: 2 to 4 edge PCs (each running a single camera) publish lightweight observation payloads (~8 KB/s) over MQTT to a central fusion server. Any number of nodes may participate: **all nodes and the server must share the exact same camera roster** (`--cameras`), otherwise the coordinator marks missing roster slots as offline.
 
-#### Requisiti di sincronizzazione temporale:
-Tutti i nodi e il server devono avere gli orologi sincronizzati via **NTP/Chrony** con scarto inferiore a 2-3 ms (la fusione usa timestamp UTC in nanosecondi).
+#### Clock Synchronization Requirements:
+All nodes and the server must synchronize system clocks via **NTP/Chrony** with offset strictly under 2–3 ms (multi-camera fusion uses UTC timestamps in nanoseconds).
 
 ```bash
-# Installazione chrony (Debian/Ubuntu)
+# Install chrony (Debian/Ubuntu)
 sudo apt install chrony && sudo systemctl enable --now chronyd
 ```
 
-#### Su ogni PC nodo (`cam_X`):
-1. Associare la camera dichiarando il roster completo del deployment (qui un'arena a due camere, `cam_0` e `cam_1`; su questo PC si assegna solo `cam_X`):
+#### On Each Camera Node PC (`cam_X`):
+1. Associate camera declaring the full deployment roster (e.g. 2-camera arena `cam_0` and `cam_1`; on this PC assign only `cam_X`):
    ```bash
    uv run vision-select-cameras --base config.example.json \
      --cameras cam_0 cam_1 --camera cam_X --output config.local.json
    ```
-   Senza `--cameras` il file conserva tutti e quattro gli slot del file base: usarlo su un'arena a 2 o 3 camere lascerebbe nel roster camere inesistenti.
-2. Calibrare intrinseche ed estrinseche per la propria camera:
+   Omitting `--cameras` preserves all four slots from the template: in a 2- or 3-camera deployment, unassigned slots would remain in the roster.
+
+   On a PC hosting **more than one** camera (e.g. `cam_1` and `cam_2` in a 4-camera arena), define the global roster once (via step 1 of the panel, [2.1](#21-camera-count-and-allocation-on-this-pc), or with `--cameras`), then assign local devices with `--local-cameras cam_1 cam_2`, which does **not** strip `cam_0` and `cam_3` from the configuration. Using `--cameras cam_1 cam_2` on that PC would produce a 2-camera roster and cause the server to wait for missing cameras indefinitely.
+2. Calibrate intrinsics and extrinsics for this camera:
    ```bash
    uv run vision-calibrate --config config.local.json intrinsics --camera cam_X --board-format a3
    uv run vision-calibrate --config config.local.json extrinsics --camera cam_X
    ```
-3. Avviare il nodo camera:
+3. Launch camera node:
    ```bash
    export VISION_MQTT_HOST=192.168.1.10
    uv run vision-node --camera cam_X
    ```
 
-#### Sul PC server (nessuna camera collegata):
+#### On Fusion Server PC (No Local Cameras):
 ```bash
 export VISION_MQTT_HOST=192.168.1.10
 uv run vision-server --debug
 ```
 
-Il server usa lo stesso roster dei nodi: con 2 camere la fusione lavora su due osservazioni per tag, con 3 o 4 il residuo migliora ma il flusso resta identico.
+The server shares the same roster as nodes: with 2 cameras, fusion solves over two observations per tag; with 3 or 4, residuals improve while the pipeline remains identical.
 
-### 7.3 GUI di avvio e debug del server
+### 7.3 Server Launch and Debug GUI
 
-Nel deployment distribuito i processi sono indipendenti e la domanda tipica non è *cosa calcola la fusione* ma *chi sta parlando con chi*. Il pannello grafico avvia il server sul PC locale e mostra, nella stessa finestra, la vista delle due estremità della catena più la mappa 2D dei robot tracciati:
+In distributed deployments, processes operate independently and operational debugging focuses on *who is communicating with whom*. The graphical panel launches the server on the local machine and displays end-to-end chain status plus a 2D arena map in a single interface:
 
 ```bash
-# Server sulla stessa macchina del broker
+# Server on the same machine as the broker
 uv run vision-server-gui --config config.local.json
 
-# Broker (e nodi) su un'altra macchina
+# Broker (and camera nodes) on another machine
 uv run vision-server-gui --config config.local.json --mqtt-host 192.168.1.10
 ```
 
-Richiede `tkinter` (Debian/Ubuntu: `sudo apt install python3-tk`). **Le etichette del pannello sono in inglese.**
+Requires `tkinter` (`sudo apt install python3-tk`). Panel labels are in English.
 
-Il pannello è diviso in tre zone:
+The panel is structured into three sections:
 
-1. **Server launch** — host e porta MQTT, `config`, `calibrations`, cache di stato e i flag `--debug`, `--no-mqtt`, `--verbose`. `Start server` lancia `vision-server` come processo figlio (in una sessione separata: chiudere il terminale non lo uccide), `Stop server` gli invia `SIGTERM` e, se non risponde entro 10 s, `SIGKILL`; il pulsante non blocca la finestra mentre aspetta. Le impostazioni MQTT diventano `VISION_MQTT_HOST`/`VISION_MQTT_PORT` del processo figlio.
-2. **Deployment cameras** — una riga per camera del roster, con le due viste affiancate: *Node* (il `vision-node` sta pubblicando le sue metriche) e *Server* (il coordinatore sta effettivamente ricevendo osservazioni da quella camera), più osservazioni pubblicate/ricevute, età dell'ultima osservazione e stato di calibrazione.
-3. **World view / Console** — due schede: la mappa 2D dell'arena (camere calibrate in arancio, reference marker in viola, robot tracciati con scia e freccia di heading) e la console del server con gli eventi MQTT (`MISSING_CALIBRATION`, `CALIBRATION_DRIFT`, `CAMERA_DISAGREEMENT`, …).
+1. **Server launch** — MQTT host/port, `config`, `calibrations`, state cache, and flags `--debug`, `--no-mqtt`, `--verbose`. `Start server` launches `vision-server` as a child process in a separate session; `Stop server` issues `SIGTERM` followed by `SIGKILL` after 10 s without blocking the UI. MQTT parameters become `VISION_MQTT_HOST`/`VISION_MQTT_PORT` for the child process.
+2. **Deployment cameras** — one row per roster camera showing pipeline stages from left to right: *Node* (node process publishing metrics), *Camera up* (webcam open with active source), *Frames* (captured frames), *Obs. published* (observations published by node), *Server* and *Obs. received* (observations received by coordinator), observation age, and calibration state. The `Notes` column includes literal error messages (e.g. `cannot open source 3`) for direct hardware diagnosis.
+3. **World view / Console** — two tabs: 2D arena map (calibrated cameras in orange, reference markers in purple, tracked robots with trails and heading vectors) and server console streaming MQTT events (`MISSING_CALIBRATION`, `CALIBRATION_DRIFT`, `CAMERA_DISAGREEMENT`, ...).
 
-La vista world disegna le pose fuse pubblicate su `<base_topic>/pose/<tag_id>`, **non** le ricalcola: è quindi un controllo indipendente di ciò che il server sta realmente mandando al resto del sistema. Un tag disegnato vuoto è una posa predetta o ferma da più di 1,5 s.
+The world view renders fused poses published on `<base_topic>/pose/<tag_id>` rather than recalculating them, acting as an independent monitor of what the server publishes to downstream clients. Hollow markers indicate predicted or stale poses (> 1.5 s).
 
-Il pannello si limita ad ascoltare il broker (non pubblica nulla): se il server gira su un altro PC basta puntarlo allo stesso broker e usarlo come monitor, senza premere `Start server`.
+The panel listens passively to the broker without publishing: when the server runs on a remote host, point the panel to the shared broker to monitor execution without clicking `Start server`.
 
-Diagnosi rapida della tabella:
+Quick Diagnostic Reference:
 
-| Sintomo | Causa tipica |
+| Symptom | Typical Cause |
 | --- | --- |
-| Node `●`, Server `○` | broker o `base_topic` diversi (`site`/`system_id` nel config), oppure firewall sulla porta 1883 |
-| Node `○`, Server `●` | il nodo pubblica osservazioni ma non metriche: processo in avvio o log-level alterato |
-| Entrambi `●`, età alta | orologi non sincronizzati (NTP/Chrony) o rete satura |
-| `Calibrated: no` | manca `calibrations/cam_X.json` **sul PC del server** |
-| Nota `drift: recalibrate` | la camera si è spostata: ripetere la calibrazione estrinseca |
-| World view vuota con camere online | nessun marker mobile visibile, oppure `size_m` dei marker errato (le osservazioni vengono scartate per reprojection error) |
+| Note `no vision-node is publishing for this camera` | Node not started (`make client CAMERA=cam_X`), or publishing to a different broker |
+| Node `●`, note `the webcam does not open` + `cannot open source N` | Configured source missing on this PC: device index changed. Run `vision-select-cameras --local-cameras cam_X` to save stable `/dev/v4l/by-id/...` path ([3.1](#31-visual-source-selection)) |
+| Node `●`, note `the webcam is open but delivers no frame` | Device busy by another process, or USB bandwidth exhausted (multiple 1080p uncompressed streams on single controller) |
+| Node `●`, Camera up `●`, Server `○` | Mismatched broker or `base_topic` (`site`/`system_id`), or firewall blocking port 1883 |
+| Node `○`, Server `●` | Node publishing observations but not metrics: process initializing or log level modified |
+| Both `●`, high latency / age | Clocks not synchronized via NTP/Chrony, or network congestion |
+| `calibration missing on the node PC` | Missing `calibrations/cam_X.json` **on node PC**: node performs no detection |
+| `calibration missing on the server` | Missing `calibrations/cam_X.json` **on server PC**: observations arrive but cannot be fused ([7.4](#74-docker-server-and-nodes-on-separate-pcs)) |
+| Note `drift: recalibrate` | Camera physically shifted: repeat extrinsic calibration |
+| World view empty with cameras online | No mobile markers in view, or incorrect marker `size_m` (observations rejected on reprojection threshold) |
 
-### 7.4 Docker: server e nodi su PC diversi
+### 7.4 Docker: Server and Nodes on Separate PCs
 
-Tutti i comandi Docker di questo sottoprogetto sono nel `Makefile` di questa
-cartella. Le variabili disponibili sono `CAMERA` (camera gestita dal nodo),
-`MQTT_HOST`/`MQTT_PORT` (broker visto dai container del nodo), `GUI_MQTT_HOST` e
-`CONFIG`.
+All Docker operations for VisionSystem are defined in `apps/vision/Makefile`. Key variables include `CAMERA` (target camera ID), `MQTT_HOST`/`MQTT_PORT` (broker address for node container), `GUI_MQTT_HOST`, and `CONFIG`.
 
-| Comando | Cosa fa |
+| Command | Function |
 | --- | --- |
-| `make all` | stack completo su un solo PC: broker, dashboard e il monolite `vision-localizer`, che apre tutte le camere del roster e fonde da solo |
-| `make server` | deployment distribuito, lato server: ferma il monolite e avvia broker + `vision-server` (nessuna camera aperta) |
-| `make client CAMERA=cam_0` | un nodo camera; il broker è quello dello stesso PC |
-| `make client CAMERA=cam_1 MQTT_HOST=192.168.1.10` | un nodo camera su un PC remoto, verso il broker del PC server |
-| `make gui` | pannello grafico di avvio e debug (gira sull'host, non in container) |
-| `make logs` / `make logs-client CAMERA=cam_1` | log del server / di un nodo |
-| `make ps`, `make down`, `make down-client CAMERA=cam_1` | stato e arresto |
+| `make all` | Full stack on single PC: broker, dashboard, and monolith `vision-localizer` |
+| `make server` | Distributed deployment, server side: stops monolith and starts broker + `vision-server` |
+| `make client CAMERA=cam_0` | Single camera node; broker on the same PC |
+| `make client CAMERA=cam_1 MQTT_HOST=192.168.1.10` | Remote camera node targeting server PC broker |
+| `make gui` | Host-side server launch and debug panel |
+| `make logs` / `make logs-client CAMERA=cam_1` | Logs for server / node |
+| `make ps`, `make down`, `make down-client CAMERA=cam_1` | Status and termination |
 
-Dalla root del repository esistono le scorciatoie `make vision-all`,
-`make vision-server`, `make vision-client CAMERA=... MQTT_HOST=...`, `make vision-gui`.
+Root shortcuts include `make vision-all`, `make vision-server`, `make vision-client CAMERA=... MQTT_HOST=...`, and `make vision-gui`.
 
-`make all` e `make server` sono alternativi: il monolite e il server di fusione
-pubblicherebbero le stesse pose, perciò `make server` ferma il servizio `vision`
-prima di partire.
+`make all` and `make server` are mutually exclusive: `make server` stops the `vision` monolith container before startup to avoid duplicate pose publications.
 
-#### Prerequisiti su tutti i PC
+#### Prerequisites Across All Hosts
 
 ```bash
-# 1. Orologi sincronizzati: il container eredita l'orologio dell'host
+# 1. Synchronized system clocks: Docker containers inherit host clock
 sudo apt install chrony && sudo systemctl enable --now chronyd
-chronyc tracking          # lo scarto deve restare sotto 2-3 ms
+chronyc tracking          # offset must remain strictly below 2-3 ms
 
-# 2. Stesso roster e stesso base_topic in config.local.json su ogni PC
-#    (site + system_id identici, lista `cameras` identica)
+# 2. Shared roster and base_topic in config.local.json on each PC
+#    (identical site, system_id, and cameras list)
 jq '{site, system_id, cameras: [.cameras[].id]}' config.local.json
 ```
 
-#### PC A — broker, server e nodo locale
+#### PC A — Broker, Fusion Server, and Local Node
 
 ```bash
 cd apps/vision
 
-make server                 # broker + server di fusione
-make client CAMERA=cam_0    # la camera collegata a questo PC
-make logs                   # oppure: make logs-client CAMERA=cam_0
+make server                 # broker + fusion server
+make client CAMERA=cam_0    # camera connected directly to this PC
+make logs                   # or: make logs-client CAMERA=cam_0
 
-sudo ufw allow 1883/tcp     # il broker deve essere raggiungibile dagli altri PC
-ip -4 addr show | grep inet # IP da passare ai nodi remoti
+sudo ufw allow 1883/tcp     # broker must accept connections from external nodes
+ip -4 addr show | grep inet # IP address to configure on remote nodes
 ```
 
-Il servizio `vision-server` è definito in `compose.yaml` nella root sotto il
-profilo `distributed`: non parte con `docker compose up`, solo con `make server`
-(o `docker compose --profile distributed up -d mosquitto vision-server`). Il nodo
-usa invece `compose.node.yaml` di questa cartella, con un progetto Compose per
-camera (`vision-node-<camera>`): sullo stesso PC possono convivere più nodi.
+The `vision-server` service is defined in root `compose.yaml` under profile `distributed`. The node uses `compose.node.yaml` within `apps/vision`, instantiated per camera as Compose project `vision-node-<camera>`.
 
-#### PC B — solo il nodo camera
+#### PC B — Remote Camera Node Only
 
-Su ogni PC remoto serve una copia di `apps/vision` con il **proprio**
-`config.local.json` (stesso roster del PC A) e le proprie calibrazioni; il broker
-e il server restano sul PC A.
+Each remote PC requires a copy of `apps/vision` with its **local** `config.local.json` (matching PC A's roster) and local camera calibrations; broker and server run on PC A.
 
 ```bash
 cd apps/vision
@@ -581,119 +597,106 @@ make logs-client CAMERA=cam_1 MQTT_HOST=192.168.1.10
 make down-client CAMERA=cam_1 MQTT_HOST=192.168.1.10
 ```
 
-`MQTT_HOST` serve in ogni comando perché identifica il broker del container; il
-default `host.docker.internal` vale solo quando broker e nodo stanno sullo stesso
-PC. Se sul PC B non c'è il repository, trasferire l'immagine invece di
-ricostruirla:
+`MQTT_HOST` is required for each command to point to the server broker. To deploy without git repository access on PC B, transfer the built image:
 
 ```bash
-# sul PC A
-docker save vision-node-cam_1-vision-node | ssh utente@pc-b docker load
+# On PC A
+docker save vision-node-cam_1-vision-node | ssh user@pc-b docker load
 ```
 
-#### Calibrazioni: il server le vuole tutte
+#### Calibrations: Server Requires All Extrinsics
 
-Il coordinatore ricostruisce le osservazioni usando le estrinseche presenti
-nella **sua** cartella `calibrations/`: il PC A deve quindi avere il file di ogni
-camera del roster, comprese quelle collegate ai PC remoti.
+The coordinator reconstructs observations using extrinsic matrices located in **its own** `calibrations/` directory: PC A must contain the calibration JSON for every camera in the roster, including those attached to remote PCs.
 
 ```bash
-# Opzione 1: copia diretta dal PC del nodo al PC del server
-scp calibrations/cam_1.json utente@pc-a:~/Project-Emerge-system/apps/vision/calibrations/
+# Option 1: direct copy from node PC to server PC
+scp calibrations/cam_1.json user@pc-a:~/Project-Emerge-system/apps/vision/calibrations/
 
-# Opzione 2: distribuzione via MQTT (il bridge salva il file su disco da solo)
+# Option 2: MQTT distribution (bridge automatically persists payload to disk)
 mosquitto_pub -h 192.168.1.10 -t 'vision/<site>/<system_id>/calibration/cam_1/set' \
   -q 1 -f calibrations/cam_1.json
 ```
 
-#### Verifica del deployment
+#### Deployment Verification
 
 ```bash
-# Dal PC A: pose fuse pubblicate dal server
+# From PC A: inspect fused poses published by the server
 mosquitto_sub -h localhost -t 'vision/+/+/pose/+' -v | head
 
-# Metriche del coordinatore (camere online, osservazioni ricevute)
+# Coordinator metrics (active cameras, received observation rates)
 mosquitto_sub -h localhost -t 'vision/+/+/metrics' -v | head
 
-# Pannello grafico: con il server già attivo in Docker si usa come monitor,
-# senza premere "Avvia server"
+# Launch monitoring GUI
 make gui
 ```
 
-Arresto completo:
+Clean Shutdown:
 
 ```bash
 make down                                  # broker + server (PC A)
-make down-client CAMERA=cam_0              # nodo locale
-make down-client CAMERA=cam_1 MQTT_HOST=192.168.1.10   # nodo remoto (dal PC B)
+make down-client CAMERA=cam_0              # local node
+make down-client CAMERA=cam_1 MQTT_HOST=192.168.1.10   # remote node (PC B)
 ```
 
 ---
 
-## 8. Simulatore
+## 8. Simulator
 
-### 8.1 Simulazione sintetica
+### 8.1 Synthetic Simulation
 
-Permette di testare l'intera catena distribuita (4 nodi sintetici + broker MQTT + fusion server) su una singola macchina senza telecamere collegate:
+Tests the complete distributed pipeline (4 synthetic nodes + MQTT broker + fusion server) on a single machine without attached cameras:
 
 ```bash
 uv run vision-simulate --config config.local.json
 ```
 
-- Se il broker MQTT non è attivo su `localhost:1883`, avvia automaticamente un container Docker `eclipse-mosquitto:2`.
-- Apre la finestra 2D *VisionSystem - world* mostrando la fusione del target sintetico (ID 23 di default).
-- Opzioni utili:
-  - `--tag-id 23`: ID del tag mobile simulato.
-  - `--hz 25.0`: frequenza di pubblicazione delle osservazioni.
-  - `--noise-px 0.5`: deviazione standard del rumore gaussiano sui pixel.
-  - `--broker none`: usa un broker esterno già attivo.
-  - `--keep-broker`: non ferma il container Docker all'uscita.
+- Automatically starts an `eclipse-mosquitto:2` Docker container if no broker is active at `localhost:1883`.
+- Opens a 2D visualization window (*VisionSystem - world*) rendering fused tracking for synthetic target (default ID 23).
+- Options:
+  - `--tag-id 23`: simulated mobile tag ID.
+  - `--hz 25.0`: observation publication rate.
+  - `--noise-px 0.5`: Gaussian pixel noise standard deviation.
+  - `--broker none`: use an existing external broker.
+  - `--keep-broker`: retain Docker broker container on exit.
 
-### 8.2 Simulazione live con webcam reali
+### 8.2 Live Simulation with Real Webcams
 
-Avvia 4 processi `vision-node` e il `vision-server` sulla stessa macchina collegandosi a webcam fisiche reali:
+Spawns 4 `vision-node` processes and `vision-server` locally, connecting to physical webcams:
 
 ```bash
 uv run vision-simulate --live --config config.local.json --node-debug
 ```
 
-- `--cameras cam_0 cam_1`: avvia solo un sottoinsieme di camere.
-- `--allow-low-quality`: impedisce l'esclusione automatica delle camere durante i collaudi di drift.
+- `--cameras cam_0 cam_1`: launch a subset of cameras.
+- `--allow-low-quality`: bypass automatic camera exclusion during drift tests.
 
 ---
 
-## 9. Protocollo MQTT e Configurazione
+## 9. MQTT Protocol and Configuration
 
-Base topic predefinito: `vision/<site>/<system_id>`.
+Default base topic: `vision/<site>/<system_id>`.
 
-### 9.1 Tabella dei topic
+### 9.1 Topic Table
 
-| Topic | QoS | Retained | Direzione | Descrizione |
+| Topic | QoS | Retained | Direction | Description |
 |---|:---:|:---:|:---:|---|
-| `config/set` | 1 | Sì | Inbound | Invio di una nuova configurazione completa |
-| `config/state` | 1 | Sì | Outbound | Configurazione attualmente attiva |
-| `config/result` | 1 | No | Outbound | Esito validazione (`accepted: true/false`) |
-| `calibration/<cam>/set` | 1 | Sì | Inbound | Invio di un artefatto di calibrazione |
-| `calibration/<cam>/state` | 1 | Sì | Outbound | Artefatto di calibrazione applicato |
-| `observations/<cam>` | 0 | No | Outbound (Node) | Rilevamenti ArUco grezzi del nodo |
-| `pose/<tag_id>` | 0 | No | Outbound (Server) | Posa 3D fusa del tag nel frame `world` |
-| `camera/<cam>/status` | 1 | No | Outbound | Stato connessione, FPS e calibrazione |
-| `metrics` | 0 | No | Outbound | Metriche aggregate di sistema |
-| `event` | 1 | No | Outbound | Notifiche di drift, errori e allarmi |
-| `status` | 1 | Sì | Outbound | Stato online del sistema e Last Will |
-| `/config/aruco-map` | 1 | Sì | Inbound | Mappa globale marker ArUco → device ID robot |
-| `/pose/<device_id>` | 0 | No | Outbound | Posa adattata al protocollo dashboard per i marker mappati |
+| `config/set` | 1 | Yes | Inbound | Publish full system configuration update |
+| `config/state` | 1 | Yes | Outbound | Currently active system configuration |
+| `config/result` | 1 | No | Outbound | Configuration validation outcome (`accepted: true/false`) |
+| `calibration/<cam>/set` | 1 | Yes | Inbound | Publish calibration artifact for camera |
+| `calibration/<cam>/state` | 1 | Yes | Outbound | Currently applied camera calibration artifact |
+| `observations/<cam>` | 0 | No | Outbound (Node) | Raw ArUco corner detections from node |
+| `pose/<tag_id>` | 0 | No | Outbound (Server) | Fused 3D pose in `world` frame |
+| `camera/<cam>/status` | 1 | No | Outbound | Connection state, FPS, and calibration status |
+| `metrics` | 0 | No | Outbound | Aggregate system performance metrics |
+| `event` | 1 | No | Outbound | Drift notifications, errors, and system alerts |
+| `status` | 1 | Yes | Outbound | System online status and Last Will & Testament |
+| `/config/aruco-map` | 1 | Yes | Inbound | Global mapping: ArUco marker ID → robot device ID |
+| `/pose/<device_id>` | 0 | No | Outbound | Dashboard-compatible pose for mapped markers |
 
-I topic che iniziano con `/` sono globali e non usano il base topic Vision. Per
-ogni marker mobile, `pose/<tag_id>` continua a pubblicare la posa 3D dettagliata.
-Quando `/config/aruco-map` associa quel marker a un robot, Vision pubblica anche
-`/pose/<device_id>` con i campi richiesti dalla dashboard (`x_m`, `y_m`,
-`heading_rad`, `speed_m_s`, `timestamp_us`) e con gli altri dati effettivamente
-disponibili: quota, orientamento, velocità lineare e angolare, camere coinvolte,
-errore di riproiezione e qualità. `position_variance_m2` non viene sintetizzato,
-perché VisionSystem non calcola una covarianza della posizione.
+Topics starting with `/` are global topics that omit the Vision base prefix. For each mobile tag, `pose/<tag_id>` continues publishing detailed 3D pose data. When `/config/aruco-map` associates that marker with a robot ID, Vision additionally publishes `/pose/<device_id>` formatted for dashboard telemetry (`x_m`, `y_m`, `heading_rad`, `speed_m_s`, `timestamp_us`) along with elevation, full orientation, linear/angular velocity, contributing camera IDs, reprojection error, and quality metric. `position_variance_m2` is not populated because VisionSystem does not synthesize an empirical position covariance.
 
-### 9.2 Esempio di configurazione completa
+### 9.2 Complete Configuration Example
 
 ```json
 {
@@ -755,67 +758,48 @@ perché VisionSystem non calcola una covarianza della posizione.
 }
 ```
 
-### 9.3 Target automatici e frame anchor
+### 9.3 Automatic Targets and Anchor Frame
 
-- **Target automatici (`auto_mobile_markers`)**: se abilitato, qualsiasi marker rilevato che non appartenga a `reference_markers` né a `ignored_ids` viene tracciato come marker mobile con dimensione `default_size_m`.
-- **Frame anchor (`anchor_frame`)**: vincola le posizioni dei 4 marker di riferimento chiave esattamente sui vertici del rettangolo specificato, garantendo un sistema di coordinate world ortogonale e stabile.
+- **Automatic Targets (`auto_mobile_markers`)**: When enabled, any detected marker not listed in `reference_markers` or `ignored_ids` is tracked as a mobile target using `default_size_m`.
+- **Anchor Frame (`anchor_frame`)**: Constrains the positions of the 4 primary reference markers strictly onto the corners of the specified rectangle, ensuring an orthogonal and stable world coordinate system.
 
-### 9.4 Coerenza fra camere
+### 9.4 Inter-Camera Consistency
 
-Ogni camera che vede il tag produce una propria stima in coordinate world.
-Prima di risolvere la posa congiunta la fusione confronta quelle stime fra loro
-e scarta le camere che contraddicono il consenso:
+Each camera observing a tag computes an independent estimate in world coordinates. Before solving the joint pose, fusion evaluates consensus across individual camera estimates and rejects outliers:
 
-- `max_camera_disagreement_m`: distanza massima fra la stima di una singola
-  camera e la mediana delle altre. Oltre questa soglia la camera viene esclusa
-  da quel ciclo di fusione e riportata in `rejected_by` nel payload della posa.
-- `max_fused_reprojection_error_px`: errore RMS massimo della soluzione
-  congiunta. Se le camere rimaste non sono comunque spiegabili da un'unica posa
-  rigida la posa viene scartata e il tag prosegue in dead-reckoning.
+- `max_camera_disagreement_m`: Maximum allowed distance between a single camera's estimate and the median of all other estimates. Cameras exceeding this threshold are excluded from that fusion cycle and listed under `rejected_by` in the pose message.
+- `max_fused_reprojection_error_px`: Maximum RMS reprojection error for the joint multi-camera solution. If remaining observations cannot be explained by a single rigid pose, the pose update is dropped and the tag continues on dead reckoning.
 
-Se una camera compare di continuo fra quelle scartate il problema **non** è il
-rumore: viene emesso l'evento `CAMERA_DISAGREEMENT` e le cause tipiche sono un
-`size_m` sbagliato per quel marker (anche via `auto_mobile_markers.default_size_m`)
-oppure estrinseci non più validi. Una dimensione errata sposta la stima di ogni
-camera lungo il proprio raggio visivo: presa singolarmente ogni camera sembra
-perfettamente stabile, ma le stime non si intersecano e la posa fusa oscilla.
+Frequent camera rejections indicate structural issues rather than sensor noise: a `CAMERA_DISAGREEMENT` event is emitted. Typical root causes are incorrect `size_m` (including via `auto_mobile_markers.default_size_m`) or invalid extrinsic calibration. An incorrect physical size shifts a camera's estimate along its optical axis: while each camera view appears stable in isolation, their rays do not intersect and the fused pose oscillates.
 
-### 9.5 Filtro del tracker
+### 9.5 Tracker Filter
 
-Il tracker usa di default un **One Euro Filter** sulla posizione. A target quasi
-fermo attenua il jitter, mentre durante un movimento rapido aumenta
-automaticamente la frequenza di taglio e riduce il ritardo:
+The tracker defaults to a **One Euro Filter** on 3D position. When stationary, the filter attenuates jitter; during rapid maneuvers, it automatically increases its cutoff frequency to eliminate lag:
 
-- `one_euro_min_cutoff_hz`: stabilità a riposo; aumentarlo rende il tracker più
-  reattivo ma lascia passare più rumore.
-- `one_euro_beta`: adattamento alla velocità; aumentarlo riduce il ritardo nei
-  movimenti rapidi.
-- `one_euro_derivative_cutoff_hz`: filtraggio della velocità usata sia per
-  adattare il filtro sia per le brevi predizioni quando il marker non è visibile.
+- `one_euro_min_cutoff_hz`: Quiescent baseline cutoff; higher values increase responsiveness at the expense of noise filtering.
+- `one_euro_beta`: Speed adaptation coefficient; higher values reduce lag during fast transients.
+- `one_euro_derivative_cutoff_hz`: Cutoff frequency for estimated velocity used in cutoff adaptation and dead-reckoning extrapolation.
 
-I valori iniziali `2.0`, `5.0`, `1.0` sono un profilo reattivo per acquisizioni a
-20–30 FPS. Il precedente tracker è ancora selezionabile con
-`"tracker_filter": "alpha_beta"`; in quel caso si usano
-`tracker_position_gain` e `tracker_velocity_gain`.
+The defaults (`2.0`, `5.0`, `1.0`) provide responsive tracking for 20–30 FPS video feeds. The legacy alpha-beta filter remains selectable with `"tracker_filter": "alpha_beta"`, parameterized by `tracker_position_gain` and `tracker_velocity_gain`.
 
 ---
 
-## 10. Diagnostica e Convenzioni Geometriche
+## 10. Diagnostics and Geometric Conventions
 
-- **Convenzione assi `world`**: Metri, frame destrorso con piano **XY sul pavimento** e asse **Z rivolto verso l'alto**.
-- **Orientamento**: Quaternioni espressi come `(x, y, z, w)` normalizzati.
-- **Log diagnostico strutturato**: Scritto automaticamente in `diagnostics/vision-system.jsonl` (formato JSON Lines ruotato a 20 MB). Contiene telemetria completa, controlli UVC accettati/rifiutati, condizioni delle matrici, metriche di stabilità e motivi degli scarti.
-- **Monitoraggio del drift**: Durante il runtime, se i reference marker di una camera mostrano una discrepanza superiore a 2 cm o 2° per più di 2 secondi consecutivi, la camera viene automaticamente esclusa dalla fusione e viene emesso un evento `CALIBRATION_DRIFT`.
+- **World Axis Convention**: Metric, right-handed coordinate frame with **XY on the floor** and **Z pointing upward**.
+- **Orientation**: Normalized quaternions represented as `(x, y, z, w)`.
+- **Structured Diagnostic Logging**: Written automatically to `diagnostics/vision-system.jsonl` (JSON Lines format, rotated at 20 MB). Records full telemetry, accepted/rejected UVC controls, matrix condition numbers, stability metrics, and outlier rejection causes.
+- **Drift Monitoring**: At runtime, if reference markers observed by a camera deviate by more than 2 cm or 2° for more than 2 consecutive seconds, the camera is automatically removed from fusion and a `CALIBRATION_DRIFT` event is dispatched over MQTT.
 
 ---
 
-## 11. Collaudo Fisico
+## 11. Physical Acceptance Testing
 
-La suite di test verifica la correttezza algoritmica, le matrici geometriche e i protocolli di rete:
+The test suite validates algorithmic correctness, geometric transforms, and protocol handling:
 
 ```bash
 uv run pytest
 uv run ruff check
 ```
 
-Per il collaudo in opera, verificare l'accuratezza posizionando un tag a distanze note (2, 3 e 4 metri) lungo gli assi della griglia fisica. Un errore di riproiezione pixel ridotto non sostituisce la verifica metrica a terra.
+For on-site physical acceptance, verify metric tracking accuracy by placing calibrated tags at known measured distances (2, 3, and 4 meters) along the arena floor grid. Low reprojection pixel residuals alone do not guarantee metric floor-plane accuracy.

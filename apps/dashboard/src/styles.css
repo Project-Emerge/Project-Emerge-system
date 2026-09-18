@@ -256,6 +256,12 @@ nav a.active { color: var(--text); border-bottom-color: var(--accent); }
 .theme-switcher button[aria-pressed="true"] { color: var(--text); background: var(--surface-raised); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
 .theme-switcher button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
+.language-switcher { display: inline-flex; padding: 3px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-soft); }
+.language-switcher button { border: 0; border-radius: 6px; padding: 6px 8px; color: var(--text-muted); background: transparent; font-size: 10px; font-weight: 600; text-transform: uppercase; transition: color .15s ease, background .15s ease, box-shadow .15s ease; cursor: pointer; }
+.language-switcher button:hover { color: var(--text-soft); }
+.language-switcher button[aria-pressed="true"] { color: var(--text); background: var(--surface-raised); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+.language-switcher button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .status-pill { color: var(--text-muted); border-color: var(--border); background: var(--surface-soft); }
 .status-pill.connected { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, var(--border)); }
 .status-pill.connected i { background: var(--success); }
@@ -549,6 +555,18 @@ code { color: var(--accent); }
   border-color: var(--danger);
   background: color-mix(in srgb, var(--danger) 16%, transparent);
   color: var(--danger);
+  animation: pulse-recording 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-recording {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 40%, transparent);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--danger) 0%, transparent);
+  }
 }
 
 .chat-mic:disabled {

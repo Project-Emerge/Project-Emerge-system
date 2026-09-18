@@ -41,6 +41,16 @@ def _row(**overrides):
     return CameraRow(**base)
 
 
+def _cells(row) -> dict[str, str]:
+    """The rendered row keyed by column name, so a new column moves nothing."""
+    values = presenters.roster_values(row)
+    assert len(values) == len(strings.ROSTER_COLUMNS)
+    return {
+        name: value
+        for (name, _, _), value in zip(strings.ROSTER_COLUMNS, values, strict=True)
+    }
+
+
 def test_server_indicator_distinguishes_running_stopped_and_exited():
     assert "pid 7" in presenters.indicator_texts(
         _snapshot(process_running=True, pid=7)
@@ -67,10 +77,10 @@ def test_fusion_indicator_summarises_poses_and_tags():
 
 
 def test_roster_values_follow_the_declared_column_order():
-    values = presenters.roster_values(_row())
-    assert len(values) == len(strings.ROSTER_COLUMNS)
-    assert values[0] == "cam_0"
-    assert values[6] == strings.YES
+    cells = _cells(_row())
+    assert cells["camera"] == "cam_0"
+    assert cells["calibrated"] == strings.YES
+    assert cells["received"] == "118"
 
 
 @pytest.mark.parametrize(
@@ -78,18 +88,42 @@ def test_roster_values_follow_the_declared_column_order():
     [(True, strings.YES), (False, strings.NO), (None, strings.UNKNOWN)],
 )
 def test_unknown_calibration_is_distinct_from_a_negative_one(calibrated, expected):
-    assert presenters.roster_values(_row(calibrated=calibrated))[6] == expected
+    assert _cells(_row(calibrated=calibrated))["calibrated"] == expected
 
 
 def test_missing_counters_render_as_unknown_not_zero():
-    values = presenters.roster_values(_row(node_observations=None, age_ms=None))
-    assert values[2] == strings.UNKNOWN
-    assert values[5] == strings.UNKNOWN
+    cells = _cells(_row(node_observations=None, age_ms=None))
+    assert cells["published"] == strings.UNKNOWN
+    assert cells["age"] == strings.UNKNOWN
+
+
+def test_a_node_that_does_not_report_its_capture_leaves_the_column_unknown():
+    """An older node publishes no capture field; that is not the same as a dead camera."""
+    assert _cells(_row())["capture"] == strings.UNKNOWN
+    assert _cells(_row())["frames"] == strings.UNKNOWN
+
+
+def test_the_capture_column_shows_the_state_and_the_source_the_node_opened():
+    cells = _cells(_row(capture_online=True, source=3, frames_received=412))
+    assert cells["capture"] == f"{presenters.format_flag(True)} source 3"
+    assert cells["frames"] == "412"
+
+
+def test_a_capture_failure_is_reported_verbatim_next_to_its_code():
+    """"cannot open source 3" names the device; a code alone would lose the number."""
+    row = _row(
+        issues=(CameraIssue.CAMERA_NOT_CAPTURING,),
+        capture_online=False,
+        capture_error="cannot open source 3",
+    )
+    notes = _cells(row)["issues"]
+    assert strings.ISSUE_TEXT[CameraIssue.CAMERA_NOT_CAPTURING] in notes
+    assert "cannot open source 3" in notes
 
 
 def test_issues_are_joined_in_the_order_the_model_reported_them():
     row = _row(issues=(CameraIssue.DRIFT_RECALIBRATE, CameraIssue.NODE_UP_NO_OBSERVATIONS))
-    rendered = presenters.roster_values(row)[7]
+    rendered = _cells(row)["issues"]
     assert rendered == "; ".join(
         (
             strings.ISSUE_TEXT[CameraIssue.DRIFT_RECALIBRATE],

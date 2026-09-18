@@ -80,8 +80,8 @@ function stubFetch(options: { enabled?: boolean; replies?: ChatReply[]; chatStat
 }
 
 async function ask(text: string): Promise<void> {
-  fireEvent.change(screen.getByLabelText("Message the swarm"), { target: { value: text } });
-  fireEvent.click(screen.getByLabelText("Send"));
+  fireEvent.change(screen.getByLabelText("Messaggio per lo sciame"), { target: { value: text } });
+  fireEvent.click(screen.getByLabelText("Invia"));
 }
 
 beforeEach(() => {
@@ -122,7 +122,7 @@ describe("chat dello sciame", () => {
       params: { radius: 0.6 },
       custom: null,
     });
-    expect(await screen.findByText(/Applied Circle/)).toBeInTheDocument();
+    expect(await screen.findByText(/Applicato Circle/)).toBeInTheDocument();
   });
 
   it("non pubblica nulla per una geometria inventata finche' non si conferma", async () => {
@@ -135,11 +135,11 @@ describe("chat dello sciame", () => {
     expect(await screen.findByText("Custom (Stella) around an elected leader")).toBeInTheDocument();
     expect(gateway.publish).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    fireEvent.click(screen.getByRole("button", { name: "Applica" }));
 
     await waitFor(() => expect(gateway.publish).toHaveBeenCalledTimes(1));
     expect(gateway.publish).toHaveBeenCalledWith("/config/formation", starReply.command);
-    expect(await screen.findByText(/Applied Custom \(Stella\)/)).toBeInTheDocument();
+    expect(await screen.findByText(/Applicato Custom \(Stella\)/)).toBeInTheDocument();
   });
 
   it("scartare una geometria proposta non pubblica niente", async () => {
@@ -147,11 +147,11 @@ describe("chat dello sciame", () => {
     render(<ChatPanel onClose={vi.fn()} />);
 
     await ask("disegna una stella");
-    fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ignora" }));
 
-    expect(screen.getByText(/Discarded/)).toBeInTheDocument();
+    expect(screen.getByText(/Scartato/)).toBeInTheDocument();
     expect(gateway.publish).not.toHaveBeenCalled();
-    expect(screen.queryByRole("button", { name: "Apply" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Applica" })).not.toBeInTheDocument();
   });
 
   it("annulla ripubblicando la formazione precedente", async () => {
@@ -167,12 +167,12 @@ describe("chat dello sciame", () => {
     render(<ChatPanel onClose={vi.fn()} />);
 
     await ask("cerchio");
-    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Annulla" }));
 
     await waitFor(() => expect(gateway.publish).toHaveBeenCalledTimes(2));
     expect(gateway.publish).toHaveBeenLastCalledWith("/config/formation", previous);
-    expect(await screen.findByText(/Reverted to V formation/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+    expect(await screen.findByText(/Ripristinato a Formazione a V/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Annulla" })).not.toBeInTheDocument();
   });
 
   it("annullare senza una formazione precedente ferma la flotta", async () => {
@@ -181,7 +181,7 @@ describe("chat dello sciame", () => {
     render(<ChatPanel onClose={vi.fn()} />);
 
     await ask("cerchio");
-    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Annulla" }));
 
     await waitFor(() => expect(gateway.publish).toHaveBeenCalledTimes(2));
     expect(gateway.publish).toHaveBeenLastCalledWith("/config/formation", {
@@ -215,8 +215,8 @@ describe("chat dello sciame", () => {
     render(<ChatPanel onClose={vi.fn()} />);
 
     expect(await screen.findByText(/GEMINI_API_KEY/)).toBeInTheDocument();
-    expect(screen.getByLabelText("Message the swarm")).toBeDisabled();
-    expect(screen.getByLabelText("Send")).toBeDisabled();
+    expect(screen.getByLabelText("Messaggio per lo sciame")).toBeDisabled();
+    expect(screen.getByLabelText("Invia")).toBeDisabled();
   });
 
   it("spiega perche' e' disattivata quando il gateway e' offline", async () => {
@@ -224,8 +224,8 @@ describe("chat dello sciame", () => {
     stubFetch({});
     render(<ChatPanel onClose={vi.fn()} />);
 
-    expect(await screen.findByText(/gateway is offline/)).toBeInTheDocument();
-    expect(screen.getByLabelText("Message the swarm")).toBeDisabled();
+    expect(await screen.findByText(/gateway è offline/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Messaggio per lo sciame")).toBeDisabled();
   });
 
   it("mostra l'errore del gateway senza toccare lo sciame", async () => {
@@ -245,8 +245,8 @@ describe("chat dello sciame", () => {
 
     await ask("cerchio");
 
-    expect(await screen.findByText(/Not applied: Broker non raggiungibile/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+    expect(await screen.findByText(/Applicazione non riuscita/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Annulla" })).not.toBeInTheDocument();
   });
 
   it("chiude con Escape", async () => {
@@ -263,24 +263,84 @@ describe("chat dello sciame", () => {
     stubFetch({});
     render(<ChatPanel onClose={vi.fn()} />);
 
-    expect(screen.queryByLabelText("Speak to the swarm")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Parla allo sciame")).not.toBeInTheDocument();
   });
 
-  it("mette la trascrizione nel campo di testo invece di inviarla", async () => {
-    // Sentire "spread out" al posto di "stop" deve costare una correzione, non una manovra.
+  it("invia direttamente il messaggio dopo la trascrizione della registrazione vocale", async () => {
     voice.isVoiceSupported.mockReturnValue(true);
     const stop = vi.fn().mockResolvedValue(new Blob(["audio"], { type: "audio/webm" }));
     voice.startRecording.mockResolvedValue({ stop, cancel: vi.fn() });
-    stubFetch({});
+    stubFetch({ replies: [circleReply] });
     render(<ChatPanel onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByLabelText("Speak to the swarm"));
-    await waitFor(() => expect(screen.getByLabelText("Stop recording")).toBeInTheDocument());
-    fireEvent.click(screen.getByLabelText("Stop recording"));
+    fireEvent.click(screen.getByLabelText("Parla allo sciame"));
+    await waitFor(() => expect(screen.getByLabelText("Ferma registrazione")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("Ferma registrazione"));
 
     await waitFor(() =>
-      expect(screen.getByLabelText("Message the swarm")).toHaveValue("ferma tutti"),
+      expect(screen.getByText("ferma tutti")).toBeInTheDocument(),
     );
+    await screen.findByText("Ho messo tutti in cerchio.");
+    expect(gateway.publish).toHaveBeenCalledWith(
+      "/config/formation",
+      circleReply.command,
+    );
+  });
+
+  it("invia automaticamente il messaggio quando scatta onAutoStop per silenzio o timer", async () => {
+    voice.isVoiceSupported.mockReturnValue(true);
+    const stop = vi.fn().mockResolvedValue(new Blob(["audio"], { type: "audio/webm" }));
+    let autoStopCallback: (() => void) | undefined;
+    voice.startRecording.mockImplementation((options?: { onAutoStop?: () => void }) => {
+      autoStopCallback = options?.onAutoStop;
+      return Promise.resolve({ stop, cancel: vi.fn() });
+    });
+    stubFetch({ replies: [circleReply] });
+    render(<ChatPanel onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText("Parla allo sciame"));
+    await waitFor(() => expect(screen.getByLabelText("Ferma registrazione")).toBeInTheDocument());
+
+    autoStopCallback?.();
+
+    await waitFor(() =>
+      expect(screen.getByText("ferma tutti")).toBeInTheDocument(),
+    );
+    await screen.findByText("Ho messo tutti in cerchio.");
+    expect(gateway.publish).toHaveBeenCalledWith(
+      "/config/formation",
+      circleReply.command,
+    );
+  });
+
+  it("mostra un errore e non invia nulla se la trascrizione e' vuota", async () => {
+    voice.isVoiceSupported.mockReturnValue(true);
+    const stop = vi.fn().mockResolvedValue(new Blob(["audio"], { type: "audio/webm" }));
+    voice.startRecording.mockResolvedValue({ stop, cancel: vi.fn() });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/chat/status") {
+        return new Response(JSON.stringify({ enabled: true, model: "gemini-2.5-flash" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url === "/api/chat/transcribe") {
+        return new Response(JSON.stringify({ text: "" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ChatPanel onClose={vi.fn()} />);
+    fireEvent.click(screen.getByLabelText("Parla allo sciame"));
+    await waitFor(() => expect(screen.getByLabelText("Ferma registrazione")).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText("Ferma registrazione"));
+
+    await screen.findByText("Non ho capito. Riprova, oppure digita.");
     expect(gateway.publish).not.toHaveBeenCalled();
   });
 

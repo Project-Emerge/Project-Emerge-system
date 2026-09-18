@@ -23,13 +23,13 @@ describe("pagina configurazione", () => {
     render(<ConfigurationPage />);
 
     fireEvent.change(screen.getByLabelText("Maximum speed"), { target: { value: "1.25" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save for all robots" }));
+    fireEvent.click(screen.getByRole("button", { name: "Salva per tutti i robot" }));
 
     await waitFor(() => expect(gateway.publish).toHaveBeenCalledWith("/config/motors", {
       motors: { ema_filter_alpha: 0.1, max_speed: 1.25 },
     }));
     expect(gateway.publish).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("Settings saved for the whole fleet.")).toBeInTheDocument();
+    expect(screen.getByText("Impostazioni salvate per l'intera flotta.")).toBeInTheDocument();
     expect(JSON.parse(window.localStorage.getItem("project-emerge-motor-settings")!)).toEqual({
       emaEnabled: true,
       emaAlpha: 0.1,
@@ -72,7 +72,7 @@ describe("pagina configurazione", () => {
     fireEvent.change(screen.getByLabelText("OTA server"), { target: { value: "192.168.8.1:8787" } });
     fireEvent.change(screen.getByLabelText("Firmware version"), { target: { value: "0.3.1" } });
     fireEvent.change(screen.getByLabelText("Firmware image"), { target: { files: [new File(["firmware"], "dropbot.bin", { type: "application/octet-stream" })] } });
-    fireEvent.click(screen.getByRole("button", { name: "Upload & update fleet" }));
+    fireEvent.click(screen.getByRole("button", { name: "Carica e aggiorna flotta" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/firmware/latest", expect.objectContaining({
       method: "POST",
@@ -81,11 +81,11 @@ describe("pagina configurazione", () => {
     await waitFor(() => expect(gateway.publish).toHaveBeenNthCalledWith(1, "/config/ota", { server: "192.168.8.1:8787" }));
     await waitFor(() => expect(gateway.publish).toHaveBeenCalledWith("/ota/check/A1B2C3", {}));
     expect(gateway.publish).toHaveBeenCalledWith("/ota/check/D4E5F6", {});
-    expect(screen.getByText("Firmware uploaded; update requested for all 2 robots.")).toBeInTheDocument();
+    expect(screen.getByText("Firmware caricato; aggiornamento richiesto per tutti i 2 robot.")).toBeInTheDocument();
   });
 
   it("compone il pannello di mappatura marker ArUco", () => {
     render(<ConfigurationPage />);
-    expect(screen.getByText("Marker mapping")).toBeInTheDocument();
+    expect(screen.getByText("Mappatura marker")).toBeInTheDocument();
   });
 });

@@ -30,10 +30,11 @@ STEP_PREFIX: Final = "{index} {title}"
 # --------------------------------------------------------------------- tables
 UNKNOWN: Final = "—"
 ROSTER_COLUMNS: Final = (
-    ("camera", "Camera", 100),
-    ("source", "Source", 110),
-    ("status", "Status", 130),
-    ("note", "Note", 320),
+    ("camera", "Camera", 90),
+    ("where", "Attached to", 110),
+    ("source", "Source", 180),
+    ("status", "Status", 120),
+    ("note", "Note", 300),
 )
 INTRINSICS_COLUMNS: Final = (
     ("camera", "Camera", 100),
@@ -51,6 +52,8 @@ EXTRINSICS_COLUMNS: Final = (
     ("note", "Note", 260),
 )
 
+WHERE_LOCAL: Final = "this PC"
+WHERE_REMOTE: Final = "another PC"
 STATUS_OK: Final = "ok"
 STATUS_MISSING: Final = "missing"
 STATUS_STALE: Final = "stale"
@@ -99,7 +102,15 @@ COVERAGE_COMPLETE: Final = "Coverage complete"
 NOTICE_TEXT: Final[dict[NoticeCode, str]] = {
     NoticeCode.NO_CONFIG: "[gui] select a configuration file first",
     NoticeCode.CONFIG_UNREADABLE: "[gui] configuration unreadable: {error}",
-    NoticeCode.REFRESHED: "[gui] calibration state reloaded (cameras: {cameras})",
+    NoticeCode.CONFIG_ABSENT: (
+        "[gui] {path} does not exist yet — set the deployment up in step 1 to create it"
+    ),
+    NoticeCode.REFRESHED: (
+        "[gui] calibration state reloaded (deployment: {cameras} · this PC: {local})"
+    ),
+    NoticeCode.SETUP_UNREADABLE: (
+        "[gui] deployment setup unreadable ({error}); using the single-PC defaults"
+    ),
     NoticeCode.STEP_BLOCKED: "[gui] {reason}",
     NoticeCode.ACTION_BLOCKED: "[gui] {reason}",
     NoticeCode.ALREADY_BUSY: "[gui] another operation is already running",
@@ -173,9 +184,12 @@ def camera_note(camera: CameraStatus, *, board_format: str) -> str:
     return ""
 
 
-def roster_values(camera: CameraStatus, *, board_format: str) -> tuple[str, ...]:
+def roster_values(
+    camera: CameraStatus, *, board_format: str, local: bool = True
+) -> tuple[str, ...]:
     return (
         camera.camera_id,
+        WHERE_LOCAL if local else WHERE_REMOTE,
         str(camera.source),
         intrinsic_status(camera),
         camera_note(camera, board_format=board_format),
@@ -220,15 +234,32 @@ TABLE_ROWS: Final = {
 
 
 def table_rows(kind: str, overview: CalibrationOverview) -> list[tuple[str, ...]]:
-    """Render the table a step asked for, over the configured roster."""
+    """Render the table a step asked for, over the configured roster.
+
+    The roster shows the whole deployment, remote cameras included, because
+    "which cameras exist" is the question step 1 answers. The calibration tables
+    show only the cameras this PC can actually calibrate.
+    """
     render = TABLE_ROWS[kind]
-    return [render(camera, board_format=overview.board_format) for camera in overview.cameras]
+    if kind == "roster":
+        return [
+            render(
+                camera,
+                board_format=overview.board_format,
+                local=overview.is_local(camera.camera_id),
+            )
+            for camera in overview.cameras
+        ]
+    return [
+        render(camera, board_format=overview.board_format)
+        for camera in overview.local().cameras
+    ]
 
 
 def format_notice(notice: Notice) -> str:
     """Word a notice code. Every code must have an entry, so a miss raises KeyError."""
     fields = dict(notice.fields)
-    for key in ("cameras", "titles"):
+    for key in ("cameras", "titles", "local"):
         value = fields.get(key)
         if isinstance(value, Sequence) and not isinstance(value, str):
             fields[key] = ", ".join(str(item) for item in value) or UNKNOWN

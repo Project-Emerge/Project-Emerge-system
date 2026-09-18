@@ -260,7 +260,9 @@ class VisionCoordinator:
 
 def coordinator_main() -> None:
     parser = argparse.ArgumentParser(
-        description="VisionSystem fusion server: riceve osservazioni dai nodi e pubblica pose"
+        description=(
+            "VisionSystem fusion server: receives observations from nodes and publishes poses"
+        )
     )
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument(

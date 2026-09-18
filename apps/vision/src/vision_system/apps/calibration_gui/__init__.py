@@ -20,6 +20,7 @@ import signal
 from collections.abc import Sequence
 from pathlib import Path
 
+from ...core.setup import MAX_CAMERAS, load_setup, load_template, save_setup
 from ...gui.toolkit import GuiUnavailable, load_toolkit
 from ...transport.diagnostics import configure_diagnostics
 from .controller import CalibrationController
@@ -28,6 +29,7 @@ from .settings import (
     DEFAULT_CACHE,
     DEFAULT_CALIBRATIONS,
     DEFAULT_PHOTO_ROOT,
+    DEFAULT_TEMPLATE,
     GuiSettings,
 )
 from .status import CalibrationOverview, CameraStatus, describe_calibrations
@@ -43,6 +45,7 @@ __all__ = [
     "build_parser",
     "calibration_gui_main",
     "describe_calibrations",
+    "force_roster",
     "parse_args",
 ]
 
@@ -55,6 +58,12 @@ DESCRIPTION = (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=DESCRIPTION)
     parser.add_argument("--config", type=Path, help="configuration the panel works on")
+    parser.add_argument(
+        "--base",
+        type=Path,
+        default=DEFAULT_TEMPLATE,
+        help="example configuration a new roster and every added camera are cut from",
+    )
     parser.add_argument("--cache", type=Path, default=DEFAULT_CACHE)
     parser.add_argument("--calibrations", type=Path, default=DEFAULT_CALIBRATIONS)
     parser.add_argument("--board-format", choices=("a4", "a3"), default="a4")
@@ -67,6 +76,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--reference-markers", type=Path, help="reference marker file used by the extrinsics"
+    )
+    parser.add_argument(
+        "--cameras",
+        nargs="+",
+        metavar="CAM_ID",
+        help=(
+            "force the shared roster before the panel opens, rewriting the "
+            f"configuration: their ids (--cameras cam_2 cam_3) or how many "
+            f"(--cameras 4, up to {MAX_CAMERAS}). Without it the roster is "
+            "whatever the configuration already says"
+        ),
     )
     parser.add_argument(
         "--publish-mqtt",
@@ -82,19 +102,49 @@ def parse_args(argv: Sequence[str] | None = None) -> GuiSettings:
     args = build_parser().parse_args(argv)
     return GuiSettings(
         config_path=args.config,
+        template_path=args.base,
         cache_path=args.cache,
         calibrations_dir=args.calibrations,
         board_format=args.board_format,
         board_output=args.board_output,
         photo_root=args.photo_root,
         reference_markers_path=args.reference_markers,
+        roster=tuple(args.cameras or ()),
         mqtt_enabled=args.publish_mqtt,
         verbose=args.verbose,
     )
 
 
+def force_roster(settings: GuiSettings) -> None:
+    """Apply ``--cameras`` by resizing the roster on disk, before the panel opens.
+
+    Everything the panel shows is derived from the configuration, so forcing the
+    roster means writing it there: the same save step 1 performs, minus the
+    clicking — cameras added included, which come from ``--base`` exactly as they
+    would in the panel. Naming ids replaces the roster with exactly those; a
+    count keeps the cameras already configured and fills up from ``cam_0``. This
+    is a --force, not a merge, and the local selection is re-validated by
+    ``save_setup``.
+    """
+    if not settings.roster:
+        return
+    if settings.config_path is None:
+        raise SystemExit("--cameras needs --config: the roster lives in that file")
+    try:
+        config = save_setup(
+            settings.config_path,
+            load_setup(settings.config_path),
+            list(settings.roster),
+            template=load_template(settings.template_path, settings.config_path),
+        )
+    except ValueError as error:
+        raise SystemExit(f"--cameras: {error}") from error
+    print(f"Roster forced to: {', '.join(camera.id for camera in config.cameras)}")
+
+
 def calibration_gui_main(argv: Sequence[str] | None = None) -> None:
     settings = parse_args(argv)
+    force_roster(settings)
     diagnostic_path = configure_diagnostics("vision-calibrate-gui", verbose=settings.verbose)
     print(f"Diagnostic log: {diagnostic_path}")
     # A missing toolkit or display is an environment problem, not a typo in the

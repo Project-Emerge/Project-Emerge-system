@@ -100,10 +100,11 @@ class FieldForm:
         self.variables: dict[str, Any] = {}
         self._rendered: tuple[str, ...] = ()
 
-    def show(self, fields) -> None:
+    def show(self, fields) -> bool:
+        """Rebuild the form when the step changed it. True when it was rebuilt."""
         signature = tuple(field.id for field in fields)
         if signature == self._rendered:
-            return
+            return False
         self._rendered = signature
         for child in self.frame.winfo_children():
             child.destroy()
@@ -136,6 +137,17 @@ class FieldForm:
                 ttk.Label(self.frame, text=field.help, foreground="#6b7680").grid(
                     row=row, column=2, sticky="w", padx=6
                 )
+        return True
+
+    def seed(self, values: dict[str, str]) -> None:
+        """Fill freshly built fields with what is already saved.
+
+        Only on a rebuild: doing it every frame would fight the operator for the
+        keyboard, overwriting each character as it is typed.
+        """
+        for name, value in values.items():
+            if name in self.variables:
+                self.variables[name].set(value)
 
     def values(self) -> dict[str, object]:
         return {name: variable.get() for name, variable in self.variables.items()}

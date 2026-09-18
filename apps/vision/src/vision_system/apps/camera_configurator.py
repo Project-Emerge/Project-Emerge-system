@@ -6,6 +6,7 @@ import argparse
 import logging
 import math
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,6 +15,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ..core.config import AppConfig, CameraConfig, load_config, save_json
+from ..core.setup import select_cameras
 from ..pipeline.capture import apply_camera_properties, apply_digital_zoom, open_video_capture
 from ..transport.diagnostics import configure_diagnostics, event
 from ..transport.mqtt import publish_config_update
@@ -61,9 +63,13 @@ def _placeholder(camera: CameraConfig, text: str) -> NDArray[np.uint8]:
     return frame
 
 
-def open_camera_panels(config: AppConfig, timeout_s: float = 2.0) -> list[CameraPanel]:
+def open_camera_panels(
+    config: AppConfig,
+    timeout_s: float = 2.0,
+    camera_ids: Sequence[str] | None = None,
+) -> list[CameraPanel]:
     panels: list[CameraPanel] = []
-    for camera in config.cameras:
+    for camera in select_cameras(config, camera_ids):
         capture = open_video_capture(camera.source)
         # Apply native UVC properties only. The digital crop is previewed below,
         # so changing it remains instantaneous and independent of the hardware.
@@ -103,19 +109,29 @@ def open_camera_panels(config: AppConfig, timeout_s: float = 2.0) -> list[Camera
 
 
 def build_camera_settings_config(base: AppConfig, digital_zooms: dict[str, float]) -> AppConfig:
+    """Apply the adjusted crops, leaving every camera not tuned here untouched.
+
+    A subset is the normal case now: on a PC that owns two of the four webcams,
+    the other two are not open and their field of view is that other PC's to set.
+    """
     expected = {camera.id for camera in base.cameras}
-    if set(digital_zooms) != expected:
-        raise ValueError("digital zoom settings must be supplied for all four cameras")
+    if not digital_zooms:
+        raise ValueError("no camera was configured")
+    if unknown := sorted(set(digital_zooms) - expected):
+        raise ValueError(f"not in the configuration: {', '.join(unknown)}")
     cameras = [
         camera.model_copy(update={"digital_zoom": digital_zooms[camera.id]})
+        if camera.id in digital_zooms
+        else camera
         for camera in base.cameras
     ]
     return base.model_copy(update={"cameras": cameras, "revision": base.revision + 1})
 
 
 class CameraConfigurator:
-    def __init__(self, base: AppConfig) -> None:
+    def __init__(self, base: AppConfig, camera_ids: Sequence[str] | None = None) -> None:
         self.base = base
+        self.camera_ids = None if camera_ids is None else list(camera_ids)
         self.panels: list[CameraPanel] = []
         self.selected_index = 0
         self.message = "N imposta un FOV normale; W ripristina tutto il grandangolo"
@@ -223,7 +239,7 @@ class CameraConfigurator:
         return image
 
     def run(self) -> AppConfig | None:
-        self.panels = open_camera_panels(self.base)
+        self.panels = open_camera_panels(self.base, camera_ids=self.camera_ids)
         cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
         cv2.setMouseCallback(WINDOW_NAME, self._mouse)
         try:
@@ -293,12 +309,13 @@ def configure_cameras(
     config_path: Path,
     output: Path | None = None,
     force: bool = False,
+    camera_ids: Sequence[str] | None = None,
 ) -> tuple[AppConfig | None, Path]:
     destination = output or config_path
     if destination != config_path and destination.exists() and not force:
         raise FileExistsError(f"{destination} exists; use --force to overwrite it")
     base = load_config(config_path)
-    result = CameraConfigurator(base).run()
+    result = CameraConfigurator(base, camera_ids).run()
     if result is not None:
         save_json(destination, result)
         event(
@@ -313,7 +330,7 @@ def configure_cameras(
 
 def camera_configurator_main() -> None:
     parser = argparse.ArgumentParser(
-        description="Configura visualmente il campo visivo software delle camere"
+        description="Visually configure the software field of view for cameras"
     )
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output", type=Path, help="default: sovrascrive --config")
@@ -324,11 +341,19 @@ def camera_configurator_main() -> None:
         help="pubblica anche la configurazione completa su config/set",
     )
     parser.add_argument("--mqtt-timeout", type=float, default=5.0)
+    parser.add_argument(
+        "--cameras",
+        nargs="+",
+        metavar="CAM_ID",
+        help="camere da regolare (default: tutte); le altre restano invariate",
+    )
     args = parser.parse_args()
     diagnostic_path = configure_diagnostics("vision-configure-cameras")
     print(f"Log diagnostico: {diagnostic_path}")
     try:
-        result, destination = configure_cameras(args.config, args.output, args.force)
+        result, destination = configure_cameras(
+            args.config, args.output, args.force, args.cameras
+        )
     except (FileExistsError, OSError, ValueError) as error:
         parser.error(str(error))
     if result is None:

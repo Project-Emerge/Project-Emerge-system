@@ -27,6 +27,31 @@ def describe_issues(issues: Sequence[CameraIssue]) -> str:
     return "; ".join(strings.ISSUE_TEXT[issue] for issue in issues)
 
 
+def describe_row_notes(row: CameraRow) -> str:
+    """The issues, plus the capture error verbatim when the node reported one.
+
+    The raw message is what identifies the fault — "cannot open source 3" names
+    the device that is not there — so it is passed through rather than folded
+    into a code that would lose the number.
+    """
+    issues = describe_issues(row.issues)
+    if not row.capture_error:
+        return issues
+    if not issues:
+        return row.capture_error
+    return strings.CAPTURE_ERROR.format(issues=issues, error=row.capture_error)
+
+
+def format_capture(row: CameraRow) -> str:
+    """The webcam column: its state, and which source the node actually opened."""
+    if row.capture_online is None:
+        return strings.UNKNOWN
+    state = format_flag(row.capture_online)
+    if row.source is None:
+        return state
+    return f"{state} {strings.CAPTURE_SOURCE.format(source=row.source)}"
+
+
 def describe_message(message: DeploymentMessage) -> str | None:
     """The console line a message deserves, or None when it is not worth logging."""
     if isinstance(message, DeploymentEvent):
@@ -91,12 +116,14 @@ def roster_values(row: CameraRow) -> tuple[str, ...]:
     return (
         row.camera_id,
         format_flag(row.node_online),
+        format_capture(row),
+        format_optional(row.frames_received),
         format_optional(row.node_observations),
         format_flag(row.server_online),
         format_optional(row.observations_received),
         format_optional(row.age_ms),
         format_calibrated(row.calibrated),
-        describe_issues(row.issues),
+        describe_row_notes(row),
     )
 
 

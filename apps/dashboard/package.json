@@ -10,8 +10,8 @@
     "typecheck": "tsc -b",
     "build": "npm run typecheck && vite build && tsc -p tsconfig.server.json",
     "start": "node server-dist/server/index.js",
-    "test": "NODE_OPTIONS=--no-experimental-webstorage vitest run",
-    "test:watch": "NODE_OPTIONS=--no-experimental-webstorage vitest"
+    "test": "NODE_OPTIONS=\"-r ./src/test/node-compat.cjs\" vitest run",
+    "test:watch": "NODE_OPTIONS=\"-r ./src/test/node-compat.cjs\" vitest"
   },
   "dependencies": {
     "@langchain/core": "^1.2.9",

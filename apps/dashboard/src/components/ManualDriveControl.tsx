@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { motorCommandTopic, type MotorCommand } from "../../shared/protocol";
 import { useGatewayClient } from "../services/gateway-context";
+import { useLocale } from "../services/locale-context";
 import { isRobotStale, useDashboardStore } from "../store/dashboard-store";
 
 type JoystickPosition = { x: number; y: number };
@@ -43,6 +44,7 @@ function wheelValues(command: MotorCommand): { left: number; right: number } {
 
 export function ManualDriveControl({ now }: { now: number }): React.JSX.Element {
   const gateway = useGatewayClient();
+  const { t } = useLocale();
   const connectionStatus = useDashboardStore((state) => state.connectionStatus);
   const selectedRobotId = useDashboardStore((state) => state.selectedRobotId);
   const selectedRobot = useDashboardStore((state) => selectedRobotId ? state.robots[selectedRobotId] : undefined);
@@ -60,9 +62,9 @@ export function ManualDriveControl({ now }: { now: number }): React.JSX.Element 
 
   const publish = useCallback((robotId: string, nextCommand: MotorCommand) => {
     void gateway.publish(motorCommandTopic(robotId), nextCommand).catch((reason: unknown) => {
-      setError(reason instanceof Error ? reason.message : "Motor command failed");
+      setError(reason instanceof Error ? reason.message : t.manualDrive.motorCommandFailed);
     });
-  }, [gateway]);
+  }, [gateway, t]);
 
   const resetInput = useCallback(() => {
     positionRef.current = CENTER;
@@ -182,31 +184,31 @@ export function ManualDriveControl({ now }: { now: number }): React.JSX.Element 
   };
 
   const modeHint = controlMode === "joystick"
-    ? "Drag up to move; drag sideways to steer."
-    : "Use forward/reverse and turn together or independently.";
+    ? t.manualDrive.dragJoystickHint
+    : t.manualDrive.dualHint;
 
   const availability = !selectedRobotId
-    ? "Select a robot on the map or in the fleet."
+    ? t.manualDrive.selectRobotPrompt
     : connectionStatus !== "connected"
-      ? "Manual control is unavailable while MQTT is offline."
+      ? t.manualDrive.mqttOfflineHint
       : !canControl
-        ? "The selected robot is not reachable."
+        ? t.manualDrive.robotUnreachableHint
         : modeHint;
 
   return (
-    <section className="manual-drive" aria-label="Manual robot control">
+    <section className="manual-drive" aria-label={t.manualDrive.ariaControl}>
       <div className="manual-drive-heading">
-        <div><span className="eyebrow">Manual control</span><strong>{selectedRobotId ?? "No robot selected"}</strong></div>
-        <span className="drive-rate">10 Hz</span>
+        <div><span className="eyebrow">{t.manualDrive.manualControl}</span><strong>{selectedRobotId ?? t.manualDrive.noRobotSelected}</strong></div>
+        <span className="drive-rate">{t.manualDrive.rate}</span>
       </div>
-      <div className="drive-mode-picker" role="group" aria-label="Control mode">
-        <button type="button" aria-pressed={controlMode === "joystick"} onClick={() => onModeChange("joystick")}>Joystick</button>
-        <button type="button" aria-pressed={controlMode === "dual"} onClick={() => onModeChange("dual")}>Dual control</button>
+      <div className="drive-mode-picker" role="group" aria-label={t.manualDrive.ariaMode}>
+        <button type="button" aria-pressed={controlMode === "joystick"} onClick={() => onModeChange("joystick")}>{t.manualDrive.joystick}</button>
+        <button type="button" aria-pressed={controlMode === "dual"} onClick={() => onModeChange("dual")}>{t.manualDrive.dualControl}</button>
       </div>
       {controlMode === "joystick" ? (
         <div
           className={`joystick-base${engaged ? " engaged" : ""}${canControl ? "" : " disabled"}`}
-          aria-label="Drive joystick"
+          aria-label={t.manualDrive.ariaJoystick}
           aria-disabled={!canControl}
           onPointerDown={(event) => onPointerDown("joystick", event)}
           onPointerMove={(event) => onPointerMove("joystick", event)}
@@ -220,10 +222,10 @@ export function ManualDriveControl({ now }: { now: number }): React.JSX.Element 
       ) : (
         <div className="dual-controller-view">
           <div className="dual-controller">
-            <span>Forward / reverse</span>
+            <span>{t.manualDrive.forwardReverse}</span>
             <div
               className={`axis-controller throttle${activePointersRef.current.throttle !== null ? " engaged" : ""}${canControl ? "" : " disabled"}`}
-              aria-label="Forward reverse controller"
+              aria-label={t.manualDrive.ariaThrottle}
               aria-disabled={!canControl}
               onPointerDown={(event) => onPointerDown("throttle", event)}
               onPointerMove={(event) => onPointerMove("throttle", event)}
@@ -235,10 +237,10 @@ export function ManualDriveControl({ now }: { now: number }): React.JSX.Element 
             </div>
           </div>
           <div className="dual-controller">
-            <span>Turn</span>
+            <span>{t.manualDrive.turn}</span>
             <div
               className={`axis-controller turn${activePointersRef.current.turn !== null ? " engaged" : ""}${canControl ? "" : " disabled"}`}
-              aria-label="Turn controller"
+              aria-label={t.manualDrive.ariaTurn}
               aria-disabled={!canControl}
               onPointerDown={(event) => onPointerDown("turn", event)}
               onPointerMove={(event) => onPointerMove("turn", event)}
@@ -251,13 +253,13 @@ export function ManualDriveControl({ now }: { now: number }): React.JSX.Element 
           </div>
         </div>
       )}
-      <div className="wheel-output" aria-label="Wheel command preview">
-        <span>Left <strong>{wheels.left.toFixed(2)}</strong></span>
-        <span>Right <strong>{wheels.right.toFixed(2)}</strong></span>
+      <div className="wheel-output" aria-label={t.manualDrive.ariaWheelPreview}>
+        <span>{t.manualDrive.left} <strong>{wheels.left.toFixed(2)}</strong></span>
+        <span>{t.manualDrive.right} <strong>{wheels.right.toFixed(2)}</strong></span>
       </div>
       <div className="manual-drive-footer">
         <p className={error ? "drive-message error" : "drive-message"}>{error ?? availability}</p>
-        <button type="button" className="drive-stop" disabled={!selectedRobotId || connectionStatus !== "connected"} onClick={() => stopControl(true)}>Stop</button>
+        <button type="button" className="drive-stop" disabled={!selectedRobotId || connectionStatus !== "connected"} onClick={() => stopControl(true)}>{t.manualDrive.stop}</button>
       </div>
     </section>
   );

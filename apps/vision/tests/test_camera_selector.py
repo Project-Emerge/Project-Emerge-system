@@ -163,7 +163,7 @@ def test_sources_must_be_unique() -> None:
 
 def test_single_camera_selection_updates_only_one_slot() -> None:
     base = AppConfig(revision=3, site="factory")
-    result = build_camera_config(base, {2: 9}, only_index=2)
+    result = build_camera_config(base, {2: 9}, owned=[2])
     assert result.revision == 4
     assert result.site == "factory"
     assert [camera.source for camera in result.cameras] == [5, 1, 9, 4]
@@ -171,9 +171,35 @@ def test_single_camera_selection_updates_only_one_slot() -> None:
 
 def test_single_camera_selection_requires_exactly_that_slot() -> None:
     with pytest.raises(ValueError, match="cam_2"):
-        build_camera_config(AppConfig(), {1: 3}, only_index=2)
+        build_camera_config(AppConfig(), {1: 3}, owned=[2])
+    with pytest.raises(ValueError, match="this PC"):
+        build_camera_config(AppConfig(), {0: 3, 2: 4}, owned=[2])
+
+
+def test_two_local_webcams_keep_the_cameras_the_other_pcs_own() -> None:
+    """The 1+2+1 case: this PC assigns cam_1 and cam_2, nobody loses cam_0/cam_3."""
+    base = AppConfig(revision=2)
+    result = build_camera_config(base, {1: 0, 2: 2}, owned=[1, 2])
+    assert [camera.id for camera in result.cameras] == ["cam_0", "cam_1", "cam_2", "cam_3"]
+    assert [camera.source for camera in result.cameras] == [5, 0, 2, 4]
+    assert result.revision == 3
+
+
+def test_local_webcams_must_all_be_assigned_before_saving() -> None:
     with pytest.raises(ValueError, match="cam_2"):
-        build_camera_config(AppConfig(), {0: 3, 2: 4}, only_index=2)
+        build_camera_config(AppConfig(), {1: 7}, owned=[1, 2])
+
+
+def test_two_local_webcams_cannot_share_one_source() -> None:
+    with pytest.raises(ValueError, match="different"):
+        build_camera_config(AppConfig(), {1: 7, 2: 7}, owned=[1, 2])
+
+
+def test_owned_indices_resolve_ids_in_roster_order() -> None:
+    assert camera_selector.owned_indices(AppConfig(), ["cam_2", "cam_1"]) == (1, 2)
+    assert camera_selector.owned_indices(AppConfig(), None) is None
+    with pytest.raises(ValueError, match="cam_9"):
+        camera_selector.owned_indices(AppConfig(), ["cam_9"])
 
 
 def test_roster_keeps_only_requested_cameras() -> None:
@@ -205,7 +231,7 @@ def test_two_camera_roster_assigns_both_slots() -> None:
 
 def test_distributed_two_camera_roster_updates_only_its_own_slot() -> None:
     base = camera_selector.resolve_camera_roster(AppConfig(), ["cam_0", "cam_1"])
-    result = build_camera_config(base, {1: 7}, only_index=1)
+    result = build_camera_config(base, {1: 7}, owned=[1])
     assert [camera.id for camera in result.cameras] == ["cam_0", "cam_1"]
     assert [camera.source for camera in result.cameras] == [5, 7]
 
@@ -214,22 +240,50 @@ def test_select_camera_config_applies_the_roster(monkeypatch, tmp_path) -> None:
     captured: dict[str, object] = {}
 
     class FakeSelector:
-        def __init__(self, base, sources, max_index, only_index) -> None:
+        def __init__(self, base, sources, max_index, owned) -> None:
             captured["camera_ids"] = [camera.id for camera in base.cameras]
-            captured["only_index"] = only_index
+            captured["owned"] = owned
             self.base = base
 
         def run(self):
-            return build_camera_config(self.base, {1: 7}, only_index=1)
+            return build_camera_config(self.base, {1: 7}, owned=[1])
 
     monkeypatch.setattr(camera_selector, "CameraSelector", FakeSelector)
     output = tmp_path / "config.local.json"
 
     result = camera_selector.select_camera_config(
-        output, camera_id="cam_1", camera_ids=["cam_0", "cam_1"]
+        output,
+        camera_id="cam_1",
+        camera_ids=["cam_0", "cam_1"],
+        stable_sources=False,
     )
 
-    assert captured == {"camera_ids": ["cam_0", "cam_1"], "only_index": 1}
+    assert captured == {"camera_ids": ["cam_0", "cam_1"], "owned": (1,)}
     assert result is not None
     assert [camera.id for camera in result.cameras] == ["cam_0", "cam_1"]
     assert output.exists()
+
+
+def test_local_cameras_keep_the_whole_roster_on_disk(monkeypatch, tmp_path) -> None:
+    """--local-cameras is the flag the panel uses: it assigns without evicting."""
+    captured: dict[str, object] = {}
+
+    class FakeSelector:
+        def __init__(self, base, sources, max_index, owned) -> None:
+            captured["owned"] = owned
+            self.base = base
+
+        def run(self):
+            return build_camera_config(self.base, {1: 0, 2: 2}, owned=[1, 2])
+
+    monkeypatch.setattr(camera_selector, "CameraSelector", FakeSelector)
+    output = tmp_path / "config.local.json"
+
+    result = camera_selector.select_camera_config(
+        output, local_camera_ids=["cam_1", "cam_2"], stable_sources=False
+    )
+
+    assert captured["owned"] == (1, 2)
+    assert result is not None
+    assert [camera.id for camera in result.cameras] == ["cam_0", "cam_1", "cam_2", "cam_3"]
+    assert [camera.source for camera in result.cameras] == [5, 0, 2, 4]

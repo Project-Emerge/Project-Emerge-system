@@ -267,7 +267,9 @@ def print_results(results: list[FolderCalibrationResult]) -> None:
 
 
 def folder_calibration_main() -> None:
-    parser = argparse.ArgumentParser(description="Calibra una o quattro camere da foto ChArUco")
+    parser = argparse.ArgumentParser(
+        description="Calibrate one to four cameras from ChArUco photos"
+    )
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--camera", help="camera singola; senza usa sottocartelle cam_0..cam_3")
     parser.add_argument("--config", type=Path)

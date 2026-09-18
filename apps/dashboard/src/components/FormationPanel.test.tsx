@@ -20,9 +20,9 @@ describe("pannello di formazione dello sciame", () => {
     useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3", "D4E5F6"] });
     render(<FormationPanel onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "V formation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Formazione a V" }));
     fireEvent.change(screen.getByLabelText("Formation leader"), { target: { value: "A1B2C3" } });
-    fireEvent.click(screen.getByRole("button", { name: "Apply formation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Applica formazione" }));
 
     expect(gateway.publish).toHaveBeenCalledWith("/config/formation", {
       program: "vShape",
@@ -43,9 +43,9 @@ describe("pannello di formazione dello sciame", () => {
     useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3"] });
     render(<FormationPanel onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "V formation" }));
-    expect(screen.getByRole("button", { name: "Apply formation" })).toBeDisabled();
-    expect(screen.getByText("Pick a leader before applying this formation.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Formazione a V" }));
+    expect(screen.getByRole("button", { name: "Applica formazione" })).toBeDisabled();
+    expect(screen.getByText("Seleziona un leader prima di applicare questa formazione.")).toBeInTheDocument();
     expect(gateway.publish).not.toHaveBeenCalled();
   });
 
@@ -54,7 +54,7 @@ describe("pannello di formazione dello sciame", () => {
     render(<FormationPanel onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Stop" }));
-    fireEvent.click(screen.getByRole("button", { name: "Apply formation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Applica formazione" }));
 
     expect(gateway.publish).toHaveBeenCalledWith("/config/formation", {
       program: "stop",
@@ -78,7 +78,7 @@ describe("pannello di formazione dello sciame", () => {
     });
     render(<FormationPanel onClose={vi.fn()} />);
 
-    expect(screen.getByText("ACTIVE · CIRCLE")).toBeInTheDocument();
+    expect(screen.getByText("ATTIVA · CERCHIO")).toBeInTheDocument();
     expect(screen.getByLabelText("Formation leader")).toHaveValue("D4E5F6");
     expect(screen.getByLabelText("Circle radius")).toHaveValue(0.8);
   });
@@ -87,9 +87,9 @@ describe("pannello di formazione dello sciame", () => {
     useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3"] });
     render(<FormationPanel onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Circle" }));
-    fireEvent.click(screen.getByRole("button", { name: "Elected leader" }));
-    fireEvent.click(screen.getByRole("button", { name: "Apply formation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cerchio" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leader eletto" }));
+    fireEvent.click(screen.getByRole("button", { name: "Applica formazione" }));
 
     expect(gateway.publish).toHaveBeenCalledWith("/config/formation", {
       program: "circleShape",
@@ -109,22 +109,22 @@ describe("pannello di formazione dello sciame", () => {
     useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3"] });
     render(<FormationPanel onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Circle" }));
-    fireEvent.click(screen.getByRole("button", { name: "Elected leader" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cerchio" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leader eletto" }));
 
     expect(screen.getByLabelText("Formation leader")).toBeDisabled();
-    expect(screen.queryByText("Pick a leader before applying this formation.")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Apply formation" })).toBeEnabled();
+    expect(screen.queryByText("Seleziona un leader prima di applicare questa formazione.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Applica formazione" })).toBeEnabled();
   });
 
   it("dimentica il leader scelto quando si passa all'elezione", () => {
     useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3"] });
     render(<FormationPanel onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Circle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cerchio" }));
     fireEvent.change(screen.getByLabelText("Formation leader"), { target: { value: "A1B2C3" } });
-    fireEvent.click(screen.getByRole("button", { name: "Elected leader" }));
-    fireEvent.click(screen.getByRole("button", { name: "Apply formation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leader eletto" }));
+    fireEvent.click(screen.getByRole("button", { name: "Applica formazione" }));
 
     expect(gateway.publish).toHaveBeenCalledWith(
       "/config/formation",
@@ -141,7 +141,7 @@ describe("pannello di formazione dello sciame", () => {
     expect(screen.queryByLabelText("Formation anchor")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Formation leader")).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Apply formation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Applica formazione" }));
     expect(gateway.publish).toHaveBeenCalledWith("/config/formation", {
       program: "stop",
       leaderId: null,
@@ -155,9 +155,9 @@ describe("pannello di formazione dello sciame", () => {
     useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3"] });
     render(<FormationPanel onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Ring wave" }));
-    fireEvent.click(screen.getByRole("button", { name: "Elected leader" }));
-    fireEvent.click(screen.getByRole("button", { name: "Apply formation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Onda circolare" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leader eletto" }));
+    fireEvent.click(screen.getByRole("button", { name: "Applica formazione" }));
 
     expect(gateway.publish).toHaveBeenCalledWith(
       "/config/formation",
@@ -173,9 +173,9 @@ describe("pannello di formazione dello sciame", () => {
     useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3"] });
     render(<FormationPanel onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Sine line" }));
-    fireEvent.click(screen.getByRole("button", { name: "Elected leader" }));
-    fireEvent.click(screen.getByRole("button", { name: "Apply formation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Linea sinusoidale" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leader eletto" }));
+    fireEvent.click(screen.getByRole("button", { name: "Applica formazione" }));
 
     expect(gateway.publish).toHaveBeenCalledWith(
       "/config/formation",
@@ -197,7 +197,7 @@ describe("pannello di formazione dello sciame", () => {
     useDashboardStore.setState({ connectionStatus: "connected", robotIds: ["A1B2C3"] });
     render(<FormationPanel onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Orbit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Orbita" }));
 
     const anchors = screen.getByLabelText("Formation anchor");
     expect(anchors.querySelectorAll("button")).toHaveLength(2);
@@ -208,7 +208,7 @@ describe("pannello di formazione dello sciame", () => {
     const onClose = vi.fn();
     render(<FormationPanel onClose={onClose} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chiudi finestra" }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

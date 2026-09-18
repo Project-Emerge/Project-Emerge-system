@@ -3,6 +3,8 @@ import { ArucoMapSchema, DEVICE_ID_PATTERN, arucoMapTopic } from "../../shared/p
 import { useGatewayClient } from "../services/gateway-context";
 import { useDashboardStore } from "../store/dashboard-store";
 
+import { useLocale } from "../services/locale-context";
+
 type SaveState = { kind: "idle" | "saving" | "success" | "error"; message?: string };
 
 function StatusMessage({ state }: { state: SaveState }): React.JSX.Element | null {
@@ -15,6 +17,7 @@ function sortedEntries(map: Record<string, string>): [string, string][] {
 }
 
 export function ArucoMapPanel(): React.JSX.Element {
+  const { t } = useLocale();
   const gateway = useGatewayClient();
   const arucoMap = useDashboardStore((state) => state.arucoMap);
   const robotIds = useDashboardStore((state) => state.robotIds);
@@ -38,15 +41,15 @@ export function ArucoMapPanel(): React.JSX.Element {
   async function publishMap(nextMap: Record<string, string>): Promise<void> {
     const parsed = ArucoMapSchema.safeParse(nextMap);
     if (!parsed.success) {
-      setSaveState({ kind: "error", message: parsed.error.issues[0]?.message ?? "Invalid mapping." });
+      setSaveState({ kind: "error", message: parsed.error.issues[0]?.message ?? t.arucoMap.invalidMapping });
       return;
     }
     setSaveState({ kind: "saving" });
     try {
       await gateway.publish(arucoMapTopic(), parsed.data);
-      setSaveState({ kind: "success", message: "Mapping saved." });
+      setSaveState({ kind: "success", message: t.arucoMap.savedSuccess });
     } catch (error) {
-      setSaveState({ kind: "error", message: error instanceof Error ? error.message : "Save failed." });
+      setSaveState({ kind: "error", message: error instanceof Error ? error.message : t.arucoMap.saveFailed });
     }
   }
 
@@ -66,27 +69,27 @@ export function ArucoMapPanel(): React.JSX.Element {
   return (
     <section className="panel aruco-map-panel">
       <div className="panel-heading">
-        <div><span className="eyebrow">3 · Computer vision</span><h2>Marker mapping</h2></div>
-        <span className="retained-tag">RETAINED</span>
+        <div><span className="eyebrow">{t.arucoMap.eyebrow}</span><h2>{t.arucoMap.title}</h2></div>
+        <span className="retained-tag">{t.arucoMap.retainedTag}</span>
       </div>
-      <p className="muted">Map each ArUco marker ID (0-49) to the robot it is taped on, so the vision system can publish positions keyed by robot ID instead of the raw marker ID.</p>
+      <p className="muted">{t.arucoMap.description}</p>
 
       {sortedEntries(arucoMap).length === 0 ? (
-        <p className="empty-message">No mappings yet. Add one below.</p>
+        <p className="empty-message">{t.arucoMap.emptyMessage}</p>
       ) : (
         <div className="aruco-map-list">
           {sortedEntries(arucoMap).map(([markerId, robotId]) => (
             <div className="aruco-map-row" key={markerId}>
-              <span className="aruco-map-row-marker">Marker {markerId}</span>
+              <span className="aruco-map-row-marker">{t.arucoMap.markerLabel(markerId)}</span>
               <span className="aruco-map-row-robot">{robotId}</span>
               <button
                 type="button"
                 className="secondary-button"
-                aria-label={`Remove mapping for marker ${markerId}`}
+                aria-label={t.arucoMap.removeAria(markerId)}
                 disabled={saveState.kind === "saving"}
                 onClick={() => removeMapping(markerId)}
               >
-                Remove
+                {t.arucoMap.removeButton}
               </button>
             </div>
           ))}
@@ -95,9 +98,9 @@ export function ArucoMapPanel(): React.JSX.Element {
 
       <div className="aruco-map-form-grid">
         <label className="field-label">
-          Marker ID
+          {t.arucoMap.markerIdField}
           <input
-            aria-label="ArUco marker ID"
+            aria-label={t.arucoMap.markerIdAria}
             type="number"
             min={0}
             max={49}
@@ -107,9 +110,9 @@ export function ArucoMapPanel(): React.JSX.Element {
           />
         </label>
         <label className="field-label">
-          Robot ID
+          {t.arucoMap.robotIdField}
           <input
-            aria-label="Robot ID"
+            aria-label={t.arucoMap.robotIdAria}
             type="text"
             list="known-robot-ids"
             placeholder="A1B2C3"
@@ -122,16 +125,16 @@ export function ArucoMapPanel(): React.JSX.Element {
         </datalist>
         <div className="save-row">
           <button type="button" className="primary-button" disabled={!canAdd || saveState.kind === "saving"} onClick={addMapping}>
-            {saveState.kind === "saving" ? "Saving…" : "Add mapping"}
+            {saveState.kind === "saving" ? t.arucoMap.savingButton : t.arucoMap.addMappingButton}
           </button>
           <StatusMessage state={saveState} />
         </div>
       </div>
       {conflictingMarkerId && (
-        <p className="aruco-map-collision-hint">Robot {normalizedRobotId} is already mapped to marker {conflictingMarkerId}. Remove that mapping first.</p>
+        <p className="aruco-map-collision-hint">{t.arucoMap.conflictHint(normalizedRobotId, conflictingMarkerId)}</p>
       )}
       {willReassign && (
-        <p className="aruco-map-collision-hint">Marker {markerKey} is currently mapped to {existingRobotForMarker} — saving will reassign it to {normalizedRobotId}.</p>
+        <p className="aruco-map-collision-hint">{t.arucoMap.reassignHint(markerKey!, existingRobotForMarker!, normalizedRobotId)}</p>
       )}
     </section>
   );

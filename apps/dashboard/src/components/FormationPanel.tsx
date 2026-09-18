@@ -18,6 +18,7 @@ import {
   resolveAnchor,
 } from "../../shared/formations";
 import { useGatewayClient } from "../services/gateway-context";
+import { useLocale } from "../services/locale-context";
 import { useDashboardStore } from "../store/dashboard-store";
 
 type SaveState = { kind: "idle" | "saving" | "success" | "error"; message?: string };
@@ -29,6 +30,7 @@ function StatusMessage({ state }: { state: SaveState }): React.JSX.Element | nul
 
 export function FormationPanel({ onClose }: { onClose: () => void }): React.JSX.Element {
   const gateway = useGatewayClient();
+  const { t } = useLocale();
   const connectionStatus = useDashboardStore((state) => state.connectionStatus);
   const robotIds = useDashboardStore((state) => state.robotIds);
   const activeFormation = useDashboardStore((state) => state.formation);
@@ -100,52 +102,60 @@ export function FormationPanel({ onClose }: { onClose: () => void }): React.JSX.
     };
     const parsed = FormationCommandSchema.safeParse(command);
     if (!parsed.success) {
-      setSaveState({ kind: "error", message: parsed.error.issues[0]?.message ?? "Invalid formation command." });
+      setSaveState({ kind: "error", message: parsed.error.issues[0]?.message ?? t.formationModal.invalidCommand });
       return;
     }
     setSaveState({ kind: "saving" });
     try {
       await gateway.publish(formationTopic(), parsed.data);
-      setSaveState({ kind: "success", message: "Formation applied." });
+      setSaveState({ kind: "success", message: t.formationModal.appliedSuccess });
     } catch (error) {
-      setSaveState({ kind: "error", message: error instanceof Error ? error.message : "Apply failed." });
+      setSaveState({ kind: "error", message: error instanceof Error ? error.message : t.formationModal.applyFailed });
     }
   }
 
-  const activeLabel = activeFormation ? definitionFor(activeFormation.program).label : null;
+  const activeLabel = activeFormation
+    ? (t.formationModal.programs[activeFormation.program]?.label ?? definitionFor(activeFormation.program).label)
+    : null;
 
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-container formation-panel" onClick={(event) => event.stopPropagation()}>
-        <button type="button" className="modal-close" onClick={onClose} aria-label="Close dialog">✕</button>
+        <button type="button" className="modal-close" onClick={onClose} aria-label={t.formationModal.closeDialog}>✕</button>
         <div className="panel-heading">
-          <div><span className="eyebrow">Fleet</span><h2>Formation &amp; parameters</h2></div>
-          <span className="retained-tag">{activeLabel ? `ACTIVE · ${activeLabel.toUpperCase()}` : "NO FORMATION YET"}</span>
+          <div><span className="eyebrow">{t.formationModal.fleet}</span><h2>{t.formationModal.title}</h2></div>
+          <span className="retained-tag">{activeLabel ? t.formationModal.activeStatus(activeLabel) : t.formationModal.noFormationStatus}</span>
         </div>
 
-      {GROUP_ORDER.map((group) => (
-        <div className="formation-group" key={group}>
-          <span className="formation-group-label">{GROUP_LABELS[group]}</span>
-          <div className="formation-picker" role="group" aria-label={GROUP_LABELS[group]}>
-            {FORMATION_DEFINITIONS.filter((option) => option.group === group).map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={option.value === program ? "active" : ""}
-                aria-pressed={option.value === program}
-                onClick={() => selectProgram(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
+      {GROUP_ORDER.map((group) => {
+        const groupLabel = t.formationModal.groups[group] ?? GROUP_LABELS[group];
+        return (
+          <div className="formation-group" key={group}>
+            <span className="formation-group-label">{groupLabel}</span>
+            <div className="formation-picker" role="group" aria-label={groupLabel}>
+              {FORMATION_DEFINITIONS.filter((option) => option.group === group).map((option) => {
+                const programLabel = t.formationModal.programs[option.value]?.label ?? option.label;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={option.value === program ? "active" : ""}
+                    aria-pressed={option.value === program}
+                    onClick={() => selectProgram(option.value)}
+                  >
+                    {programLabel}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      ))}
-      <p className="muted">{definition.description}</p>
+        );
+      })}
+      <p className="muted">{t.formationModal.programs[program]?.description ?? definition.description}</p>
 
       {anchorApplies && (
         <div className="formation-group">
-          <span className="formation-group-label">Built around</span>
+          <span className="formation-group-label">{t.formationModal.builtAround}</span>
           <div className="segmented-control" aria-label="Formation anchor">
             {definition.anchors.map((option) => (
               <button
@@ -155,17 +165,17 @@ export function FormationPanel({ onClose }: { onClose: () => void }): React.JSX.
                 aria-pressed={option === effectiveAnchor}
                 onClick={() => setAnchor(option)}
               >
-                {ANCHOR_LABELS[option]}
+                {t.formationModal.anchors[option]?.label ?? ANCHOR_LABELS[option]}
               </button>
             ))}
           </div>
-          <p className="muted">{ANCHOR_DESCRIPTIONS[effectiveAnchor]}</p>
+          <p className="muted">{t.formationModal.anchors[effectiveAnchor]?.description ?? ANCHOR_DESCRIPTIONS[effectiveAnchor]}</p>
         </div>
       )}
 
       <div className="formation-form-grid">
         <label className="field-label">
-          Leader
+          {t.formationModal.leaderLabel}
           <select
             aria-label="Formation leader"
             value={needsLeader ? leaderId ?? "" : ""}
@@ -174,45 +184,46 @@ export function FormationPanel({ onClose }: { onClose: () => void }): React.JSX.
           >
             <option value="">
               {!anchorApplies
-                ? "Not used by this formation"
+                ? t.formationModal.leaderUnused
                 : effectiveAnchor === "auto"
-                  ? "Elected by the fleet"
+                  ? t.formationModal.leaderElected
                   : robotIds.length === 0
-                    ? "No robots detected"
-                    : "Select a robot"}
+                    ? t.formationModal.leaderNoneDetected
+                    : t.formationModal.leaderSelectPrompt}
             </option>
             {needsLeader && robotIds.map((id) => <option key={id} value={id}>{id}</option>)}
           </select>
         </label>
         <div className="save-row">
           <button type="button" className="primary-button" disabled={!canApply} onClick={applyFormation}>
-            {saveState.kind === "saving" ? "Applying…" : "Apply formation"}
+            {saveState.kind === "saving" ? t.formationModal.applyingButton : t.formationModal.applyButton}
           </button>
           <StatusMessage state={saveState} />
         </div>
       </div>
-      {needsLeader && !leaderId && <p className="formation-hint">Pick a leader before applying this formation.</p>}
+      {needsLeader && !leaderId && <p className="formation-hint">{t.formationModal.pickLeaderHint}</p>}
       {program === "custom" && (
         <p className="formation-hint">
           {customSpec
-            ? `Designed in the swarm chat${customSpec.label ? `: ${customSpec.label}` : ""}. The sliders below resize it.`
-            : "Ask the swarm chat to design a shape before applying a custom formation."}
+            ? t.formationModal.customDesignedInChat(customSpec.label)
+            : t.formationModal.customAskPrompt}
         </p>
       )}
 
       {definition.params.length > 0 && (
         <div className="formation-params">
           <button type="button" className="formation-params-toggle" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
-            {expanded ? "Hide parameters" : "Tune parameters"}
+            {expanded ? t.formationModal.hideParams : t.formationModal.tuneParams}
           </button>
           {expanded && (
             <>
               <div className="formation-params-grid">
                 {definition.params.map((param) => {
+                  const paramLabel = t.formationModal.params[param.key] ?? param.label;
                   const value = params[param.key] ?? param.defaultValue;
                   return (
                     <div className="formation-param-row" key={param.key}>
-                      <span className="formation-param-label">{param.label}{param.unit ? ` (${param.unit})` : ""}</span>
+                      <span className="formation-param-label">{paramLabel}{param.unit ? ` (${param.unit})` : ""}</span>
                       <input
                         aria-label={`${param.label} slider`}
                         type="range"
@@ -236,7 +247,7 @@ export function FormationPanel({ onClose }: { onClose: () => void }): React.JSX.
                   );
                 })}
               </div>
-              <button type="button" className="secondary-button formation-reset" onClick={resetParams}>Reset to defaults</button>
+              <button type="button" className="secondary-button formation-reset" onClick={resetParams}>{t.formationModal.resetDefaults}</button>
             </>
           )}
         </div>

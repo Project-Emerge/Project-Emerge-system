@@ -34,7 +34,7 @@ describe("theme switcher", () => {
     useSystemDarkMode(false);
     render(<ThemeProvider><ThemeSwitcher /></ThemeProvider>);
 
-    expect(screen.getByRole("button", { name: "System" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Sistema" })).toHaveAttribute("aria-pressed", "true");
     expect(document.documentElement).toHaveAttribute("data-theme", "light");
 
     act(() => systemThemeListener?.({ matches: true } as MediaQueryListEvent));
@@ -45,11 +45,11 @@ describe("theme switcher", () => {
     useSystemDarkMode(false);
     render(<ThemeProvider><ThemeSwitcher /></ThemeProvider>);
 
-    fireEvent.click(screen.getByRole("button", { name: "Dark" }));
+    fireEvent.click(screen.getByRole("button", { name: "Scuro" }));
     expect(document.documentElement).toHaveAttribute("data-theme", "dark");
     expect(window.localStorage.getItem("project-emerge-theme")).toBe("dark");
 
-    fireEvent.click(screen.getByRole("button", { name: "Light" }));
+    fireEvent.click(screen.getByRole("button", { name: "Chiaro" }));
     expect(document.documentElement).toHaveAttribute("data-theme", "light");
     expect(window.localStorage.getItem("project-emerge-theme")).toBe("light");
   });

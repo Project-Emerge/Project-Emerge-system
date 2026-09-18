@@ -2,10 +2,18 @@
   "aruco": {
     "adaptive_thresh_win_size_max": 23,
     "adaptive_thresh_win_size_min": 3,
-    "anchor_frame": null,
+    "anchor_frame": {
+      "opposite_id": 3,
+      "origin_id": 7,
+      "plane_z_m": 0.0,
+      "x_axis_id": 10,
+      "x_distance_m": 1.69,
+      "y_axis_id": 9,
+      "y_distance_m": 1.69
+    },
     "auto_mobile_markers": {
-      "default_size_m": 0.12,
-      "enabled": false,
+      "default_size_m": 0.09,
+      "enabled": true,
       "ignored_ids": []
     },
     "corner_refinement": true,
@@ -19,8 +27,82 @@
       }
     ],
     "perspective_remove_pixel_per_cell": 4,
-    "reference_ids": [],
-    "reference_markers": []
+    "reference_ids": [
+      3,
+      7,
+      9,
+      10
+    ],
+    "reference_markers": [
+      {
+        "id": 3,
+        "name": "ref-3",
+        "orientation_xyzw": [
+          0.0,
+          0.0,
+          -0.6987287523711019,
+          0.7153867000510448
+        ],
+        "position_m": [
+          1.69,
+          1.69,
+          0.0
+        ],
+        "size_m": 0.09,
+        "uncertainty_m": 0.0035355339059327372
+      },
+      {
+        "id": 7,
+        "name": "ref-7",
+        "orientation_xyzw": [
+          0.0,
+          0.0,
+          0.717281769365073,
+          0.696783225498799
+        ],
+        "position_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "size_m": 0.09,
+        "uncertainty_m": 0.0035355339059327372
+      },
+      {
+        "id": 9,
+        "name": "ref-9",
+        "orientation_xyzw": [
+          0.0,
+          0.0,
+          0.7049355073550422,
+          0.7092714081859561
+        ],
+        "position_m": [
+          0.0,
+          1.69,
+          0.0
+        ],
+        "size_m": 0.09,
+        "uncertainty_m": 0.0035355339059327372
+      },
+      {
+        "id": 10,
+        "name": "ref-10",
+        "orientation_xyzw": [
+          0.0,
+          0.0,
+          0.9999712062437995,
+          0.007588589020400694
+        ],
+        "position_m": [
+          1.69,
+          0.0,
+          0.0
+        ],
+        "size_m": 0.09,
+        "uncertainty_m": 0.0035355339059327372
+      }
+    ]
   },
   "cameras": [
     {
@@ -33,6 +115,19 @@
       "height": 1080,
       "id": "cam_2",
       "source": 2,
+      "width": 1920,
+      "zoom": null
+    },
+    {
+      "auto_exposure": false,
+      "autofocus": false,
+      "digital_zoom": 1.0,
+      "exposure": null,
+      "focus": null,
+      "fps": 30.0,
+      "height": 1080,
+      "id": "cam_3",
+      "source": "/dev/v4l/by-id/usb-Global_Shutter_Camera_Global_Shutter_Camera_01.00.00-video-index0",
       "width": 1920,
       "zoom": null
     }
@@ -59,7 +154,7 @@
     "tracker_velocity_gain": 0.12,
     "window_ms": 40.0
   },
-  "revision": 2,
+  "revision": 7,
   "schema_version": 1,
   "site": "lab",
   "system_id": "indoor-01"

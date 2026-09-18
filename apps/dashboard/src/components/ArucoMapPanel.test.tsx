@@ -18,7 +18,7 @@ afterEach(() => {
 function fillAndSubmit(markerId: string, robotId: string): void {
   fireEvent.change(screen.getByLabelText("ArUco marker ID"), { target: { value: markerId } });
   fireEvent.change(screen.getByLabelText("Robot ID"), { target: { value: robotId } });
-  fireEvent.click(screen.getByRole("button", { name: "Add mapping" }));
+  fireEvent.click(screen.getByRole("button", { name: "Aggiungi mappatura" }));
 }
 
 describe("pannello di mappatura marker ArUco", () => {
@@ -39,11 +39,11 @@ describe("pannello di mappatura marker ArUco", () => {
 
     fireEvent.change(screen.getByLabelText("ArUco marker ID"), { target: { value: "50" } });
     fireEvent.change(screen.getByLabelText("Robot ID"), { target: { value: "A1B2C3" } });
-    expect(screen.getByRole("button", { name: "Add mapping" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Aggiungi mappatura" })).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText("ArUco marker ID"), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText("Robot ID"), { target: { value: "not-an-id" } });
-    expect(screen.getByRole("button", { name: "Add mapping" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Aggiungi mappatura" })).toBeDisabled();
     expect(gateway.publish).not.toHaveBeenCalled();
   });
 
@@ -54,8 +54,8 @@ describe("pannello di mappatura marker ArUco", () => {
     fireEvent.change(screen.getByLabelText("ArUco marker ID"), { target: { value: "2" } });
     fireEvent.change(screen.getByLabelText("Robot ID"), { target: { value: "A1B2C3" } });
 
-    expect(screen.getByText("Robot A1B2C3 is already mapped to marker 1. Remove that mapping first.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Add mapping" })).toBeDisabled();
+    expect(screen.getByText("Il robot A1B2C3 è già associato al marker 1. Rimuovi prima quell'associazione.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aggiungi mappatura" })).toBeDisabled();
     expect(gateway.publish).not.toHaveBeenCalled();
   });
 
@@ -65,9 +65,9 @@ describe("pannello di mappatura marker ArUco", () => {
 
     fireEvent.change(screen.getByLabelText("ArUco marker ID"), { target: { value: "1" } });
     fireEvent.change(screen.getByLabelText("Robot ID"), { target: { value: "D4E5F6" } });
-    expect(screen.getByText("Marker 1 is currently mapped to A1B2C3 — saving will reassign it to D4E5F6.")).toBeInTheDocument();
+    expect(screen.getByText("Il marker 1 è attualmente associato a A1B2C3 — salvando verrà riassegnato a D4E5F6.")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Add mapping" }));
+    fireEvent.click(screen.getByRole("button", { name: "Aggiungi mappatura" }));
     await waitFor(() => expect(gateway.publish).toHaveBeenCalledWith("/config/aruco-map", { "1": "D4E5F6" }));
   });
 
@@ -75,7 +75,7 @@ describe("pannello di mappatura marker ArUco", () => {
     useDashboardStore.setState({ arucoMap: { "1": "A1B2C3", "2": "D4E5F6" } });
     render(<ArucoMapPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove mapping for marker 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rimuovi mappatura per marker 1" }));
 
     await waitFor(() => expect(gateway.publish).toHaveBeenCalledWith("/config/aruco-map", { "2": "D4E5F6" }));
   });

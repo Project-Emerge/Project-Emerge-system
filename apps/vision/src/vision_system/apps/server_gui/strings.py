@@ -40,15 +40,20 @@ FUSION_ACTIVE: Final = "coordinator active"
 
 # --------------------------------------------------------------------- roster
 ROSTER_FRAME: Final = "Deployment cameras"
+# The columns follow the pipeline in order — node process, webcam, frames, then
+# what the server actually received — so a gap in the chain is read off the row
+# left to right instead of guessed from a single "offline" flag.
 ROSTER_COLUMNS: Final = (
-    ("camera", "Camera", 90),
-    ("node", "Node", 60),
-    ("published", "Obs. published", 120),
-    ("server", "Server", 70),
-    ("received", "Obs. received", 110),
-    ("age", "Age (ms)", 90),
-    ("calibrated", "Calibrated", 90),
-    ("issues", "Notes", 320),
+    ("camera", "Camera", 80),
+    ("node", "Node", 55),
+    ("capture", "Camera up", 80),
+    ("frames", "Frames", 75),
+    ("published", "Obs. published", 110),
+    ("server", "Server", 65),
+    ("received", "Obs. received", 105),
+    ("age", "Age (ms)", 80),
+    ("calibrated", "Calibrated", 80),
+    ("issues", "Notes", 340),
 )
 YES: Final = "yes"
 NO: Final = "no"
@@ -59,7 +64,13 @@ ISSUE_TEXT: Final[dict[CameraIssue, str]] = {
     CameraIssue.CALIBRATION_MISSING_ON_SERVER: "calibration missing on the server",
     CameraIssue.NODE_UP_NO_OBSERVATIONS: "node up but no observation reaches the server",
     CameraIssue.OBSERVATIONS_WITHOUT_NODE_METRICS: "observations without node metrics",
+    CameraIssue.NODE_ABSENT: "no vision-node is publishing for this camera",
+    CameraIssue.CAMERA_NOT_CAPTURING: "the webcam does not open",
+    CameraIssue.CAMERA_NO_FRAMES: "the webcam is open but delivers no frame",
+    CameraIssue.CALIBRATION_MISSING_ON_NODE: "calibration missing on the node PC",
 }
+CAPTURE_ERROR: Final = "{issues} ({error})"
+CAPTURE_SOURCE: Final = "source {source}"
 
 # ------------------------------------------------------------------ notebook
 WORLD_TAB: Final = "World view (tracked robots)"

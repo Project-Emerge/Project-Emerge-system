@@ -78,9 +78,10 @@ def _codes(notices):
 
 
 def test_the_panel_starts_on_the_first_step():
+    """Deployment comes first: how many webcams there are precedes assigning them."""
     controller = _controller(_status("cam_0"))
-    assert controller.current_step.id == "cameras"
-    assert [step.id for step in controller.steps][0] == "cameras"
+    assert controller.current_step.id == "deployment"
+    assert [step.id for step in controller.steps][:2] == ["deployment", "cameras"]
 
 
 def test_an_unreadable_configuration_leaves_an_empty_table_not_a_crash():

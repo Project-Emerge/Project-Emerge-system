@@ -673,7 +673,7 @@ def _positive_value(value: float | None, prompt: str) -> float:
 
 def reference_mapper_main() -> None:
     parser = argparse.ArgumentParser(
-        description="Crea reference-markers.json da una camera live, foto o piantina 2D"
+        description="Create reference-markers.json from a live camera, photo, or 2D floor plan"
     )
     source_group = parser.add_mutually_exclusive_group()
     source_group.add_argument("--image", type=Path, help="usa un'immagine esistente")

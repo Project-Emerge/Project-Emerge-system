@@ -31,18 +31,18 @@ describe("sidebar robot", () => {
     render(<RobotDetailsSidebar />);
 
     const firstRobot = screen.getByRole("button", { name: /A1B2C3/ });
-    expect(screen.getByRole("complementary", { name: "Reachable robots" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Robot raggiungibili" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /D4E5F6/ })).toBeInTheDocument();
     expect(firstRobot).toHaveAttribute("aria-expanded", "false");
 
     fireEvent.click(firstRobot);
     expect(firstRobot).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("72%")).toBeInTheDocument();
-    expect(screen.getByText("Pack voltage")).toBeInTheDocument();
+    expect(screen.getByText("Tensione pacco")).toBeInTheDocument();
 
     fireEvent.click(firstRobot);
     expect(firstRobot).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("Pack voltage")).not.toBeInTheDocument();
+    expect(screen.queryByText("Tensione pacco")).not.toBeInTheDocument();
   });
 
   it("aggiorna i valori aperti quando arriva nuova telemetria", () => {

@@ -80,7 +80,7 @@ class TagStats:
 
 
 def viewer_main() -> None:
-    parser = argparse.ArgumentParser(description="Visore ArUco live per singola camera")
+    parser = argparse.ArgumentParser(description="Live ArUco viewer for a single camera")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--config", type=Path)
     parser.add_argument("--cache", type=Path, default=Path(".state/last_good_config.json"))

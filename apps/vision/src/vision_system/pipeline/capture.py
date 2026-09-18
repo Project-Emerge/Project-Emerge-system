@@ -33,7 +33,11 @@ MIN_ELAPSED_S = 1e-6
 
 
 def open_video_capture(source: int | str):
-    if isinstance(source, int) and sys.platform.startswith("linux"):
+    # A device path is as much a V4L2 camera as an index is; without the explicit
+    # backend OpenCV hands "/dev/v4l/by-id/usb-…" to FFMPEG and tries to demux it
+    # as a media file, which fails in a way that reads like a missing camera.
+    v4l2 = isinstance(source, int) or str(source).startswith("/dev/")
+    if v4l2 and sys.platform.startswith("linux"):
         return cv2.VideoCapture(source, cv2.CAP_V4L2)
     return cv2.VideoCapture(source)
 

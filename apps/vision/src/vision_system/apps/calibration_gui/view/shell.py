@@ -19,7 +19,78 @@ FIELD_BINDINGS = {
     "photo_root": ("photo_root", Path),
     "reference_markers": ("reference_markers_path", Path),
     "allow_low_quality": ("allow_low_quality", bool),
+    "cameras": ("cameras", lambda value: tuple(_camera_ids(str(value)))),
+    "base_config": ("template_path", Path),
 }
+
+# The deployment step edits two nested documents rather than a flat attribute, so
+# it declares a reader and a writer instead of an attribute name.
+SETUP_FIELDS = ("deployment_mode", "roster", "local_cameras", "mqtt_host", "mqtt_port")
+
+
+def _camera_ids(text: str) -> list[str]:
+    """Accept 'cam_1 cam_2', 'cam_1,cam_2' and anything between."""
+    return [part for part in text.replace(",", " ").split() if part]
+
+
+def read_step_fields(settings) -> dict[str, object]:
+    """Every declared field's current value, so a rebuilt form shows the truth.
+
+    Without it a form comes back blank and the next action reads that blank as an
+    edit: revisiting a step would quietly clear the photo folder it was given on
+    the command line.
+    """
+    values: dict[str, object] = {}
+    for name, (attribute, convert) in FIELD_BINDINGS.items():
+        value = getattr(settings, attribute)
+        if convert is bool:
+            values[name] = bool(value)
+        elif isinstance(value, tuple):
+            values[name] = " ".join(value)
+        else:
+            values[name] = "" if value is None else str(value)
+    return values | read_setup_fields(settings)
+
+
+def read_setup_fields(settings) -> dict[str, str]:
+    """Current values, for seeding the form when the step is first shown."""
+    return {
+        "deployment_mode": settings.setup.mode,
+        "roster": " ".join(settings.roster),
+        "local_cameras": " ".join(settings.setup.local_camera_ids),
+        "mqtt_host": settings.setup.mqtt_host,
+        "mqtt_port": str(settings.setup.mqtt_port),
+    }
+
+
+def apply_setup_fields(settings, values: dict[str, object]) -> None:
+    """Fold the form back into the settings, leaving invalid entries as they were.
+
+    Validation proper happens in ``save_setup``, which refuses to write either
+    document if the pair does not hold together. What is rejected here is only
+    what cannot be represented at all — a port that is not a number — because a
+    half-typed field must not overwrite a good saved value.
+    """
+    mode = str(values.get("deployment_mode", settings.setup.mode))
+    local = _camera_ids(str(values.get("local_cameras", "")))
+    host = str(values.get("mqtt_host", "")).strip() or settings.setup.mqtt_host
+    try:
+        port = int(str(values.get("mqtt_port", settings.setup.mqtt_port)))
+    except ValueError:
+        port = settings.setup.mqtt_port
+    settings.setup = settings.setup.model_copy(
+        update={
+            "mode": mode if mode in ("single-pc", "distributed") else settings.setup.mode,
+            # A single-PC deployment owns every camera by definition; keeping a
+            # stale subset here would silently narrow it after a mode switch.
+            "local_camera_ids": [] if mode == "single-pc" else local,
+            "mqtt_host": host,
+            "mqtt_port": port,
+        }
+    )
+    # Kept exactly as typed: whether "cam_2 cam_3" or "2" is meant is parse_roster's
+    # decision, and it is made once, when the operator saves.
+    settings.roster = tuple(_camera_ids(str(values.get("roster", ""))))
 
 
 class CalibrationWindow:
@@ -99,7 +170,10 @@ class CalibrationWindow:
     # ---------------------------------------------------------------- commands
     def _apply_fields(self) -> None:
         """Push the step's form back into the settings before anything runs."""
-        for name, value in self.form.values().items():
+        values = self.form.values()
+        if any(name in values for name in SETUP_FIELDS):
+            apply_setup_fields(self.controller.settings, values)
+        for name, value in values.items():
             binding = FIELD_BINDINGS.get(name)
             if binding is None:
                 continue
@@ -115,6 +189,10 @@ class CalibrationWindow:
         self.controller.set_config_path(Path(text) if text else None)
 
     def select_step(self, step_id: str) -> None:
+        # Fold the current form in before it is replaced: leaving a step is not
+        # discarding what was typed in it, and the deployment step in particular
+        # is filled in over several visits.
+        self._apply_fields()
         self.controller.select_step(step_id)
         self.paint()
 
@@ -144,7 +222,8 @@ class CalibrationWindow:
         self.table.show(step.table)
         if step.table != "none":
             self.table.paint(presentation.table_rows(step.table, overview))
-        self.form.show(step.fields)
+        if self.form.show(step.fields):
+            self.form.seed(read_step_fields(controller.settings))
         self.actions.show(step)
         self.actions.paint(step, overview, busy=controller.busy)
         self.cancel_button.configure(state="normal" if controller.busy else "disabled")

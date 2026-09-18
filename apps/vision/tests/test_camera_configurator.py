@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import pytest
 
 from vision_system.apps.camera_configurator import build_camera_settings_config
 from vision_system.core.config import AppConfig, CameraConfig
@@ -24,13 +25,18 @@ def test_camera_settings_preserve_config_and_increment_revision() -> None:
     assert {camera.id: camera.digital_zoom for camera in result.cameras} == zooms
 
 
-def test_all_camera_zoom_settings_are_required() -> None:
-    try:
-        build_camera_settings_config(AppConfig(), {"cam_0": 100})
-    except ValueError as error:
-        assert "all four" in str(error)
-    else:
-        raise AssertionError("missing camera settings should be rejected")
+def test_cameras_not_tuned_here_keep_their_field_of_view() -> None:
+    """On a PC owning two of four webcams the others are not open to be measured."""
+    result = build_camera_settings_config(AppConfig(), {"cam_1": 2.0})
+    assert [camera.digital_zoom for camera in result.cameras] == [1.0, 2.0, 1.0, 1.0]
+    assert result.revision == 1
+
+
+def test_unknown_and_empty_zoom_settings_are_rejected() -> None:
+    with pytest.raises(ValueError, match="cam_9"):
+        build_camera_settings_config(AppConfig(), {"cam_9": 2.0})
+    with pytest.raises(ValueError, match="no camera"):
+        build_camera_settings_config(AppConfig(), {})
 
 
 def test_zoom_is_applied_to_capture() -> None:

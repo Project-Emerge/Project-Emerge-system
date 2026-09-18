@@ -71,9 +71,9 @@ services:
     networks:
       - emerge-backplane
 
-  # Server di fusione per il deployment distribuito: nessuna camera collegata,
-  # riceve le osservazioni dei nodi via MQTT. Mutuamente esclusivo con `vision`
-  # (il monolite pubblica le stesse pose): `make server` ferma l'altro.
+  # Fusion server for distributed deployment: no camera attached here;
+  # receives node observations via MQTT. Mutually exclusive with `vision`
+  # (the monolith publishes the same poses): `make server` stops the other.
   vision-server:
     profiles:
       - distributed
@@ -98,9 +98,9 @@ services:
     restart: unless-stopped
     stop_grace_period: 15s
     volumes:
-      # Il server ricostruisce le osservazioni con le estrinseche locali: questa
-      # cartella deve contenere il file di ogni camera del roster, comprese
-      # quelle collegate ai PC remoti.
+      # The server reconstructs observations with local extrinsics: this
+      # directory must contain the file for each camera in the roster,
+      # including those attached to remote PCs.
       - ./apps/vision/config.local.json:/app/config/config.local.json:ro
       - ./apps/vision/calibrations:/app/calibrations
       - vision-diagnostics:/app/diagnostics

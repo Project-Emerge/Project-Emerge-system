@@ -46,7 +46,7 @@ describe("manual drive control", () => {
       robots: { A1B2C3: { id: "A1B2C3", lastSeenAt: now } },
     });
     render(<ManualDriveControl now={now} />);
-    const joystick = screen.getByLabelText("Drive joystick");
+    const joystick = screen.getByLabelText("Joystick di guida");
     Object.defineProperty(joystick, "getBoundingClientRect", {
       value: () => ({ left: 0, top: 0, width: 148, height: 148, right: 148, bottom: 148, x: 0, y: 0, toJSON: () => ({}) }),
     });
@@ -76,7 +76,7 @@ describe("manual drive control", () => {
       },
     });
     render(<ManualDriveControl now={now} />);
-    const joystick = screen.getByLabelText("Drive joystick");
+    const joystick = screen.getByLabelText("Joystick di guida");
     Object.defineProperty(joystick, "getBoundingClientRect", {
       value: () => ({ left: 0, top: 0, width: 148, height: 148, right: 148, bottom: 148, x: 0, y: 0, toJSON: () => ({}) }),
     });
@@ -98,12 +98,12 @@ describe("manual drive control", () => {
       robots: { A1B2C3: { id: "A1B2C3", lastSeenAt: now } },
     });
     render(<ManualDriveControl now={now} />);
-    const joystick = screen.getByLabelText("Drive joystick");
+    const joystick = screen.getByLabelText("Joystick di guida");
     Object.defineProperty(joystick, "getBoundingClientRect", {
       value: () => ({ left: 0, top: 0, width: 148, height: 148, right: 148, bottom: 148, x: 0, y: 0, toJSON: () => ({}) }),
     });
     const joystickMode = screen.getByRole("button", { name: "Joystick" });
-    const dualMode = screen.getByRole("button", { name: "Dual control" });
+    const dualMode = screen.getByRole("button", { name: "Doppio controllo" });
     expect(joystickMode).toHaveAttribute("aria-pressed", "true");
     expect(dualMode).toHaveAttribute("aria-pressed", "false");
 
@@ -113,8 +113,8 @@ describe("manual drive control", () => {
     expect(dualMode).toHaveAttribute("aria-pressed", "true");
 
     gateway.publish.mockClear();
-    const throttle = screen.getByLabelText("Forward reverse controller");
-    const turn = screen.getByLabelText("Turn controller");
+    const throttle = screen.getByLabelText("Controller marcia avanti indietro");
+    const turn = screen.getByLabelText("Controller sterzo");
     for (const controller of [throttle, turn]) {
       Object.defineProperty(controller, "getBoundingClientRect", {
         value: () => ({ left: 0, top: 0, width: 112, height: 112, right: 112, bottom: 112, x: 0, y: 0, toJSON: () => ({}) }),

@@ -16,6 +16,7 @@ import os
 import struct
 import sys
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ..core.config import AppConfig, load_config, save_json
+from ..core.setup import select_cameras, source_index, stable_camera_source
 from ..pipeline.capture import PREFERRED_FOURCC, capture_fourcc, open_video_capture
 from ..transport.diagnostics import configure_diagnostics, event
 
@@ -309,6 +311,10 @@ def resolve_camera_roster(base: AppConfig, camera_ids: list[str] | None) -> AppC
     An arena can run with two, three or four cameras: every node PC and the
     fusion server must agree on the same roster, otherwise the coordinator keeps
     waiting for observations from slots nobody publishes.
+
+    This is the *deployment* roster, not the cameras plugged into this PC. To
+    assign a few local webcams without evicting the ones another PC owns, pass
+    ``--local-cameras`` instead, which keeps every slot in the configuration.
     """
     if not camera_ids:
         return base
@@ -323,10 +329,29 @@ def resolve_camera_roster(base: AppConfig, camera_ids: list[str] | None) -> AppC
     )
 
 
+def owned_indices(base: AppConfig, camera_ids: Sequence[str] | None) -> tuple[int, ...] | None:
+    """Roster positions of the cameras attached to this PC. ``None`` means all."""
+    if camera_ids is None:
+        return None
+    selected = {camera.id for camera in select_cameras(base, list(camera_ids))}
+    return tuple(
+        index for index, camera in enumerate(base.cameras) if camera.id in selected
+    )
+
+
 def build_camera_config(
-    base: AppConfig, assignments: dict[int, int], only_index: int | None = None
+    base: AppConfig,
+    assignments: dict[int, int],
+    owned: Sequence[int] | None = None,
 ) -> AppConfig:
-    if only_index is None:
+    """Fold the operator's assignments back into the configuration.
+
+    Without ``owned`` this is the whole-roster selection: every slot left
+    unassigned is dropped. With ``owned`` — the distributed case — only those
+    slots may change and every other camera keeps the source its own PC gave it,
+    which is what stops a two-webcam client from erasing the other two cameras.
+    """
+    if owned is None:
         if not assignments:
             raise ValueError("at least one camera must be assigned")
         if not set(assignments).issubset(range(len(base.cameras))):
@@ -339,10 +364,14 @@ def build_camera_config(
             if index in assignments
         ]
     else:
-        if set(assignments) != {only_index}:
-            raise ValueError(
-                f"only logical camera {base.cameras[only_index].id} must be assigned"
-            )
+        expected = set(owned)
+        if set(assignments) != expected:
+            missing = [base.cameras[index].id for index in sorted(expected - set(assignments))]
+            if missing:
+                raise ValueError(f"assign a source to: {', '.join(missing)}")
+            raise ValueError("only the cameras attached to this PC can be assigned")
+        if len(set(assignments.values())) != len(assignments):
+            raise ValueError("the selected sources must be different")
         cameras = [
             camera.model_copy(update={"source": assignments[index]})
             if index in assignments
@@ -352,48 +381,81 @@ def build_camera_config(
     return base.model_copy(update={"cameras": cameras, "revision": base.revision + 1})
 
 
+def with_stable_sources(
+    config: AppConfig, owned: Sequence[int] | None = None
+) -> AppConfig:
+    """Replace the just-assigned ``/dev/videoN`` indices with by-id aliases.
+
+    Only the cameras this PC assigned are rewritten: the ones another PC owns
+    would be resolved against *this* machine's devices, which is exactly the kind
+    of confident wrong answer that sends a node to the wrong camera.
+    """
+    targets = set(range(len(config.cameras)) if owned is None else owned)
+    cameras = [
+        camera.model_copy(update={"source": stable_camera_source(camera.source)})
+        if index in targets
+        else camera
+        for index, camera in enumerate(config.cameras)
+    ]
+    if cameras == config.cameras:
+        return config
+    event(
+        LOGGER,
+        "camera_sources_stabilised",
+        sources={camera.id: camera.source for camera in cameras},
+    )
+    return config.model_copy(update={"cameras": cameras})
+
+
 class CameraSelector:
     def __init__(
         self,
         base: AppConfig,
         sources: list[int],
         max_index: int = 15,
-        only_index: int | None = None,
+        owned: Sequence[int] | None = None,
     ) -> None:
         self.base = base
         self.requested_sources = sources
         self.max_index = max_index
-        self.only_index = only_index
+        self.owned = None if owned is None else tuple(owned)
         self.previews: list[CameraPreview] = []
         self.open_failures: list[CameraOpenFailure] = []
         self.assignments: dict[int, int] = {}
         self.selected_index: int | None = None
-        self.message = (
-            f"Clicca una camera e premi {only_index + 1}"
-            if only_index is not None
-            else "Clicca una camera e premi " + " ".join(
-                str(index + 1) for index in range(len(base.cameras))
-            )
-        )
+        self.message = f"Clicca una camera e premi {self._assignable_keys()}"
+
+    def _assignable(self) -> tuple[int, ...]:
+        """Roster positions this run is allowed to touch."""
+        if self.owned is None:
+            return tuple(range(len(self.base.cameras)))
+        return self.owned
+
+    def _assignable_keys(self) -> str:
+        return " ".join(str(index + 1) for index in self._assignable())
+
+    def _owns(self, index: int) -> bool:
+        return index in self._assignable()
 
     def scan(self) -> None:
         self.close()
         sources = self.requested_sources or discover_camera_sources(self.max_index)
         self.previews, self.open_failures = open_previews_with_failures(sources)
         available = {preview.source for preview in self.previews}
-        if self.only_index is None:
-            self.assignments = {
-                index: int(camera.source)
-                for index, camera in enumerate(self.base.cameras)
-                if isinstance(camera.source, int) and camera.source in available
-            }
-        else:
-            configured = self.base.cameras[self.only_index].source
-            self.assignments = (
-                {self.only_index: int(configured)}
-                if isinstance(configured, int) and configured in available
-                else {}
-            )
+        # Pre-assign the sources that are both configured and actually answering,
+        # so an operator who only wants to fix one camera keeps the rest as they are.
+        # A source saved as a /dev/v4l/by-id alias has to be resolved back to the
+        # index the preview grid is keyed by, or reopening the selector would show
+        # every camera as unassigned.
+        configured = {
+            index: source_index(self.base.cameras[index].source)
+            for index in self._assignable()
+        }
+        self.assignments = {
+            index: source
+            for index, source in configured.items()
+            if source is not None and source in available
+        }
         self.selected_index = 0 if self.previews else None
         event(
             LOGGER,
@@ -433,8 +495,10 @@ class CameraSelector:
         index = row * GRID_COLUMNS + column
         if 0 <= index < len(self.previews):
             self.selected_index = index
-            keys = " ".join(str(i + 1) for i in range(len(self.base.cameras)))
-            self.message = f"Selezionata source {self.previews[index].source}: premi {keys}"
+            self.message = (
+                f"Selezionata source {self.previews[index].source}: "
+                f"premi {self._assignable_keys()}"
+            )
 
     def _refresh_frames(self) -> None:
         for preview in self.previews:
@@ -472,10 +536,12 @@ class CameraSelector:
         for index, camera in enumerate(self.base.cameras):
             if index in self.assignments:
                 assignment_items.append(f"{camera.id}=source {self.assignments[index]}")
-            elif self.only_index is not None:
-                assignment_items.append(f"{camera.id}=source {camera.source}")
-            else:
+            elif self._owns(index):
                 assignment_items.append(f"{camera.id}=-")
+            else:
+                # Another PC owns this camera: shown so the operator can see the
+                # full roster, but it is not theirs to reassign here.
+                assignment_items.append(f"{camera.id}=source {camera.source} (altro PC)")
         assignment_text = " | ".join(assignment_items)
         cv2.putText(
             image,
@@ -487,10 +553,7 @@ class CameraSelector:
             1,
         )
         help_text = (
-            f"Mouse: seleziona | {self.only_index + 1}: assegna | C: pulisci | "
-            f"R: riscansiona | ENTER: salva"
-            if self.only_index is not None
-            else f"Mouse: seleziona | 1-{len(self.base.cameras)}: assegna/rimuovi | "
+            f"Mouse: seleziona | {self._assignable_keys()}: assegna/rimuovi | "
             f"U: disassegna | C: pulisci | R: riscansiona | ENTER: salva"
         )
         cv2.putText(
@@ -552,10 +615,13 @@ class CameraSelector:
                         self.message = "Prima seleziona una camera con il mouse"
                         continue
                     logical_index = key - ord("1")
-                    if self.only_index is not None and logical_index != self.only_index:
+                    if not self._owns(logical_index):
+                        owned_ids = ", ".join(
+                            self.base.cameras[index].id for index in self._assignable()
+                        )
                         self.message = (
-                            f"Premi {self.only_index + 1} per assegnare la camera a "
-                            f"{self.base.cameras[self.only_index].id}"
+                            f"{self.base.cameras[logical_index].id} e' gestita da un altro "
+                            f"PC; qui puoi assegnare solo: {owned_ids}"
                         )
                         continue
                     source = self.previews[self.selected_index].source
@@ -623,7 +689,7 @@ class CameraSelector:
                     self.scan()
                 elif key in (10, 13):
                     try:
-                        result = build_camera_config(self.base, self.assignments, self.only_index)
+                        result = build_camera_config(self.base, self.assignments, self.owned)
                         event(
                             LOGGER,
                             "camera_selection_confirmed",
@@ -641,20 +707,16 @@ class CameraSelector:
                             reason="at_least_one_camera_required"
                             if not self.assignments
                             else (
-                                "single_camera_assignment_required"
-                                if self.only_index is not None
+                                "local_camera_assignment_required"
+                                if self.owned is not None
                                 else "invalid_assignment"
                             ),
                         )
-                        if self.only_index is not None:
-                            self.message = (
-                                f"Assegna la camera a {self.base.cameras[self.only_index].id} "
-                                f"(tasto {self.only_index + 1}) prima di salvare"
-                            )
-                        elif not self.assignments:
-                            self.message = "Assegna almeno una camera prima di salvare"
-                        else:
-                            self.message = str(error)
+                        self.message = (
+                            "Assegna almeno una camera prima di salvare"
+                            if not self.assignments
+                            else str(error)
+                        )
         finally:
             self.close()
             cv2.destroyWindow(WINDOW_NAME)
@@ -668,6 +730,8 @@ def select_camera_config(
     force: bool = False,
     camera_id: str | None = None,
     camera_ids: list[str] | None = None,
+    local_camera_ids: list[str] | None = None,
+    stable_sources: bool = True,
 ) -> AppConfig | None:
     if output.exists() and not force:
         raise FileExistsError(f"{output} exists; use --force to overwrite it")
@@ -679,17 +743,28 @@ def select_camera_config(
         requested=camera_ids,
         cameras=[camera.id for camera in base.cameras],
     )
-    only_index: int | None = None
+    # --camera is --local-cameras with one entry; keeping both spellings costs one
+    # line here and keeps every existing invocation working.
+    local = list(local_camera_ids) if local_camera_ids else None
     if camera_id is not None:
-        only_index = next(
-            (index for index, camera in enumerate(base.cameras) if camera.id == camera_id),
-            None,
-        )
-        if only_index is None:
-            raise ValueError(f"camera sconosciuta: {camera_id}")
-    selector = CameraSelector(base, sources or [], max_index, only_index)
+        local = [camera_id] if local is None else [*local, camera_id]
+    owned = owned_indices(base, local)
+    event(
+        LOGGER,
+        "camera_local_selection_resolved",
+        local_cameras=local,
+        owned=[base.cameras[index].id for index in owned] if owned is not None else None,
+        remote_cameras=(
+            [c.id for i, c in enumerate(base.cameras) if i not in owned]
+            if owned is not None
+            else []
+        ),
+    )
+    selector = CameraSelector(base, sources or [], max_index, owned)
     result = selector.run()
     if result is not None:
+        if stable_sources:
+            result = with_stable_sources(result, owned)
         save_json(output, result)
         event(
             LOGGER,
@@ -702,7 +777,7 @@ def select_camera_config(
 
 
 def camera_selector_main() -> None:
-    parser = argparse.ArgumentParser(description="Seleziona visualmente le camere")
+    parser = argparse.ArgumentParser(description="Visually select cameras")
     parser.add_argument("--output", type=Path, default=Path("camera-config.json"))
     parser.add_argument("--base", type=Path, help="configurazione da preservare come base")
     parser.add_argument("--sources", type=int, nargs="+", help="indici da mostrare, es. 5 1 2 4")
@@ -720,6 +795,18 @@ def camera_selector_main() -> None:
         help="assegna una sola camera logica (modalita distribuita); "
         "le altre slot del roster restano invariate",
     )
+    parser.add_argument(
+        "--local-cameras",
+        nargs="+",
+        metavar="CAM_ID",
+        help="camere collegate a QUESTO PC, es. --local-cameras cam_1 cam_2; "
+        "le altre restano nel roster con la sorgente che hanno gia'",
+    )
+    parser.add_argument(
+        "--keep-source-numbers",
+        action="store_true",
+        help="salva gli indici /dev/videoN invece degli alias stabili /dev/v4l/by-id",
+    )
     args = parser.parse_args()
     diagnostic_path = configure_diagnostics("vision-select-cameras")
     print(f"Log diagnostico: {diagnostic_path}")
@@ -732,6 +819,8 @@ def camera_selector_main() -> None:
             args.force,
             args.camera,
             args.cameras,
+            args.local_cameras,
+            not args.keep_source_numbers,
         )
     except (FileExistsError, ValueError) as error:
         parser.error(str(error))

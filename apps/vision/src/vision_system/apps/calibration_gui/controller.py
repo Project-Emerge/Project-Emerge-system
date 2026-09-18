@@ -9,13 +9,14 @@ reachable from a test with fake runners.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 
 from ...calibration.board import BoardSpec
 from ...calibration.store import load_calibrations
 from ...core.config import initial_config
+from ...core.setup import load_setup
 from ...gui.process import CommandSpec, ProcessEventKind, ProcessQueue
 from ...gui.tasks import TaskEventKind, TaskRunner, TaskSpec
 from . import steps
@@ -29,6 +30,8 @@ class NoticeCode(StrEnum):
 
     NO_CONFIG = "no_config"
     CONFIG_UNREADABLE = "config_unreadable"
+    CONFIG_ABSENT = "config_absent"
+    SETUP_UNREADABLE = "setup_unreadable"
     REFRESHED = "refreshed"
     STEP_BLOCKED = "step_blocked"
     ACTION_BLOCKED = "action_blocked"
@@ -59,6 +62,7 @@ def read_overview(settings: GuiSettings) -> CalibrationOverview:
         calibrations_dir=settings.calibrations_dir,
         config_path=settings.config_path,
         board_spec=BoardSpec.for_format(settings.board_format),
+        local_camera_ids=settings.local_camera_ids(config),
     )
 
 
@@ -107,7 +111,22 @@ class CalibrationController:
 
     def set_config_path(self, path: Path | None) -> None:
         self.settings.config_path = path
+        self.load_setup()
         self.refresh()
+
+    def load_setup(self) -> None:
+        """Adopt the deployment preferences saved next to the configuration.
+
+        Read here rather than in ``read_overview`` because the overview is
+        re-derived after every stage: re-reading the file each time would throw
+        away edits the operator has typed but not yet saved.
+        """
+        if self.settings.config_path is None:
+            return
+        try:
+            self.settings.setup = load_setup(self.settings.config_path)
+        except (OSError, ValueError) as error:
+            self._notices.append(Notice(NoticeCode.SETUP_UNREADABLE, {"error": error}))
 
     def refresh(self) -> None:
         """Re-read the artifacts from disk.
@@ -116,14 +135,31 @@ class CalibrationController:
         seconds, which is exactly the window in which a wizard has just exited and
         the operator is looking at the table.
         """
+        path = self.settings.config_path
         try:
             self.overview = self._load_overview(self.settings)
         except (OSError, ValueError) as error:
-            self.overview = EMPTY_OVERVIEW
-            self._notices.append(Notice(NoticeCode.CONFIG_UNREADABLE, {"error": error}))
+            # Keep the path: an empty table is not an unknown file, and step 1 is
+            # precisely the step that creates the configuration that is missing.
+            self.overview = replace(EMPTY_OVERVIEW, config_path=path)
+            absent = path is not None and not path.exists()
+            self._notices.append(
+                Notice(NoticeCode.CONFIG_ABSENT, {"path": path})
+                if absent
+                else Notice(NoticeCode.CONFIG_UNREADABLE, {"error": error})
+            )
             return
+        # The count follows the roster on disk until the operator changes it, so
+        # saving without touching the field cannot resize anything by accident.
+        self.settings.roster = self.overview.camera_ids()
         self._notices.append(
-            Notice(NoticeCode.REFRESHED, {"cameras": list(self.overview.camera_ids())})
+            Notice(
+                NoticeCode.REFRESHED,
+                {
+                    "cameras": list(self.overview.camera_ids()),
+                    "local": list(self.overview.local().camera_ids()),
+                },
+            )
         )
 
     def trigger(self, step_id: str, action_id: str, cameras: Sequence[str] = ()) -> None:

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ImuTelemetry } from "../domain/telemetry";
 import { ManualDriveControl } from "./ManualDriveControl";
+import { useLocale } from "../services/locale-context";
 import {
   getRobotImu,
   isRobotStale,
@@ -12,8 +13,20 @@ function format(value: number | null | undefined, digits = 2): string {
   return value === null || value === undefined ? "—" : Number(value).toFixed(digits);
 }
 
-function InfoRow({ label, value, unit }: { label: string; value: string | number | boolean | null | undefined; unit?: string }): React.JSX.Element {
-  const rendered = typeof value === "number" ? format(value) : value === true ? "Yes" : value === false ? "No" : value ?? "—";
+function InfoRow({
+  label,
+  value,
+  unit,
+  yesLabel = "Yes",
+  noLabel = "No",
+}: {
+  label: string;
+  value: string | number | boolean | null | undefined;
+  unit?: string;
+  yesLabel?: string;
+  noLabel?: string;
+}): React.JSX.Element {
+  const rendered = typeof value === "number" ? format(value) : value === true ? yesLabel : value === false ? noLabel : value ?? "—";
   return <div className="info-row"><span>{label}</span><strong>{rendered}{unit ? ` ${unit}` : ""}</strong></div>;
 }
 
@@ -31,81 +44,84 @@ function VectorRows({ label, vector, unit }: { label: string; vector: [number, n
 }
 
 function ImuSection({ imu }: { imu: ImuTelemetry }): React.JSX.Element {
+  const { t } = useLocale();
   return (
     <>
       <section className="detail-section">
-        <h3>IMU · raw sample</h3>
-        <InfoRow label="Timestamp" value={imu.timestamp_us} unit="µs" />
-        <VectorRows label="Accelerometer" vector={imu.raw.accelerometer} unit="m/s²" />
-        <VectorRows label="Gyroscope" vector={imu.raw.gyroscope} unit="°/s" />
-        <VectorRows label="Magnetometer" vector={imu.raw.magnetometer} unit="µT" />
-        <InfoRow label="Sensor temperature" value={imu.raw.temperature} unit="°C" />
+        <h3>{t.sidebar.imuRaw}</h3>
+        <InfoRow label={t.sidebar.timestamp} value={imu.timestamp_us} unit="µs" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <VectorRows label={t.sidebar.accelerometer} vector={imu.raw.accelerometer} unit="m/s²" />
+        <VectorRows label={t.sidebar.gyroscope} vector={imu.raw.gyroscope} unit="°/s" />
+        <VectorRows label={t.sidebar.magnetometer} vector={imu.raw.magnetometer} unit="µT" />
+        <InfoRow label={t.sidebar.sensorTemp} value={imu.raw.temperature} unit="°C" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
       </section>
       <section className="detail-section">
-        <h3>IMU · filtered</h3>
-        <VectorRows label="Accelerometer" vector={imu.filtered.accelerometer} unit="m/s²" />
-        <VectorRows label="Gyroscope" vector={imu.filtered.gyroscope} unit="°/s" />
-        <VectorRows label="Magnetometer" vector={imu.filtered.magnetometer} unit="µT" />
-        <VectorRows label="Linear acceleration" vector={imu.filtered.linear_acceleration} unit="m/s²" />
+        <h3>{t.sidebar.imuFiltered}</h3>
+        <VectorRows label={t.sidebar.accelerometer} vector={imu.filtered.accelerometer} unit="m/s²" />
+        <VectorRows label={t.sidebar.gyroscope} vector={imu.filtered.gyroscope} unit="°/s" />
+        <VectorRows label={t.sidebar.magnetometer} vector={imu.filtered.magnetometer} unit="µT" />
+        <VectorRows label={t.sidebar.linearAcceleration} vector={imu.filtered.linear_acceleration} unit="m/s²" />
         <div className="vector-group">
-          <span className="vector-label">Quaternion</span>
+          <span className="vector-label">{t.sidebar.quaternion}</span>
           <div className="vector-values quad-values">
             {imu.filtered.quaternion.map((value, index) => <span key={index}>{["x", "y", "z", "w"][index]} {format(value, 3)}</span>)}
           </div>
         </div>
-        <InfoRow label="Roll" value={imu.filtered.roll} unit="°" />
-        <InfoRow label="Pitch" value={imu.filtered.pitch} unit="°" />
-        <InfoRow label="Magnetic heading" value={imu.filtered.heading} unit="°" />
-        <InfoRow label="Stationary" value={imu.filtered.is_stationary} />
+        <InfoRow label={t.sidebar.roll} value={imu.filtered.roll} unit="°" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label={t.sidebar.pitch} value={imu.filtered.pitch} unit="°" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label={t.sidebar.magneticHeading} value={imu.filtered.heading} unit="°" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label={t.sidebar.stationary} value={imu.filtered.is_stationary} yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
       </section>
     </>
   );
 }
 
-function lastUpdateLabel(lastSeenAt: number, now: number): string {
-  if (lastSeenAt <= 0) return "No live signal";
+function lastUpdateLabel(lastSeenAt: number, now: number, t: ReturnType<typeof useLocale>["t"]): string {
+  if (lastSeenAt <= 0) return t.sidebar.noLiveSignal;
   const elapsedSeconds = Math.max(0, Math.floor((now - lastSeenAt) / 1_000));
-  return elapsedSeconds < 1 ? "Just now" : `${elapsedSeconds}s ago`;
+  return elapsedSeconds < 1 ? t.sidebar.justNow : t.sidebar.secondsAgo(elapsedSeconds);
 }
 
 function RobotTelemetry({ robot, now }: { robot: RobotLiveState; now: number }): React.JSX.Element {
+  const { t } = useLocale();
   const imu = getRobotImu(robot);
   const motors = robot.telemetry?.motor_telemetry;
   const motorStatus = motors === "Stopped"
-    ? "Stopped"
-    : motors?.Motoring ? `L ${format(motors.Motoring.left)} · R ${format(motors.Motoring.right)}` : "—";
+    ? t.sidebar.stopped
+    : motors?.Motoring ? t.sidebar.motoring(format(motors.Motoring.left), format(motors.Motoring.right)) : "—";
 
   return (
     <div className="robot-telemetry">
       <section className="detail-section">
-        <h3>Live status</h3>
-        <InfoRow label="Last update" value={lastUpdateLabel(robot.lastSeenAt, now)} />
-        <InfoRow label="Motors" value={motorStatus} />
-        <InfoRow label="Battery" value={robot.telemetry?.battery_telemetry.state_of_charge} unit="%" />
-        <InfoRow label="Pack voltage" value={robot.telemetry?.battery_telemetry.voltage} unit="V" />
-        <InfoRow label="Current" value={robot.telemetry?.battery_telemetry.current} unit="A" />
-        <InfoRow label="Charger temperature" value={robot.telemetry?.battery_telemetry.temperature} unit="°C" />
-        <InfoRow label="Charging" value={robot.telemetry?.battery_telemetry.is_charging} />
-        <InfoRow label="RSSI" value={robot.telemetry?.network_telemetry.rssi} unit="dBm" />
-        <InfoRow label="IP" value={robot.telemetry?.network_telemetry.ip_address} />
+        <h3>{t.sidebar.liveStatus}</h3>
+        <InfoRow label={t.sidebar.lastUpdate} value={lastUpdateLabel(robot.lastSeenAt, now, t)} yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label={t.sidebar.motors} value={motorStatus} yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label={t.sidebar.battery} value={robot.telemetry?.battery_telemetry.state_of_charge} unit="%" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label={t.sidebar.packVoltage} value={robot.telemetry?.battery_telemetry.voltage} unit="V" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label={t.sidebar.current} value={robot.telemetry?.battery_telemetry.current} unit="A" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label={t.sidebar.chargerTemp} value={robot.telemetry?.battery_telemetry.temperature} unit="°C" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label={t.sidebar.charging} value={robot.telemetry?.battery_telemetry.is_charging} yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label={t.sidebar.rssi} value={robot.telemetry?.network_telemetry.rssi} unit="dBm" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label={t.sidebar.ip} value={robot.telemetry?.network_telemetry.ip_address} yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
       </section>
       <section className="detail-section">
-        <h3>Position</h3>
-        <InfoRow label="X" value={robot.pose?.x_m} unit="m" />
-        <InfoRow label="Y" value={robot.pose?.y_m} unit="m" />
-        <InfoRow label="Heading" value={robot.pose ? robot.pose.heading_rad * 180 / Math.PI : null} unit="°" />
-        <InfoRow label="Speed" value={robot.pose?.speed_m_s} unit="m/s" />
-        <InfoRow label="Variance" value={robot.pose?.position_variance_m2} unit="m²" />
-        <InfoRow label="Timestamp" value={robot.pose?.timestamp_us} unit="µs" />
+        <h3>{t.sidebar.position}</h3>
+        <InfoRow label="X" value={robot.pose?.x_m} unit="m" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label="Y" value={robot.pose?.y_m} unit="m" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label={t.sidebar.heading} value={robot.pose ? robot.pose.heading_rad * 180 / Math.PI : null} unit="°" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label={t.sidebar.speed} value={robot.pose?.speed_m_s} unit="m/s" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label={t.sidebar.variance} value={robot.pose?.position_variance_m2} unit="m²" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label={t.sidebar.timestamp} value={robot.pose?.timestamp_us} unit="µs" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
       </section>
       {imu
         ? <ImuSection imu={imu} />
-        : <section className="detail-section"><h3>IMU</h3><p className="muted">Waiting for the first IMU sample.</p></section>}
+        : <section className="detail-section"><h3>{t.sidebar.imu}</h3><p className="muted">{t.sidebar.waitingImu}</p></section>}
     </div>
   );
 }
 
 function RobotCard({ robot, expanded, now }: { robot: RobotLiveState; expanded: boolean; now: number }): React.JSX.Element {
+  const { t } = useLocale();
   const toggleSelectedRobot = useDashboardStore((state) => state.toggleSelectedRobot);
   const isLeader = useDashboardStore((state) => state.formation?.leaderId === robot.id);
   const stale = isRobotStale(robot, now);
@@ -125,10 +141,10 @@ function RobotCard({ robot, expanded, now }: { robot: RobotLiveState; expanded: 
         <span className="robot-card-copy">
           <span className="robot-card-name">
             <strong>{robot.id}</strong>
-            {isLeader && <span className="robot-leader-badge">★ Leader</span>}
+            {isLeader && <span className="robot-leader-badge">{t.sidebar.leaderBadge}</span>}
           </span>
           <span className={stale ? "robot-reachability stale" : "robot-reachability"}>
-            <i />{stale ? "Unavailable" : "Reachable"}
+            <i />{stale ? t.sidebar.unavailable : t.sidebar.reachable}
           </span>
         </span>
         {battery !== undefined && <span className="robot-battery">{battery}%</span>}
@@ -140,6 +156,7 @@ function RobotCard({ robot, expanded, now }: { robot: RobotLiveState; expanded: 
 }
 
 export function RobotDetailsSidebar(): React.JSX.Element {
+  const { t } = useLocale();
   const robotIds = useDashboardStore((state) => state.robotIds);
   const robots = useDashboardStore((state) => state.robots);
   const selectedRobotId = useDashboardStore((state) => state.selectedRobotId);
@@ -164,14 +181,14 @@ export function RobotDetailsSidebar(): React.JSX.Element {
   }, 0);
 
   return (
-    <aside className="robot-sidebar panel" aria-label="Reachable robots">
+    <aside className="robot-sidebar panel" aria-label={t.sidebar.ariaSidebar}>
       <header className="sidebar-header">
-        <div><span className="eyebrow">Live fleet</span><h2>Robots</h2></div>
-        <span className="reachable-count"><i />{reachableCount} reachable</span>
+        <div><span className="eyebrow">{t.sidebar.liveFleet}</span><h2>{t.sidebar.robots}</h2></div>
+        <span className="reachable-count"><i />{t.sidebar.reachableCount(reachableCount)}</span>
       </header>
       <div className="sidebar-scroll">
         {robotIds.length === 0
-          ? <p className="empty-message">Reachable robots appear after their first live message.</p>
+          ? <p className="empty-message">{t.sidebar.emptyMessage}</p>
           : <div className="robot-list">{robotIds.map((id) => {
             const robot = robots[id];
             return robot

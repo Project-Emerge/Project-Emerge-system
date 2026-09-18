@@ -11,6 +11,7 @@ import {
 } from "../services/voice-recorder";
 import { useGatewayClient } from "../services/gateway-context";
 import { useDashboardStore } from "../store/dashboard-store";
+import { useLocale } from "../services/locale-context";
 
 /**
  * What an assistant turn offers the operator.
@@ -49,6 +50,7 @@ const HALT: FormationCommand = {
 };
 
 export function ChatPanel({ onClose }: { onClose: () => void }): React.JSX.Element {
+  const { t } = useLocale();
   const gateway = useGatewayClient();
   const connectionStatus = useDashboardStore((state) => state.connectionStatus);
 
@@ -57,10 +59,24 @@ export function ChatPanel({ onClose }: { onClose: () => void }): React.JSX.Eleme
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<ChatStatus | null>(null);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recording = useRef<Recording | null>(null);
   const nextId = useRef(0);
   const transcript = useRef<HTMLDivElement | null>(null);
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
   const voiceSupported = isVoiceSupported();
+
+  useEffect(() => {
+    if (phase !== "recording") {
+      setRecordingSeconds(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setRecordingSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [phase]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent): void {
@@ -77,7 +93,7 @@ export function ChatPanel({ onClose }: { onClose: () => void }): React.JSX.Eleme
       .catch((cause: unknown) => {
         if (!cancelled) {
           setStatus({ enabled: false, model: null });
-          setError(cause instanceof Error ? cause.message : "The swarm chat is unavailable.");
+          setError(cause instanceof Error ? cause.message : t.chat.chatUnavailable);
         }
       });
     return () => { cancelled = true; };
@@ -116,7 +132,7 @@ export function ChatPanel({ onClose }: { onClose: () => void }): React.JSX.Eleme
     append({ role: "user", content });
     // Built from the entries plus this turn, rather than from state, which has not settled yet.
     const history: ChatMessage[] = [
-      ...entries.map((entry) => ({ role: entry.role, content: entry.content })),
+      ...entriesRef.current.map((entry) => ({ role: entry.role, content: entry.content })),
       { role: "user" as const, content },
     ];
     setPhase("thinking");
@@ -145,11 +161,11 @@ export function ChatPanel({ onClose }: { onClose: () => void }): React.JSX.Eleme
         setAction(entryId, {
           kind: "settled",
           summary,
-          note: cause instanceof Error ? `Not applied: ${cause.message}` : "Not applied.",
+          note: cause instanceof Error ? `${t.chat.applyFailed}: ${cause.message}` : t.chat.applyFailed,
         });
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The swarm chat could not answer.");
+      setError(cause instanceof Error ? cause.message : t.chat.chatCouldNotAnswer);
     } finally {
       setPhase("idle");
     }
@@ -168,7 +184,7 @@ export function ChatPanel({ onClose }: { onClose: () => void }): React.JSX.Eleme
         reverted: false,
       });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Apply failed.");
+      setError(cause instanceof Error ? cause.message : t.chat.applyFailed);
     }
   }
 
@@ -178,29 +194,38 @@ export function ChatPanel({ onClose }: { onClose: () => void }): React.JSX.Eleme
       await publish(action.previous ?? HALT);
       setAction(id, { ...action, reverted: true });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Undo failed.");
+      setError(cause instanceof Error ? cause.message : t.chat.undoFailed);
+    }
+  }
+
+  async function finishRecording(session: Recording): Promise<void> {
+    if (recording.current !== session) return;
+    recording.current = null;
+    setPhase("transcribing");
+    let text: string | null = null;
+    try {
+      const audio = await session.stop();
+      text = await transcribeAudio(audio);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t.chat.recordingFailed);
+      setPhase("idle");
+      return;
+    }
+
+    if (text && text.trim()) {
+      await send(text.trim());
+    } else {
+      setError(t.chat.didNotCatch);
+      setPhase("idle");
     }
   }
 
   async function toggleRecording(): Promise<void> {
     if (phase === "recording") {
       const session = recording.current;
-      recording.current = null;
-      if (!session) {
-        setPhase("idle");
-        return;
-      }
-      setPhase("transcribing");
-      try {
-        const audio = await session.stop();
-        const text = await transcribeAudio(audio);
-        // Into the composer rather than straight to the agent: mishearing "stop" as "spread out"
-        // should cost an edit, not a fleet-wide manoeuvre.
-        if (text) setDraft(text);
-        else setError("I did not catch that. Try again, or type it.");
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "That recording could not be used.");
-      } finally {
+      if (session) {
+        await finishRecording(session);
+      } else {
         setPhase("idle");
       }
       return;
@@ -208,41 +233,48 @@ export function ChatPanel({ onClose }: { onClose: () => void }): React.JSX.Eleme
 
     setError(null);
     try {
-      recording.current = await startRecording();
+      let session: Recording | null = null;
+      session = await startRecording({
+        onAutoStop: () => {
+          if (session) {
+            void finishRecording(session);
+          }
+        },
+      });
+      recording.current = session;
       setPhase("recording");
     } catch (cause) {
       setError(
         cause instanceof MicrophoneDeniedError
-          ? "Microphone access was refused. Allow it in the browser to speak to the swarm."
-          : cause instanceof Error ? cause.message : "No microphone is available.",
+          ? t.chat.micDenied
+          : cause instanceof Error ? cause.message : t.chat.micUnavailable,
       );
     }
   }
 
   const offline = connectionStatus !== "connected";
   const disabledReason = status && !status.enabled
-    ? "Set GEMINI_API_KEY in the root .env to use the swarm chat."
+    ? t.chat.geminiKeyMissing
     : offline
-      ? "The gateway is offline, so nothing can reach the swarm."
+      ? t.chat.gatewayOffline
       : null;
   const busy = phase !== "idle";
   const canSend = !disabledReason && !busy && draft.trim().length > 0;
 
   return (
-    <aside className="chat-dock" aria-label="Swarm chat">
+    <aside className="chat-dock" aria-label={t.chat.swarmChat}>
       <div className="chat-header">
         <div>
-          <span className="eyebrow">Fleet</span>
-          <h2>Swarm chat</h2>
+          <span className="eyebrow">{t.chat.fleet}</span>
+          <h2>{t.chat.swarmChat}</h2>
         </div>
-        <button type="button" className="modal-close" onClick={onClose} aria-label="Close swarm chat">✕</button>
+        <button type="button" className="modal-close" onClick={onClose} aria-label={t.chat.closeAria}>✕</button>
       </div>
 
       <div className="chat-transcript" ref={transcript} role="log" aria-live="polite">
         {entries.length === 0 && !disabledReason && (
           <p className="chat-empty">
-            Ask for a formation — “ring everyone around D4E5F6”, “spread out more”, “draw a
-            five-pointed star”. Speak it with the microphone if you prefer.
+            {t.chat.emptyPrompt}
           </p>
         )}
         {entries.map((entry) => (
@@ -252,15 +284,19 @@ export function ChatPanel({ onClose }: { onClose: () => void }): React.JSX.Eleme
               <div className="chat-action-chip">
                 <span>
                   {entry.action.reverted
-                    ? `Reverted to ${entry.action.previous ? getFormationLabel(entry.action.previous.program) : "Stop"}`
-                    : `Applied ${entry.action.summary}`}
+                    ? t.chat.revertedTo(
+                        entry.action.previous
+                          ? (t.formationModal.programs[entry.action.previous.program]?.label ?? getFormationLabel(entry.action.previous.program))
+                          : (t.formationModal.programs["stop"]?.label ?? "Stop")
+                      )
+                    : t.chat.appliedSummary(entry.action.summary)}
                 </span>
                 {!entry.action.reverted && (
                   <button
                     type="button"
                     onClick={() => void undo(entry.id, entry.action as Extract<EntryAction, { kind: "applied" }>)}
                   >
-                    Undo
+                    {t.chat.undoButton}
                   </button>
                 )}
               </div>
@@ -273,17 +309,17 @@ export function ChatPanel({ onClose }: { onClose: () => void }): React.JSX.Eleme
                   onClick={() => void apply(entry.id, entry.action as Extract<EntryAction, { kind: "proposed" }>)}
                   disabled={Boolean(disabledReason)}
                 >
-                  Apply
+                  {t.chat.applyButton}
                 </button>
                 <button
                   type="button"
                   onClick={() => setAction(entry.id, {
                     kind: "settled",
                     summary: entry.action!.summary,
-                    note: "Discarded",
+                    note: t.chat.discardedNote,
                   })}
                 >
-                  Discard
+                  {t.chat.discardButton}
                 </button>
               </div>
             )}
@@ -294,8 +330,8 @@ export function ChatPanel({ onClose }: { onClose: () => void }): React.JSX.Eleme
             )}
           </div>
         ))}
-        {phase === "thinking" && <p className="chat-thinking">Thinking…</p>}
-        {phase === "transcribing" && <p className="chat-thinking">Transcribing…</p>}
+        {phase === "thinking" && <p className="chat-thinking">{t.chat.thinking}</p>}
+        {phase === "transcribing" && <p className="chat-thinking">{t.chat.transcribing}</p>}
       </div>
 
       {disabledReason && <p className="form-message error">{disabledReason}</p>}
@@ -312,8 +348,9 @@ export function ChatPanel({ onClose }: { onClose: () => void }): React.JSX.Eleme
           <button
             type="button"
             className={`chat-mic ${phase === "recording" ? "recording" : ""}`}
-            aria-label={phase === "recording" ? "Stop recording" : "Speak to the swarm"}
+            aria-label={phase === "recording" ? t.chat.stopRecordingAria : t.chat.speakAria}
             aria-pressed={phase === "recording"}
+            title={phase === "recording" ? t.chat.recordingTitle(recordingSeconds) : t.chat.speakTitle}
             disabled={Boolean(disabledReason) || phase === "thinking" || phase === "transcribing"}
             onClick={() => void toggleRecording()}
           >
@@ -322,13 +359,17 @@ export function ChatPanel({ onClose }: { onClose: () => void }): React.JSX.Eleme
         )}
         <input
           type="text"
-          aria-label="Message the swarm"
-          placeholder={phase === "recording" ? "Listening…" : "Ask for a formation…"}
+          aria-label={t.chat.inputAria}
+          placeholder={
+            phase === "recording"
+              ? t.chat.listeningPlaceholder(recordingSeconds)
+              : t.chat.askPlaceholder
+          }
           value={draft}
           disabled={Boolean(disabledReason) || busy}
           onChange={(event) => setDraft(event.target.value)}
         />
-        <button type="submit" className="primary-button" disabled={!canSend} aria-label="Send">
+        <button type="submit" className="primary-button" disabled={!canSend} aria-label={t.chat.sendAria}>
           ▸
         </button>
       </form>

@@ -94,11 +94,22 @@ class CoordinatorMetrics:
 
 @dataclass(frozen=True)
 class NodeMetrics:
-    """One ``role: node`` metrics report, always scoped to a single camera."""
+    """One ``role: node`` metrics report, always scoped to a single camera.
+
+    The capture fields are optional on purpose: a node from before they existed
+    still reports its observations, and ``None`` there means "this node does not
+    say", which the panel must not render as "the camera is down".
+    """
 
     camera_id: str
     observations_published: int | None = None
     excluded_for_drift: bool = False
+    capture_online: bool | None = None
+    capture_error: str | None = None
+    frames_received: int | None = None
+    source: int | str | None = None
+    calibrated: bool | None = None
+    detecting: bool | None = None
     body: Mapping[str, object] = field(default_factory=dict)
 
     @classmethod
@@ -106,10 +117,18 @@ class NodeMetrics:
         camera_id = body.get("camera_id")
         if not isinstance(camera_id, str):
             return None
+        source = body.get("source")
+        error = body.get("capture_error")
         return cls(
             camera_id=camera_id,
             observations_published=_as_int(body.get("observations_published")),
             excluded_for_drift=bool(body.get("excluded_for_drift", False)),
+            capture_online=_as_bool(body.get("capture_online")),
+            capture_error=str(error) if error else None,
+            frames_received=_as_int(body.get("frames_received")),
+            source=source if isinstance(source, int | str) else None,
+            calibrated=_as_bool(body.get("calibrated")),
+            detecting=_as_bool(body.get("detecting")),
             body=body,
         )
 

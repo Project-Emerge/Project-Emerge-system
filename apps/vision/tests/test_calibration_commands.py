@@ -58,6 +58,30 @@ def test_board_generation_uses_the_selected_format_and_output():
     assert argv[argv.index("--output") + 1] == "assets"
 
 
+def test_the_local_share_is_passed_as_local_cameras_never_as_the_roster():
+    """--cameras trims the deployment; on a client PC that would delete the rest of it."""
+    argv = list(
+        commands.build_select_cameras_command(
+            _settings(), local_camera_ids=("cam_1", "cam_2")
+        ).argv
+    )
+    assert "--cameras" not in argv
+    assert argv[argv.index("--local-cameras") + 1 : argv.index("--local-cameras") + 3] == [
+        "cam_1",
+        "cam_2",
+    ]
+
+
+def test_the_field_of_view_is_adjusted_only_for_the_cameras_plugged_in_here():
+    argv = list(
+        commands.build_configure_cameras_command(
+            _settings(), camera_ids=("cam_1", "cam_2")
+        ).argv
+    )
+    assert argv[argv.index("--cameras") + 1 :] == ["cam_1", "cam_2"]
+    assert "--cameras" not in commands.build_configure_cameras_command(_settings()).argv
+
+
 def test_an_unsupported_reference_map_mode_is_rejected_early():
     with pytest.raises(ValueError, match="unsupported reference map mode"):
         commands.build_reference_map_command(_settings(), mode="single")
@@ -111,7 +135,10 @@ def _specs(settings):
             commands.build_intrinsics_command(settings, "cam_0"),
             commands.build_extrinsics_command(settings, "cam_0"),
             commands.build_select_cameras_command(settings, camera_ids=("cam_0", "cam_1")),
-            commands.build_configure_cameras_command(settings),
+            commands.build_select_cameras_command(
+                settings, local_camera_ids=("cam_1", "cam_2")
+            ),
+            commands.build_configure_cameras_command(settings, camera_ids=("cam_1", "cam_2")),
             commands.build_reference_map_command(settings, mode="anchors"),
             commands.build_reference_stitch_command(settings),
             commands.build_origin_command(settings),

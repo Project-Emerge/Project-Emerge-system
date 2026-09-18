@@ -295,7 +295,7 @@ def annotated_origin_image(
 
 def origin_selector_main() -> None:
     parser = argparse.ArgumentParser(
-        description="Seleziona da una camera live o foto quale ancora e l'origine world"
+        description="Select which anchor is the world origin from a live camera or photo"
     )
     source_group = parser.add_mutually_exclusive_group()
     source_group.add_argument("--image", type=Path, help="usa una foto esistente")

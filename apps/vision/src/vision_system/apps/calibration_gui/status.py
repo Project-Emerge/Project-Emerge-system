@@ -12,8 +12,8 @@ drift apart.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
@@ -72,9 +72,34 @@ class CalibrationOverview:
     config_revision: int = 0
     board_format: str = "a4"
     reference_marker_count: int = 0
+    # The cameras physically attached to this PC. ``None`` means all of them,
+    # which is both the single-PC case and what every caller that does not care
+    # about the distinction gets.
+    local_camera_ids: tuple[str, ...] | None = None
 
     def camera_ids(self) -> tuple[str, ...]:
         return tuple(camera.camera_id for camera in self.cameras)
+
+    def is_local(self, camera_id: str) -> bool:
+        return self.local_camera_ids is None or camera_id in self.local_camera_ids
+
+    def remote_camera_ids(self) -> tuple[str, ...]:
+        """Roster cameras another PC owns: calibrated there, not here."""
+        return tuple(c.camera_id for c in self.cameras if not self.is_local(c.camera_id))
+
+    def local(self) -> CalibrationOverview:
+        """The same overview restricted to this PC's cameras.
+
+        Every calibration gate is applied to this rather than to the whole
+        roster: a webcam on another PC cannot be calibrated from here, so letting
+        it block the local wizard would leave a distributed deployment with no
+        machine on which step 3 is ever runnable.
+        """
+        if self.local_camera_ids is None:
+            return self
+        return replace(
+            self, cameras=tuple(c for c in self.cameras if self.is_local(c.camera_id))
+        )
 
     def status(self, camera_id: str) -> CameraStatus | None:
         return next((c for c in self.cameras if c.camera_id == camera_id), None)
@@ -155,6 +180,7 @@ def describe_calibrations(
     calibrations_dir: Path,
     config_path: Path | None = None,
     board_spec: BoardSpec | None = None,
+    local_camera_ids: Sequence[str] | None = None,
 ) -> CalibrationOverview:
     """Build the table for the configured roster — two, three or four cameras."""
     spec = board_spec or BoardSpec()
@@ -174,4 +200,5 @@ def describe_calibrations(
         config_revision=config.revision,
         board_format=spec.page_format,
         reference_marker_count=len(config.aruco.reference_markers),
+        local_camera_ids=None if local_camera_ids is None else tuple(local_camera_ids),
     )

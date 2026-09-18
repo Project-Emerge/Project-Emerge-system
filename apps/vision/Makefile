@@ -1,25 +1,33 @@
-# Comandi del sottoprogetto VisionSystem.
+# VisionSystem subproject commands.
 #
-#   make all                                       tutto su un PC, un solo processo di fusione
-#   make server                                    broker + server di fusione (deployment distribuito)
-#   make client CAMERA=cam_0                       nodo camera sullo stesso PC del server
-#   make client CAMERA=cam_1 MQTT_HOST=192.168.1.10   nodo camera su un PC remoto
-#   make gui                                       pannello di avvio e debug del server (host)
-#   make calibrate-gui                             pannello di calibrazione (host)
+#   make all                                       everything on one PC, single fusion process
+#   make server                                    broker + fusion server (distributed deployment)
+#   make client CAMERA=cam_0                       camera node on the same PC as the server
+#   make client CAMERA=cam_1 MQTT_HOST=192.168.1.10   camera node on a remote PC
+#   make gui                                       server launch and debug GUI panel (host)
+#   make calibrate-gui                             calibration panel (host)
+#
+# How many cameras the deployment has and which are attached to THIS PC are configured
+# in step 1 of the calibration panel, which writes config.local.json (shared roster)
+# and config.local.setup.json (local part) and prints the commands below pre-populated.
 .PHONY: all server client gui calibrate-gui logs logs-server logs-client ps down down-client test
 
-# Camera gestita da `make client`; un progetto Compose per camera, cosi' sullo
-# stesso PC possono convivere piu' nodi.
+# Camera managed by `make client`; one Compose project per camera so multiple
+# nodes can coexist on the same PC.
 CAMERA ?= cam_0
-# Host del broker visto dai container del nodo: host-gateway quando il broker
-# gira sullo stesso PC, l'IP del PC server quando il nodo e' remoto.
+# Broker host seen by the node containers: host-gateway when broker runs on the
+# same PC, server PC IP when the node is remote.
 MQTT_HOST ?= host.docker.internal
 MQTT_PORT ?= 1883
-# Host del broker visto dai processi sull'host (GUI, test manuali).
+# Broker seen by host processes (GUI, manual tests).
 GUI_MQTT_HOST ?= localhost
+GUI_MQTT_PORT ?= $(MQTT_PORT)
 CONFIG ?= config.local.json
-# Formato della board ChArUco usata in calibrazione: a4 oppure a3.
+# ChArUco board format used during calibration: a4 or a3.
 BOARD_FORMAT ?= a4
+# How many cameras the deployment has. Set it to force the roster in the panel
+# (make calibrate-gui CAMERAS=3); empty keeps whatever the configuration says.
+CAMERAS ?=
 
 REPO_ROOT := $(abspath $(CURDIR)/../..)
 COMPOSE := docker compose -f $(REPO_ROOT)/compose.yaml
@@ -27,31 +35,33 @@ NODE_COMPOSE = docker compose -f compose.node.yaml -p vision-node-$(CAMERA)
 
 NODE_ENV = VISION_MQTT_HOST=$(MQTT_HOST) VISION_MQTT_PORT=$(MQTT_PORT) VISION_CAMERA=$(CAMERA)
 
-# Stack completo su una sola macchina: broker, dashboard e il monolite
-# `vision-localizer`, che apre tutte le camere del roster e fonde da solo.
+# Full stack on a single machine: broker, dashboard, and the monolith
+# `vision-localizer`, which opens all roster cameras and fuses alone.
 all:
 	$(COMPOSE) up --build -d
 
-# Deployment distribuito, lato server: nessuna camera aperta qui, le osservazioni
-# arrivano dai nodi. Il monolite viene fermato perche' pubblicherebbe le stesse pose.
+# Distributed deployment, server side: no camera open here, observations arrive
+# from nodes. The monolith is stopped because it would publish the same poses.
 server:
 	$(COMPOSE) stop vision
 	$(COMPOSE) --profile distributed up --build -d mosquitto vision-server
 
-# Deployment distribuito, lato client: una camera, osservazioni via MQTT.
+# Distributed deployment, client side: one camera, observations over MQTT.
 client:
-	@echo "nodo $(CAMERA) -> broker $(MQTT_HOST):$(MQTT_PORT)"
+	@echo "node $(CAMERA) -> broker $(MQTT_HOST):$(MQTT_PORT)"
 	$(NODE_ENV) $(NODE_COMPOSE) up --build -d
 
-# Pannello Tkinter: avvia/ferma il server, mostra il roster e la vista world.
-# Gira sull'host (serve X/Wayland), non in un container.
+# Tkinter panel: start/stop server, display roster and world view.
+# Runs on host (needs X/Wayland), not in a container.
 gui:
-	uv run vision-server-gui --config $(CONFIG) --mqtt-host $(GUI_MQTT_HOST)
+	uv run vision-server-gui --config $(CONFIG) --mqtt-host $(GUI_MQTT_HOST) \
+		--mqtt-port $(GUI_MQTT_PORT)
 
-# Pannello Tkinter di calibrazione: mostra lo stato per camera e lancia le fasi
-# (selezione sorgenti, board, intrinseche, reference, estrinseche). Gira sull'host.
+# Tkinter calibration panel: displays camera status and launches steps
+# (camera selection, board, intrinsics, references, extrinsics). Runs on host.
 calibrate-gui:
-	uv run vision-calibrate-gui --config $(CONFIG) --board-format $(BOARD_FORMAT)
+	uv run vision-calibrate-gui --config $(CONFIG) --board-format $(BOARD_FORMAT) \
+		$(if $(CAMERAS),--cameras $(CAMERAS))
 
 logs: logs-server
 

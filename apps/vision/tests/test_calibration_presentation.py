@@ -118,8 +118,14 @@ def test_a_table_renders_one_row_per_configured_camera():
 
 
 def test_notice_wording_lists_the_cameras_it_is_about():
-    notice = Notice(NoticeCode.REFRESHED, {"cameras": ["cam_0", "cam_1"]})
-    assert "cam_0, cam_1" in presentation.format_notice(notice)
+    notice = Notice(
+        NoticeCode.REFRESHED, {"cameras": ["cam_0", "cam_1"], "local": ["cam_1"]}
+    )
+    rendered = presentation.format_notice(notice)
+    assert "cam_0, cam_1" in rendered
+    # The local share is named separately: on a client PC the two lists differ,
+    # and that difference is the thing the operator has to get right.
+    assert "this PC: cam_1" in rendered
 
 
 def test_a_finished_command_points_at_the_table_not_the_exit_code():

@@ -1038,7 +1038,7 @@ def _detect(image: NDArray, dictionary_name: str) -> dict[int, NDArray[np.float6
 
 def reference_stitcher_main() -> None:
     parser = argparse.ArgumentParser(
-        description="Mappa dei reference marker combinando foto di piu camere"
+        description="Reference marker map combining photos from multiple cameras"
     )
     source_group = parser.add_mutually_exclusive_group(required=True)
     source_group.add_argument("--images", type=Path, nargs="+", help="foto da combinare")

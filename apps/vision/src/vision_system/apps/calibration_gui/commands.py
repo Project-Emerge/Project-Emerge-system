@@ -78,14 +78,25 @@ def build_select_cameras_command(
     settings: GuiSettings,
     *,
     camera_ids: Sequence[str] = (),
+    local_camera_ids: Sequence[str] | None = None,
     sources: Sequence[int] = (),
     force: bool = True,
 ) -> CommandSpec:
+    """Assign video sources. ``--cameras`` trims the roster, ``--local-cameras``
+    does not — which is why the panel passes the second one.
+
+    Passing the local share as ``--cameras`` is the mistake this signature exists
+    to prevent: on a PC owning two of four webcams it would write a two-camera
+    configuration, and the fusion server would then wait forever for a pair of
+    cameras that nobody publishes any more.
+    """
     command = console_script("vision-select-cameras", "vision_system.apps.camera_selector")
     if settings.config_path is not None:
         command += ["--base", str(settings.config_path), "--output", str(settings.config_path)]
     if camera_ids:
         command += ["--cameras", *camera_ids]
+    if local_camera_ids:
+        command += ["--local-cameras", *local_camera_ids]
     if sources:
         command += ["--sources", *(str(source) for source in sources)]
     if force:
@@ -93,11 +104,15 @@ def build_select_cameras_command(
     return CommandSpec(argv=tuple(command), title="select cameras", camera_id="*")
 
 
-def build_configure_cameras_command(settings: GuiSettings) -> CommandSpec:
+def build_configure_cameras_command(
+    settings: GuiSettings, *, camera_ids: Sequence[str] | None = None
+) -> CommandSpec:
     command = console_script(
         "vision-configure-cameras", "vision_system.apps.camera_configurator"
     )
     command += ["--config", str(settings.config_path), "--force"]
+    if camera_ids:
+        command += ["--cameras", *camera_ids]
     return CommandSpec(argv=tuple(command), title="configure cameras", camera_id="*")
 
 

@@ -288,6 +288,10 @@ class VisionNode:
         status["excluded_for_drift"] = self.camera_id in self.drift.excluded_cameras
         status["calibrated"] = self.camera_id in self.calibrations
         self.bridge.publish_camera_status(self.camera_id, status)
+        # The capture state rides along on /metrics rather than only on the
+        # per-camera status topic, because "the node is up but the server sees
+        # nothing" and "the webcam never opened" look identical from the panel
+        # otherwise — and the second one is by far the more common of the two.
         self.bridge.publish_metrics(
             {
                 "timestamp_ns": time.time_ns(),
@@ -295,6 +299,12 @@ class VisionNode:
                 "camera_id": self.camera_id,
                 "observations_published": self.observation_count,
                 "excluded_for_drift": self.camera_id in self.drift.excluded_cameras,
+                "capture_online": bool(status.get("online", False)),
+                "capture_error": status.get("error"),
+                "frames_received": status.get("frames_received", 0),
+                "source": self.camera.source if self.camera is not None else None,
+                "calibrated": self.camera_id in self.calibrations,
+                "detecting": self.detector is not None,
             }
         )
         event(
@@ -318,7 +328,7 @@ class VisionNode:
 
 def node_main() -> None:
     parser = argparse.ArgumentParser(
-        description="VisionSystem camera node: una camera, osservazioni ArUco via MQTT"
+        description="VisionSystem camera node: single camera, ArUco observations via MQTT"
     )
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument(

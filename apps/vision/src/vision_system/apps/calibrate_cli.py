@@ -229,7 +229,7 @@ def _handle_extrinsics_command(
 
 
 def calibration_main() -> None:
-    parser = argparse.ArgumentParser(description="Assistente guidato di calibrazione VisionSystem")
+    parser = argparse.ArgumentParser(description="VisionSystem interactive calibration wizard")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument(
         "--config", type=Path, help="fallback locale; MQTT resta il canale primario"
@@ -359,7 +359,7 @@ def calibration_main() -> None:
 
 
 def runtime_main() -> None:
-    parser = argparse.ArgumentParser(description="Localizzatore ArUco multi-camera")
+    parser = argparse.ArgumentParser(description="Multi-camera ArUco localizer")
     parser.add_argument("--verbose", action="store_true")
     parser.add_argument("--config", type=Path)
     parser.add_argument("--cache", type=Path, default=Path(".state/last_good_config.json"))
