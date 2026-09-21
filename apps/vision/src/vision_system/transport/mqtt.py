@@ -330,7 +330,10 @@ class MqttBridge:
         self.config_event = threading.Event()
         self.connected = threading.Event()
         self.pose_sequences: dict[int, int] = {}
+        self.retained_robot_ids: dict[int, str] = {}
         self.robot_ids_by_tag: dict[int, str] = {}
+        self.unmapped_tags: set[int] = set()
+        self._refresh_robot_ids()
         self.loop_started = False
         self.client = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2,
@@ -440,6 +443,7 @@ class MqttBridge:
             if self.on_config_callback:
                 self.on_config_callback(candidate)
             self.config = candidate
+            self._refresh_robot_ids()
             save_json(self.cache_path, candidate)
             self._publish_json(
                 f"{candidate.base_topic}/config/state",
@@ -479,8 +483,26 @@ class MqttBridge:
         except ValueError as error:
             self.publish_event("INVALID_ARUCO_MAP", str(error), severity="error")
             return
-        self.robot_ids_by_tag = mapping
-        LOGGER.info("ArUco robot mapping updated: %s", mapping)
+        self.retained_robot_ids = mapping
+        self._refresh_robot_ids()
+        LOGGER.info("ArUco robot mapping updated: %s", self.robot_ids_by_tag)
+
+    def _refresh_robot_ids(self) -> None:
+        """Marker-to-robot mapping: the config is the floor, the dashboard the override.
+
+        Keeping the config underneath matters because ``/config/aruco-map`` is retained:
+        one empty save from the dashboard used to leave the server with no mapping at
+        all, and every fused pose stopped reaching ``/pose/<robot_id>`` without a word.
+        """
+        self.robot_ids_by_tag = {
+            **{
+                marker.id: marker.robot_id
+                for marker in self.config.aruco.mobile_markers
+                if marker.robot_id
+            },
+            **self.retained_robot_ids,
+        }
+        self.unmapped_tags -= self.robot_ids_by_tag.keys()
 
     def _publish_json(self, topic: str, body: dict, qos: int = 0, retain: bool = False) -> None:
         self.client.publish(
@@ -498,6 +520,16 @@ class MqttBridge:
         if device_id := self.robot_ids_by_tag.get(pose.tag_id):
             self._publish_json(
                 f"/pose/{device_id}", dashboard_pose_payload(pose, sequence)
+            )
+        elif pose.tag_id not in self.unmapped_tags:
+            # Once per tag: the fleet reads /pose/<robot_id> only, so an unmapped
+            # marker is tracked here and invisible to everything downstream.
+            self.unmapped_tags.add(pose.tag_id)
+            self.publish_event(
+                "UNMAPPED_TAG",
+                f"tag {pose.tag_id} has no robot id: fused pose stays on "
+                f"{self.config.base_topic}/pose/{pose.tag_id} and never reaches /pose/<robot_id>",
+                tag_id=pose.tag_id,
             )
         self.pose_sequences[pose.tag_id] = sequence + 1
 

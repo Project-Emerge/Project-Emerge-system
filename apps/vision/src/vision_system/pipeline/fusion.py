@@ -25,8 +25,6 @@ MIN_ROTATION_ANGLE_RAD = 1e-9
 MIN_UPDATE_INTERVAL_S = 1e-3
 MIN_QUALITY_SCALE = 0.4
 QUALITY_SCALE_RANGE = 0.6
-ANGULAR_VELOCITY_HISTORY_WEIGHT = 0.8
-ANGULAR_VELOCITY_MEASUREMENT_WEIGHT = 0.2
 FULL_QUALITY_MARKER_SIDE_PX = 60.0
 FULL_QUALITY_CAMERA_COUNT = 2
 QUALITY_ERROR_DECAY_SCALE = 2.0
@@ -55,6 +53,13 @@ class FusedPose:
     camera_disagreement_m: float = 0.0
 
 
+def smoothing_factor(
+    dt: float, cutoff_hz: float | NDArray[np.float64]
+) -> float | NDArray[np.float64]:
+    cutoff = np.maximum(cutoff_hz, MIN_FILTER_CUTOFF_HZ)
+    return 1.0 / (1.0 + 1.0 / (2.0 * math.pi * cutoff * dt))
+
+
 class OneEuroFilter:
     """Adaptive low-pass filter for vector-valued, irregularly sampled signals."""
 
@@ -67,13 +72,6 @@ class OneEuroFilter:
         self.raw_value = initial.copy()
         self.derivative = np.zeros_like(initial)
         self.timestamp_ns = timestamp_ns
-
-    @staticmethod
-    def _smoothing_factor(
-        dt: float, cutoff_hz: float | NDArray[np.float64]
-    ) -> float | NDArray[np.float64]:
-        cutoff = np.maximum(cutoff_hz, MIN_FILTER_CUTOFF_HZ)
-        return 1.0 / (1.0 + 1.0 / (2.0 * math.pi * cutoff * dt))
 
     def update(
         self,
@@ -90,11 +88,11 @@ class OneEuroFilter:
             MIN_UPDATE_INTERVAL_S,
         )
         raw_derivative = (sample - self.raw_value) / dt
-        derivative_alpha = self._smoothing_factor(dt, derivative_cutoff_hz)
+        derivative_alpha = smoothing_factor(dt, derivative_cutoff_hz)
         self.derivative += derivative_alpha * (raw_derivative - self.derivative)
 
         cutoff_hz = min_cutoff_hz + beta * np.abs(self.derivative)
-        alpha = self._smoothing_factor(dt, cutoff_hz)
+        alpha = smoothing_factor(dt, cutoff_hz)
         self.value += alpha * (sample - self.value)
         self.raw_value = sample.copy()
         self.timestamp_ns = timestamp_ns
@@ -108,6 +106,7 @@ class PoseTracker:
         self.position_filter = OneEuroFilter(self.position, timestamp_ns)
         self.filter_mode: str | None = None
         self.quaternion = matrix_to_quaternion(transform[:3, :3])
+        self.measured_quaternion = self.quaternion.copy()
         self.angular_velocity = np.zeros(3)
         self.timestamp_ns = timestamp_ns
 
@@ -171,14 +170,24 @@ class PoseTracker:
             measured_quaternion,
             config.tracker_orientation_gain * quality_scale,
         )
-        delta_rotation = quaternion_multiply(
-            quaternion_conjugate(predicted_quaternion), measured_quaternion
+        # Same treatment the position got. Differentiating the *innovation*
+        # with fixed weights closed a feedback loop that rang at a few Hz, and
+        # dt collapses to MIN_UPDATE_INTERVAL_S whenever a second camera lands
+        # on a target timestamp the tracker already holds - a 1 ms tick turned
+        # a pixel of corner noise into a spin of hundreds of rad/s, which
+        # predict() then integrated into every dead-reckoned pose.
+        measured_rate = (
+            quaternion_to_axis_angle(
+                quaternion_multiply(
+                    quaternion_conjugate(self.measured_quaternion), measured_quaternion
+                )
+            )
+            / dt
         )
-        axis_angle = quaternion_to_axis_angle(delta_rotation)
-        self.angular_velocity = (
-            ANGULAR_VELOCITY_HISTORY_WEIGHT * self.angular_velocity
-            + ANGULAR_VELOCITY_MEASUREMENT_WEIGHT * axis_angle / dt
-        )
+        self.angular_velocity += smoothing_factor(
+            dt, config.one_euro_derivative_cutoff_hz
+        ) * (measured_rate - self.angular_velocity)
+        self.measured_quaternion = measured_quaternion.copy()
         self.quaternion = updated_quaternion
         self.timestamp_ns = timestamp_ns
         return self.position.copy(), self.quaternion.copy()

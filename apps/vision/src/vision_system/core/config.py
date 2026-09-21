@@ -34,6 +34,9 @@ class MobileMarkerConfig(BaseModel):
     id: int = Field(ge=0)
     size_m: float = Field(gt=0)
     name: str | None = None
+    # Robot this marker is taped on. Lets the fused pose reach ``/pose/<robot_id>``
+    # without waiting for the dashboard's retained ``/config/aruco-map``.
+    robot_id: str | None = Field(default=None, pattern=r"^[A-F0-9]{6}$")
 
 
 class ReferenceMarkerConfig(BaseModel):

@@ -21,8 +21,33 @@
     "error_correction_rate": 0.6,
     "mobile_markers": [
       {
+        "id": 0,
+        "name": null,
+        "robot_id": "507FF0",
+        "size_m": 0.09
+      },
+      {
+        "id": 1,
+        "name": null,
+        "robot_id": "5080A0",
+        "size_m": 0.09
+      },
+      {
+        "id": 8,
+        "name": null,
+        "robot_id": "508054",
+        "size_m": 0.09
+      },
+      {
+        "id": 11,
+        "name": null,
+        "robot_id": "507FF4",
+        "size_m": 0.09
+      },
+      {
         "id": 23,
         "name": "target-23",
+        "robot_id": null,
         "size_m": 0.12
       }
     ],
@@ -40,8 +65,8 @@
         "orientation_xyzw": [
           0.0,
           0.0,
-          -0.6987287523711019,
-          0.7153867000510448
+          -0.7051319661707606,
+          0.7090760962577694
         ],
         "position_m": [
           1.69,
@@ -57,8 +82,8 @@
         "orientation_xyzw": [
           0.0,
           0.0,
-          0.717281769365073,
-          0.696783225498799
+          0.7188118309850611,
+          0.695204683266665
         ],
         "position_m": [
           0.0,
@@ -66,7 +91,7 @@
           0.0
         ],
         "size_m": 0.09,
-        "uncertainty_m": 0.0035355339059327372
+        "uncertainty_m": 0.0036822298881741987
       },
       {
         "id": 9,
@@ -74,8 +99,8 @@
         "orientation_xyzw": [
           0.0,
           0.0,
-          0.7049355073550422,
-          0.7092714081859561
+          0.7193592344693744,
+          0.6946382452641343
         ],
         "position_m": [
           0.0,
@@ -91,8 +116,8 @@
         "orientation_xyzw": [
           0.0,
           0.0,
-          0.9999712062437995,
-          0.007588589020400694
+          0.7084079511010793,
+          0.7058032125293642
         ],
         "position_m": [
           1.69,
@@ -100,7 +125,7 @@
           0.0
         ],
         "size_m": 0.09,
-        "uncertainty_m": 0.0035355339059327372
+        "uncertainty_m": 0.0038500706314092098
       }
     ]
   },
@@ -127,7 +152,7 @@
       "fps": 30.0,
       "height": 1080,
       "id": "cam_3",
-      "source": "/dev/v4l/by-id/usb-Global_Shutter_Camera_Global_Shutter_Camera_01.00.00-video-index0",
+      "source": 4,
       "width": 1920,
       "zoom": null
     }
@@ -154,7 +179,7 @@
     "tracker_velocity_gain": 0.12,
     "window_ms": 40.0
   },
-  "revision": 7,
+  "revision": 10,
   "schema_version": 1,
   "site": "lab",
   "system_id": "indoor-01"
