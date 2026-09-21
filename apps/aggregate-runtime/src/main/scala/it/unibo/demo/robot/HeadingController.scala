@@ -4,38 +4,30 @@ package it.unibo.demo.robot
  * Tuning for [[HeadingController]]. Unlike [[DriveConfig]], which describes the hardware, these
  * are genuine control knobs.
  *
- * @param spinGain            rad/s of turn rate per rad of heading error, while turning on the
- *                            spot. This is the one to raise to make the robots turn faster
- * @param steerGain           the same, but while driving. Deliberately gentler: once the robot is
- *                            rolling, its heading and its position feed each other - the bearing to
- *                            the goal moves as the robot does - and a gain that is crisp for a
- *                            standing turn makes that loop weave across the path instead of
- *                            settling onto it
- * @param derivativeGain      rad/s of turn rate per rad/s of heading-error rate
- * @param derivativeCutoffHz  low-pass corner for the derivative term, to keep vision noise out of it
- * @param alignToleranceRad   heading error below which the robot is considered aimed
- * @param driveResumeRad      start translating once the heading error drops below this
- * @param driveAbortRad       stop translating and turn in place once the error grows past this
- * @param reverseMarginRad    how much better the reverse plan must be before switching to it
- * @param slowdownRadiusM     distance over which the approach speed ramps down to the goal
- * @param distanceToleranceM  distance below which the goal counts as reached
- * @param angularAccelRadS2   turn-rate slew limit, also the deceleration used to arrive on heading
- * @param linearAccelMs2      linear-speed slew limit
- * @param turnRateBudget      how far the robot may turn in a single control period, counted in
- *                            alignment tolerances. Raising it makes the robot spin faster; raising
- *                            it too far reintroduces hunting, because the heading can then jump
- *                            across the target between two updates faster than the controller can
- *                            react. See [[HeadingController.angularCommand]]
+ * @param spinGain           turn-rate gain while stationary; increase to turn faster
+ * @param steerGain          gentler turn-rate gain while driving, to avoid weaving
+ * @param derivativeGain     turn-rate gain for heading-error rate
+ * @param derivativeCutoffHz low-pass cutoff for the derivative term
+ * @param alignToleranceRad  error below which the robot is aimed
+ * @param driveResumeRad     error below which translation starts
+ * @param driveAbortRad      error above which translation stops
+ * @param reverseMarginRad   required advantage before switching to reverse
+ * @param slowdownRadiusM    distance over which approach speed decreases
+ * @param distanceToleranceM distance below which the goal is reached
+ * @param angularAccelRadS2  turn-rate slew limit and heading-arrival deceleration
+ * @param linearAccelMs2     linear-speed slew limit
+ * @param turnRateBudget     maximum turn per period in alignment tolerances; higher values turn
+ *                           faster but can reintroduce hunting. See [[HeadingController.angularCommand]]
  */
 final case class ControlGains(
     spinGain: Double = 5.0,
     steerGain: Double = 2.2,
     derivativeGain: Double = 0.35,
     derivativeCutoffHz: Double = 3.0,
-    alignToleranceRad: Double = 10.0 * math.Pi / 180.0,
-    driveResumeRad: Double = 35.0 * math.Pi / 180.0,
-    driveAbortRad: Double = 60.0 * math.Pi / 180.0,
-    reverseMarginRad: Double = 30.0 * math.Pi / 180.0,
+    alignToleranceRad: Double = math.toRadians(10.0),
+    driveResumeRad: Double = math.toRadians(35.0),
+    driveAbortRad: Double = math.toRadians(60.0),
+    reverseMarginRad: Double = math.toRadians(30.0),
     slowdownRadiusM: Double = 0.20,
     distanceToleranceM: Double = 0.03,
     angularAccelRadS2: Double = 18.0,
@@ -44,9 +36,6 @@ final case class ControlGains(
 )
 
 /**
- * Per-robot controller memory. Immutable, so the controller stays a pure function and can be
- * exercised in a closed loop by the tests.
- *
  * @param previousError      last heading error, for the derivative term
  * @param filteredDerivative low-passed heading-error rate, rad/s
  * @param linearMs           last commanded forward speed, for slew limiting
@@ -73,22 +62,11 @@ final case class Twist(linearMs: Double, angularRadS: Double):
 object Twist:
   val still: Twist = Twist(0.0, 0.0)
 
-/**
- * A differential-drive controller that aims first and drives second.
- *
- * The two properties that make it stable where the previous one was not:
- *
- *  1. It commands a physical turn rate, and caps that rate at what the current control period can
- *     absorb (`alignToleranceRad / dt`). The heading can therefore never cross the tolerance band
- *     inside a single tick, which is what made the old controller overshoot on every update.
- *  2. It slew-limits its outputs instead of low-pass filtering them. A filter on the output of a
- *     feedback loop buys smoothness with phase lag; a slew limit bounds the rate of change without
- *     adding any.
- *
- * Translation is gated on being roughly aimed, with hysteresis, so the robot drives in straight
- * lines rather than arcs of a radius set by an unbounded correction term.
- */
+/** Differential-drive controller that aims first, then drives with slew-limited outputs. */
 object HeadingController:
+
+  /** Ignore steering commands too small for the wheels to resolve. */
+  private val steerDeadbandRad = 1e-4
 
   /**
    * Advance the controller by one tick.
@@ -118,9 +96,7 @@ object HeadingController:
       (Twist.still, ControlState.initial)
     else
       val (error, reversing) = chooseDirection(state, heading, targetAngle, translate, allowReverse, gains)
-      // Swapping between the forward and reverse plans moves the error by half a turn in one tick.
-      // That is a change of reference frame, not a change in the robot, so the derivative term must
-      // not read it as one - it would answer a stationary robot with a violent correction.
+      // A direction switch changes the reference frame by half a turn; don't feed it to the derivative.
       val history = if reversing == state.reversing then state else state.copy(previousError = None)
       val driving = translate && drivingAllowed(state.driving, error, gains)
       val (derivative, angular) = angularCommand(history, dtSeconds, error, driving, config, gains)
@@ -139,12 +115,7 @@ object HeadingController:
       )
       (Twist(nextLinear, nextAngular), next)
 
-  /**
-   * Pick between driving forwards and backwards towards the goal, and stick with the choice.
-   *
-   * Without the margin the two plans are equally good at a heading error of 90 degrees, so the
-   * controller flips between them every tick and never commits to either.
-   */
+  /** Pick the forward/reverse direction, keeping it stable near 90 degrees. */
   private def chooseDirection(
       state: ControlState,
       heading: Double,
@@ -162,16 +133,7 @@ object HeadingController:
         else math.abs(reverseError) + gains.reverseMarginRad < math.abs(forwardError)
       (if reversing then reverseError else forwardError, reversing)
 
-  /**
-   * The coarsest the robot can aim while standing still, at this update rate.
-   *
-   * Turning on the spot means driving the wheels in opposite directions, and the motors stall below
-   * a minimum duty cycle, so there is a slowest spin the platform can hold - one tick of which
-   * covers `minAngularSpeedRadS * dt`. Asking to be aimed more precisely than that asks for
-   * something the hardware cannot do: the robot steps straight across the target every tick and
-   * hunts forever. Accepting a coarser aim trades accuracy, which degrades gracefully, for
-   * convergence, which does not.
-   */
+  /** Minimum achievable aiming tolerance for one update period. */
   private def spinFloor(dtSeconds: Double, config: DriveConfig, gains: ControlGains): Double =
     math.max(gains.alignToleranceRad, config.minAngularSpeedRadS * dtSeconds)
 
@@ -191,16 +153,11 @@ object HeadingController:
     val derivative = state.filteredDerivative + blend * (rawDerivative - state.filteredDerivative)
 
     val floor = spinFloor(dtSeconds, config, gains)
-    // A robot that is already rolling can steer as gently as it likes: a small difference on top of
-    // a large common wheel speed is well clear of the stall band, so there is no minimum turn rate
-    // to work around and no reason for a dead zone. Standing still, there is, so aiming stops once
-    // it is as close as a single tick of the slowest possible spin can get it.
+    // Rolling robots need no minimum turn rate; stationary robots stop within one minimum-spin tick.
     if !driving && math.abs(error) < floor then (derivative, 0.0)
-    else if driving && math.abs(error) < 1e-4 then (derivative, 0.0)
+    else if driving && math.abs(error) < steerDeadbandRad then (derivative, 0.0)
     else
-      // Never ask for more turn than this period can absorb, and decelerate into the target so the
-      // last tick before alignment does not fly past it. The deceleration is what protects the
-      // endgame; the period cap is what stops a fast loop from being outrun by a fast platform.
+      // Limit turn rate by the period and decelerate into the target.
       val periodLimit = gains.turnRateBudget * floor / dtSeconds
       val approachLimit = math.sqrt(2.0 * gains.angularAccelRadS2 * math.abs(error))
       val limit = math.min(config.maxAngularSpeedRadS, math.min(periodLimit, approachLimit))
@@ -208,7 +165,11 @@ object HeadingController:
       val desired = gain * error + gains.derivativeGain * derivative
       (derivative, math.max(-limit, math.min(limit, desired)))
 
-  /** Hysteresis on the "aimed well enough to drive" latch, so it cannot chatter. */
+  /**
+   * Update the translation gate with hysteresis: once driving, tolerate a larger error before
+   * stopping than the error required to start. This prevents small heading fluctuations from
+   * repeatedly enabling and disabling translation.
+   */
   private def drivingAllowed(wasDriving: Boolean, error: Double, gains: ControlGains): Boolean =
     if wasDriving then math.abs(error) < gains.driveAbortRad
     else math.abs(error) < gains.driveResumeRad

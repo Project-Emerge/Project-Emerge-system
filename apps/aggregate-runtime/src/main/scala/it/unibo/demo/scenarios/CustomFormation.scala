@@ -1,56 +1,30 @@
 package it.unibo.demo.scenarios
 
-/**
- * What the dashboard published under `custom`, already validated and compiled.
- *
- * Compiled at the edge (see [[it.unibo.demo.provider.CustomSpecCodec]]) and stored in the config
- * map as a single value, for three reasons: a formation round then does one `sense`, no parsing
- * and no validation; a spec is applied whole, so an `x` from the new message can never be paired
- * with a `y` from the old one; and a rejection is representable, so the runtime can fall back and
- * log rather than throw inside a round.
- */
+/** Dashboard's `custom` payload, compiled at the edge and applied atomically per round. */
 enum CustomSpec:
-  /** No `custom` object was ever published. */
   case Absent
 
-  /** One was, and it was rejected. `reason` is what to show its author. */
+  /** `reason` is what to show the author. */
   case Invalid(reason: String)
 
-  /**
-   * An explicit path through `points`, in metres, with the anchor at the origin, resampled to the
-   * fleet size at equal arc length.
-   */
+  /** Path in metres, anchor at the origin, resampled to the fleet size at equal arc length. */
   case Points(points: List[(Double, Double)], closed: Boolean)
 
-  /** Cartesian formulas, evaluated once per slot. */
   case Cartesian(x: Formula, y: Formula)
 
-  /**
-   * Polar formulas. `theta` follows the bearing convention of [[ShapeFormation.ring]] exactly --
-   * x from the sine and y from the cosine, so zero is straight ahead and the bearing advances
-   * clockwise -- which is what makes a constant radius with an evenly divided angle reproduce
-   * [[CircleFormation]] to the last bit.
-   */
+  /** `theta` follows [[ShapeFormation.ring]]'s bearing exactly, so a constant radius reproduces
+    * [[CircleFormation]] bit for bit.
+    */
   case Polar(r: Formula, theta: Formula)
 
 object CustomSpec:
   /** Longest point list a payload may carry, before resampling. */
   val MaxPoints: Int = 256
 
-/**
- * Turns a [[CustomSpec]] into a slot set a fleet can actually execute.
- *
- * Every function here is pure and total, and the whole pipeline is exercised by
- * `CustomSlotsSuite` without standing up an aggregate round -- the same split
- * [[FormationGeometrySuite]] already relies on.
- */
+/** Turns a [[CustomSpec]] into a slot set a fleet can execute. Pure and total throughout. */
 object CustomSlots:
 
-  /**
-   * No payload can put a slot further than this from the anchor, whatever it says. Applied inside
-   * [[slotsFor]] rather than by the caller, so the ceiling is part of the tested contract rather
-   * than a discipline every caller has to remember.
-   */
+  /** No payload can exceed this, whatever it says. Enforced in [[slotsFor]], not by the caller. */
   val AbsoluteMaxRadius: Double = 3.0
 
   /** Two points closer than this are the same point. */
@@ -60,27 +34,17 @@ object CustomSlots:
   val MinScale: Double = 0.05
   val MaxScale: Double = 10.0
 
-  /**
-   * How far apart two slots must be to be physically distinct.
-   *
-   * The floor is `BaseDemo.CollisionArea`, the radius inside which [[ShapeFormation]]'s repulsion
-   * already pushes robots apart, so two slots at exactly this separation are the closest pair the
-   * controller will hold without fighting itself.
-   */
+  /** Closest pair the controller holds without fighting itself: [[ShapeFormation]]'s repulsion
+    * radius, inside which it already pushes robots apart.
+    */
   def minSeparation(collisionArea: Double): Double =
     if !collisionArea.isFinite then ShapeFormation.MinRadius
     else math.max(ShapeFormation.MinRadius, collisionArea)
 
   /**
-   * The slot set `spec` asks for, for a fleet of `ctx.count`.
-   *
-   * `None` means "this spec cannot produce a shape" -- absent or rejected -- and leaves the
-   * fallback policy to [[CustomFormation]]. `Some` is guaranteed to hold exactly `ctx.count`
-   * entries with every coordinate finite.
-   *
-   * The exact-count guarantee is load-bearing: `AssignmentSolver.solveIndices` returns an empty
-   * map on any size mismatch, so a wrong-length slot list freezes the whole fleet without a
-   * single log line anywhere.
+   * `None` (absent or rejected) leaves the fallback policy to [[CustomFormation]]. `Some` holds
+   * exactly `ctx.count` finite entries - load-bearing, since `AssignmentSolver.solveIndices`
+   * returns an empty map on a size mismatch and silently freezes the fleet.
    */
   def slotsFor(
       spec: CustomSpec,
@@ -100,8 +64,7 @@ object CustomSlots:
           val gap = minSeparation(collisionArea)
           val k =
             if scale.isFinite then math.min(MaxScale, math.max(MinScale, scale)) else 1.0
-          // A path also reports the spacing it was resampled at, which is what decides whether the
-          // shape is too small for the fleet; the formula modes have no such uniform spacing.
+          // Only a path has a uniform spacing to judge "too small for the fleet" by.
           val (raw, pathGap) = spec match
             case CustomSpec.Points(points, closed) =>
               val path = dedupeConsecutive(points)
@@ -109,8 +72,8 @@ object CustomSlots:
             case CustomSpec.Cartesian(x, y) => (cartesian(x, y, ctx), None)
             case CustomSpec.Polar(r, theta) => (polar(r, theta, ctx), None)
             case _ => (List.empty, None)
-          // Coercing non-finite coordinates first matters: a runaway infinity becomes the origin
-          // and is then handled as a coincident slot, rather than dominating the growth factor.
+          // Coerce first: a runaway infinity becomes an origin-coincident slot instead of
+          // dominating the growth factor.
           val scaled = finite(raw).map((x, y) => (x * k, y * k))
           val grown = pathGap match
             case Some(spacing) => growToFit(scaled, spacing * k, gap, cap)
@@ -141,23 +104,7 @@ object CustomSlots:
       index += 1
     builder.result()
 
-  /**
-   * `count` points at equal arc length along `points`.
-   *
-   * Read as an open polyline unless `closed`, in which case the wrap segment is walked too and the
-   * seam carries no duplicate slot. Open sampling puts a slot on each end, so an evenly spaced
-   * input resampled to its own length comes back unchanged -- the least-surprise behaviour for an
-   * author who wrote one point per robot. An open default matters because closing every path would
-   * turn "a line of five points" into a there-and-back trip with two robots per position; a ring
-   * is easy to ask for instead, by setting `closed` or repeating the first point at the end.
-   *
-   * Subsampling does not preserve corners. That is the intended trade: even spacing keeps a
-   * physical fleet clear of itself, whereas a corner-preserving simplification leaves gaps in one
-   * region and a pile-up in another.
-   *
-   * A degenerate path -- one point, or every point within [[Epsilon]] -- yields `count` copies of
-   * that point; [[separateCoincident]] then fans them out.
-   */
+  /** `count` equally spaced points; degenerate paths yield copies for [[separateCoincident]]. */
   def resample(points: List[(Double, Double)], closed: Boolean, count: Int): List[(Double, Double)] =
     if count <= 0 then List.empty
     else if points.isEmpty then List.fill(count)((0.0, 0.0))
@@ -182,13 +129,8 @@ object CustomSlots:
     slots.map((x, y) => (if x.isFinite then x else 0.0, if y.isFinite then y else 0.0))
 
   /**
-   * Radii clamped to `maxRadius`, each along its own bearing.
-   *
-   * Per slot, not a uniform shrink of the whole set. A uniform shrink would preserve proportions,
-   * which is nicer for a path written in the wrong unit -- but it couples the slots: one runaway
-   * value from a formula would collapse the entire formation to a dot. Per-slot clamping keeps the
-   * failure local to the slot that caused it, and the unit-mistake case is already covered by
-   * [[growToFit]] and by the operator's scale knob.
+   * Per slot, not a uniform shrink: a uniform one couples the slots, so a single runaway formula
+   * value collapses the whole formation to a dot. Wrong-unit paths are [[growToFit]]'s job.
    */
   def clampRadius(slots: List[(Double, Double)], maxRadius: Double): List[(Double, Double)] =
     slots.map { (x, y) =>
@@ -199,13 +141,7 @@ object CustomSlots:
         (x * factor, y * factor)
     }
 
-  /**
-   * The arc-length gap between consecutive slots a path will be resampled at.
-   *
-   * Uniform by construction, which is exactly what the chord between two consecutive slots is
-   * not: at a corner the straight line between them is far shorter than the distance walked along
-   * the path, and that difference says nothing about whether the fleet has room.
-   */
+  /** Arc length, uniform by construction - unlike the chord, which shortens at every corner. */
   def pathSpacing(points: List[(Double, Double)], closed: Boolean, count: Int): Double =
     if count <= 1 then 0.0
     else
@@ -215,23 +151,9 @@ object CustomSlots:
         val total = arcLengths(vertices, closed).last
         if closed then total / count else total / (count - 1)
 
-  /**
-   * Uniformly grows a slot set until neighbouring slots are `minSpacing` apart, never beyond
-   * `maxRadius`, and never shrinking.
-   *
-   * The single most likely authoring mistake is a shape too small for the fleet to stand on -- a
-   * 20cm triangle for nine robots. A uniform scale fixes that while preserving the requested shape
-   * exactly.
-   *
-   * `spacing` is the caller's measure of how far apart neighbouring slots actually are, and for a
-   * path it must be the arc-length spacing rather than the shortest chord. Measuring the shortest
-   * chord conflates a corner with overcrowding: on a triangle sampled every 0.41 m, the two slots
-   * either side of a vertex sit 0.19 m apart in a straight line, which read as "too small" and
-   * inflated the whole triangle by half again. That is the same trap this function documents for
-   * the formula modes, which is why they do not use it -- their spacing is not uniform, so there
-   * is no honest single number to grow by. A genuine pinch at one corner is left to the collision
-   * repulsion, which exists for precisely that.
-   */
+  /** Grows undersized paths to `minSpacing`, without exceeding `maxRadius` or distorting them.
+    * `spacing` is arc length; formula modes have no uniform spacing and skip this step.
+    */
   def growToFit(
       slots: List[(Double, Double)],
       spacing: Double,
@@ -242,28 +164,20 @@ object CustomSlots:
     else
       val wanted = minSpacing / spacing
       val furthest = slots.map((x, y) => math.hypot(x, y)).max
-      // Growing must not breach the radius cap, and must never shrink: a shape already inside the
-      // cap but wider than it stays exactly as the author wrote it.
       val allowed = if furthest < Epsilon then wanted else maxRadius / furthest
       val factor = math.max(1.0, math.min(wanted, allowed))
       slots.map((x, y) => (x * factor, y * factor))
 
   /**
-   * Slots within [[Epsilon]] of each other fanned onto a ring of radius `minSeparation / 2` about
-   * their common position, so a group of coincident slots ends up `minSeparation` apart rather
-   * than stacked. Bearings come from the position within the group, so the result is
-   * deterministic.
-   *
-   * Runs after [[clampRadius]] on purpose: clamping itself creates coincidence, since two slots on
-   * the same bearing at five and ten metres both land on the cap.
+   * Coincident slots fanned onto a ring of `minSeparation / 2`, bearings by position so the result
+   * is deterministic. After [[clampRadius]] on purpose: clamping itself stacks same-bearing slots.
    */
   def separateCoincident(
       slots: List[(Double, Double)],
       minSeparation: Double
   ): List[(Double, Double)] =
-    // Cluster by proximity in one sweep. Grouping on a rounded grid instead would miss a pair
-    // that straddles a cell boundary and leave those two robots stacked; at fleet sizes of a few
-    // dozen the quadratic sweep costs nothing worth saving.
+    // Quadratic sweep: a rounded grid would miss pairs straddling a cell boundary and leave those
+    // robots stacked. Fine for a few dozen slots.
     val clusters = scala.collection.mutable.ListBuffer.empty[((Double, Double), scala.collection.mutable.ListBuffer[Int])]
     slots.zipWithIndex.foreach { case (slot, index) =>
       clusters.find((centre, _) => distance(centre, slot) < Epsilon) match
@@ -283,13 +197,7 @@ object CustomSlots:
     }
     relocated.toList
 
-  /**
-   * Any slot inside `minRadius` of the origin pushed out to `minRadius`, on the bearing its
-   * position in the list would have on a ring.
-   *
-   * The anchor robot stands on the origin and takes no slot of its own, so nothing may be sent to
-   * stand on it.
-   */
+  /** The anchor stands on the origin and takes no slot, so nothing may be sent to stand on it. */
   def nudgeOffAnchor(slots: List[(Double, Double)], minRadius: Double): List[(Double, Double)] =
     val count = slots.size
     slots.zipWithIndex.map { case ((x, y), index) =>
@@ -303,7 +211,6 @@ object CustomSlots:
         (x * factor, y * factor)
     }
 
-  /** Formula slots, cartesian. `t` is [[Formula.wrapPhase]] of the context's phase. */
   def cartesian(x: Formula, y: Formula, ctx: SlotContext): List[(Double, Double)] =
     val phase = Formula.wrapPhase(ctx.phase)
     val n = ctx.count.toDouble
@@ -311,7 +218,7 @@ object CustomSlots:
       (Formula.evaluate(x, i.toDouble, n, phase), Formula.evaluate(y, i.toDouble, n, phase))
     }.toList
 
-  /** Formula slots, polar, in [[ShapeFormation.ring]]'s bearing convention. */
+  /** In [[ShapeFormation.ring]]'s bearing convention. */
   def polar(r: Formula, theta: Formula, ctx: SlotContext): List[(Double, Double)] =
     val phase = Formula.wrapPhase(ctx.phase)
     val n = ctx.count.toDouble
@@ -324,7 +231,7 @@ object CustomSlots:
   private def distance(a: (Double, Double), b: (Double, Double)): Double =
     math.hypot(a._1 - b._1, a._2 - b._2)
 
-  /** The point `target` along the polyline, by linear interpolation inside its segment. */
+  /** The point at arc length `target`, interpolated inside its segment. */
   private def pointAt(
       vertices: IndexedSeq[(Double, Double)],
       lengths: IndexedSeq[Double],
@@ -335,9 +242,8 @@ object CustomSlots:
     var segment = 0
     while segment < segments - 1 && lengths(segment + 1) < target do segment += 1
     val from = vertices(segment)
-    // The modulo is what walks the wrap segment of a closed path; on an open one the index can
-    // never reach it. Clamping `segment` above also stops float overshoot at the very end of the
-    // path from indexing past the last vertex.
+    // The modulo walks a closed path's wrap segment; an open path never reaches it, and the
+    // clamped `segment` keeps float overshoot from indexing past the last vertex.
     val to = vertices((segment + 1) % vertices.size)
     val spanStart = lengths(segment)
     val span = lengths(segment + 1) - spanStart
@@ -347,14 +253,11 @@ object CustomSlots:
       (from._1 + (to._1 - from._1) * fraction, from._2 + (to._2 - from._2) * fraction)
 
 /**
- * A formation whose geometry arrives as data, on the same retained `/config/formation` message as
- * everything else, so a shape the runtime has never seen costs no recompilation and no restart.
+ * Geometry as data on the retained `/config/formation` message: a new shape costs no restart.
  *
- * Like every [[ShapeFormation]], `slots` here calls only `sense`, which is alignment-neutral. It
- * must never call `rep`, `share`, `nbr`, `branch` or `foldhood`: only the root evaluates `slots`,
- * and the whole reason a spec need not participate in alignment is that its content cannot reach
- * the export's shape. Two devices briefly holding different specs still align perfectly and the
- * fleet follows whichever one the root holds.
+ * `slots` may call only `sense`, never `rep`, `share`, `nbr`, `branch` or `foldhood`. That is what
+ * keeps a spec out of the export's shape, so devices briefly holding different specs still align
+ * and the fleet follows the root's.
  */
 class CustomFormation extends ShapeFormation():
   override protected def slots(ctx: SlotContext): List[(Double, Double)] =
@@ -369,38 +272,26 @@ class CustomFormation extends ShapeFormation():
       .getOrElse(fallback(ctx))
 
   /**
-   * What stands in when no usable spec was ever published: the plain ring, not a hold.
-   *
-   * A hold is the wrong answer on three counts. An empty slot list is not even a hold --
-   * `AssignmentSolver` yields no displacement, `actuate` sees a zero goal, and every non-root
-   * robot pivots to the reference heading, which on a demo floor reads as a malfunction. It is
-   * also indistinguishable from a lost leader or a failed round, which is the worst possible
-   * diagnostic. And it leaves the collect/assign/broadcast path cold, so the first good spec
-   * arrives with a visible transient. A ring says "running, nobody has told me a shape yet",
-   * reuses the radius the dashboard already has a slider for, and keeps the whole plan warm.
+   * A ring, not a hold: an empty slot list makes every robot pivot to the reference heading, which
+   * looks identical to a lost leader, and leaves the G/C/G path cold so the first real spec lands
+   * with a visible transient. A ring says "running, nobody has told me a shape yet".
    */
   private def fallback(ctx: SlotContext): List[(Double, Double)] =
     ShapeFormation.ring(ctx.count, 0.0)(_ => sense[Double](CircleFormation.RADIUS_SENSING))
 
 object CustomFormation:
   /**
-   * The compiled spec.
-   *
-   * Unlike every other molecule this is not a `Double`: the config map is `Map[String, Any]` and
-   * `sense` is an unchecked cast, so the default below must be a real [[CustomSpec]] -- a `String`
-   * there would give every robot a `ClassCastException` on its first round.
+   * The compiled spec, and the one molecule that is not a `Double`. `sense` is an unchecked cast,
+   * so the default below must be a real [[CustomSpec]] or every robot throws on its first round.
    */
   val SPEC_SENSING = "customSpec"
 
   /** Live multiplier on a spec, so an operator can resize a shape without a new spec. */
   val SCALE_SENSING = "customScale"
 
-  /**
-   * Operator-facing cap on how far a slot may sit from the anchor, in metres.
-   *
-   * It travels on the same message as the spec, so it guards against a mistaken author rather than
-   * a malicious one; [[CustomSlots.AbsoluteMaxRadius]] is the bound no message can raise.
-   */
+  /** Metres. On the same message as the spec, so it guards the mistaken author, not the malicious
+    * one; [[CustomSlots.AbsoluteMaxRadius]] is the bound no message can raise.
+    */
   val MAX_RADIUS_SENSING = "customMaxRadius"
 
   val DEFAULTS: Map[String, Any] = Map(

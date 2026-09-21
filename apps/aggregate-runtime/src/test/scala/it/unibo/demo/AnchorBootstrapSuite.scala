@@ -72,11 +72,13 @@ class AnchorBootstrapSuite extends munit.FunSuite:
       program: BaseDemo,
       config: Map[String, Any],
       rounds: Int = 400,
-      step: Double = 0.03
+      step: Double = 0.03,
+      warmupRounds: Int = 0
   ): Double =
     val orchestrator = AggregateOrchestrator[(Double, Double), Actuation](program)
     var positions = twelve
     var travelled = 0.0
+    (1 to warmupRounds).foreach(_ => orchestrator.tick(World(positions, config)))
     (1 to rounds).foreach { _ =>
       val actuations = orchestrator.tick(World(positions, config))
       positions = positions.map { (id, at) =>
@@ -90,19 +92,23 @@ class AnchorBootstrapSuite extends munit.FunSuite:
     }
     travelled
 
-  test("converging on a shape costs no more travel than the shape itself is worth") {
-    // These are a little over what each shape needs from this start, so that the bootstrap
-    // burst -- which cost the square a further 9% and the line a further 13% -- fails them.
+  test("bootstrapping adds little travel compared with a settled planning field") {
+    // Compare the same steering policy from the same positions with and without a settled
+    // field. Committed detours legitimately cost more than radial steering, so old absolute
+    // route budgets no longer isolate bootstrap waste. The former startup burst added 9%
+    // for a square and 13% for a line; a 5% overhead limit still catches those regressions.
     List(
-      ("circleShape", () => CircleFormation(), 17.5),
-      ("lineShape", () => LineFormation(), 18.0),
-      ("squareShape", () => SquareFormation(), 8.7)
-    ).foreach { (name, build, budget) =>
+      ("circleShape", () => CircleFormation()),
+      ("lineShape", () => LineFormation()),
+      ("squareShape", () => SquareFormation())
+    ).foreach { (name, build) =>
       List("a named leader" -> named, "an election" -> elected).foreach { (label, anchorConfig) =>
-        val travelled = totalTravel(build(), base ++ anchorConfig + (BaseDemo.Program -> name))
+        val config = base ++ anchorConfig + (BaseDemo.Program -> name)
+        val travelled = totalTravel(build(), config)
+        val planned = totalTravel(build(), config, warmupRounds = 40)
         assert(
-          travelled <= budget,
-          f"$name with $label travelled $travelled%.2f m, over its $budget%.2f m budget"
+          travelled <= planned * 1.05,
+          f"$name with $label travelled $travelled%.2f m; the settled field needs $planned%.2f m"
         )
       }
     }

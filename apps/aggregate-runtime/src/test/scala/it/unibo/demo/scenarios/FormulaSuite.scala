@@ -126,6 +126,20 @@ class FormulaSuite extends munit.FunSuite:
     assert(Formula.parse("(" * 100000).isLeft)
   }
 
+  test("nesting is bounded even when the source fits the length and node budgets") {
+    val depth = FormulaLimits.MaxDepth
+    val sources = List(
+      "(" * depth + "1" + ")" * depth,
+      "+" * depth + "1",
+      "2^" * depth + "1",
+      "sin(" * depth + "0" + ")" * depth
+    )
+    sources.foreach { source =>
+      assert(source.length <= FormulaLimits.MaxSourceLength)
+      assert(rejection(source).contains("nested deeper"))
+    }
+  }
+
   test("a domain error evaluates to a non-finite number rather than throwing") {
     List("sqrt(0-1)", "log(0)", "1/0", "0/0", "asin(2)", "acos(2)", "log(0-1)")
       .foreach { source =>
@@ -148,6 +162,19 @@ class FormulaSuite extends munit.FunSuite:
     assertEqualsDouble(value("exp(1)"), math.E, tolerance)
     // A digit, a space and an e are two adjacent atoms, not a power of ten.
     rejection("1 e")
+  }
+
+  test("incomplete numbers and scientific exponents are rejected") {
+    List(".", ".e2", "1e", "1e+", "1E-", "1e 2", "1e+ 2").foreach(rejection)
+    assertEqualsDouble(value("1.e+2"), 100.0, tolerance)
+    assertEqualsDouble(value(".5e-1"), 0.05, tolerance)
+  }
+
+  test("round preserves Double range and rounds ties to even") {
+    assertEqualsDouble(value("round(2.5)"), 2.0, tolerance)
+    assertEqualsDouble(value("round(3.5)"), 4.0, tolerance)
+    assertEqualsDouble(value("round(-2.5)"), -2.0, tolerance)
+    assertEquals(value("round(1e100)"), 1e100)
   }
 
   test("the shared phase is wrapped into one turn") {

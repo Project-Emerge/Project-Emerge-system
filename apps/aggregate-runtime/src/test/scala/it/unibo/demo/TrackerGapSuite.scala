@@ -58,7 +58,7 @@ class TrackerGapSuite extends munit.FunSuite:
       tail: Int = 200,
       step: Double = 0.02
   ): (Map[Int, (Double, Double)], Double) =
-    val orchestrator = AggregateOrchestrator[(Double, Double), Actuation](AllDemoToLoad(FormationDefaults.Programs*))
+    val orchestrator = AggregateOrchestrator[(Double, Double), Actuation](AllDemoToLoad("circleShape" -> CircleFormation()))
     var positions = seven
     var residual = 0.0
     (1 to rounds).foreach { round =>
@@ -98,7 +98,7 @@ class TrackerGapSuite extends munit.FunSuite:
   test("a robot that has really gone lets the shape close up without it") {
     // The slot is held only for a while: a fleet permanently down one robot must re-lay the
     // ring for the robots it still has, rather than leaving a gap where the lost one was.
-    val orchestrator = AggregateOrchestrator[(Double, Double), Actuation](AllDemoToLoad(FormationDefaults.Programs*))
+    val orchestrator = AggregateOrchestrator[(Double, Double), Actuation](AllDemoToLoad("circleShape" -> CircleFormation()))
     var positions = seven
     def advance(rounds: Int, unseen: Set[Int]): Unit =
       (1 to rounds).foreach { _ =>

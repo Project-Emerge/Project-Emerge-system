@@ -3,16 +3,7 @@ package it.unibo.demo.robot
 import it.unibo.mqtt.MqttContext
 import ujson.Obj
 
-/**
- * The wire format the robots speak, mirroring `DriveCommand` in the DropBot firmware:
- * `{"Move":{"left":<f32>,"right":<f32>}}` or the JSON string `"Stop"`, on `/motors/<6 hex digits>`
- * at QoS 0.
- *
- * `left` and `right` are dimensionless and bounded to [-1, 1]. They are *not* proportional to
- * wheel speed - the firmware remaps them onto its stiction range - so build them with
- * [[DifferentialDrive.toWheels]] rather than by hand, and publish them through
- * [[MotorCommandPublisher]] rather than directly.
- */
+/** MQTT motor commands for DropBot robots on `/motors/<6 hex digits>` at QoS 0. */
 object RobotMqttProtocol:
 
   private def motorTopic(robot: Int): String = f"/motors/$robot%06X"

@@ -1,19 +1,10 @@
 package it.unibo.demo.scenarios
 
-/**
- * Every molecule a registered program can `sense`, with the value it takes before an operator
- * has said otherwise.
- *
- * This exists because `sense` throws `SensorUnknownException` on a molecule that is missing, and
- * a thrown round becomes `Actuation.Stop` for that robot -- so a program reading a parameter
- * nobody seeded halts the fleet rather than misbehaving visibly. A retained
- * `/config/formation` published before a parameter existed will not carry it, which makes these
- * defaults load-bearing rather than cosmetic.
- *
- * It lives here, rather than as a local `val` in the entry point, because the same map is needed
- * by the aggregate test suites: three copies drifted apart every time a formation gained a
- * parameter, and the failure surfaced as a halted fleet in a test unrelated to the change.
- */
+/** Default values for every molecule sensed by a registered program.
+  *
+  * Missing molecules make `sense` throw, stopping that robot; retained formation messages may
+  * also lack parameters added later. Shared with tests to keep defaults from drifting.
+  */
 object FormationDefaults:
 
   /**

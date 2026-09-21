@@ -11,23 +11,16 @@ import upickle.default.read
 import scala.concurrent.duration.*
 
 /**
- * Measures the two conventions that relate what the cameras see to how the robot is built, so they
- * stop being assumptions.
- *
- * Neither can be worked out from the source. `markerYawOffsetRad` depends on which way the ArUco
- * sticker was glued on, and `invertWheels` on how the motors were wired: the firmware does not swap
- * them, but the emulator does, and only one of those can match the robot in front of you. Get
- * either wrong and the robot turns away from where it is going rather than towards it - it may
- * still get there, by coming all the way around, which is precisely why this is worth measuring
- * rather than eyeballing.
- *
- * Run it with one robot on a clear patch of floor, at least half a metre from anything:
+ * Measures the camera-to-robot conventions that cannot be inferred from source:
+ * `markerYawOffsetRad` depends on the ArUco sticker orientation, while `invertWheels` depends on
+ * motor wiring. Incorrect values make the robot turn away from its goal. Run with one robot on a
+ * clear patch of floor, at least half a metre from anything:
  *
  * {{{
  * MQTT_URL=tcp://localhost:1883 sbt "runMain it.unibo.demo.CalibrateDrive <6-hex-device-id>"
  * }}}
  *
- * Then put the values it prints into `DRIVE_MARKER_YAW_OFFSET_DEG` and `DRIVE_INVERT_WHEELS`.
+ * Then put the printed values into `DRIVE_MARKER_YAW_OFFSET_DEG` and `DRIVE_INVERT_WHEELS`.
  */
 object CalibrateDrive extends IOApp.Simple:
 

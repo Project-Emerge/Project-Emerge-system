@@ -36,7 +36,7 @@ class RobotUpdateMqtt(
   override def update(world: Environment[ID, Position, Info], id: ID, actuation: Actuation): IO[Unit] =
     actuation match
       case _ if !world.nodes.contains(id) => forget(id) *> publisher.halt(id)
-      case NoOp => forget(id) *> publisher.release(id)
+      case NoOp => forget(id)
       case Stop => forget(id) *> publisher.halt(id)
       case Rotation(target) => drive(world, id, target, distanceToGoal = 0.0, translate = false)
       case Forward(direction, distanceToGoal) => drive(world, id, direction, distanceToGoal, translate = true)

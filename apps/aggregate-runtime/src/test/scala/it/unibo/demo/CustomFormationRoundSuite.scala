@@ -219,7 +219,9 @@ class CustomFormationRoundSuite extends munit.FunSuite:
     // `align(currentProgram)` keys on the program name, so `custom` is one more scope. A
     // half-applied switch is the transient AnchorSwitchSuite already covers for the anchor.
     val geometry = spec("""{"kind":"polar","r":"0.5","theta":"2*pi*i/n + t"}""")
-    val orchestrator = orchestratorFor(AllDemoToLoad(FormationDefaults.Programs*))
+    // Each simulation needs its own Scafi VM; the registry's instances are shared with other
+    // suites, which sbt runs concurrently.
+    val orchestrator = orchestratorFor(AllDemoToLoad("circleShape" -> CircleFormation(), "custom" -> CustomFormation()))
     def config(program: String) = withSpec(geometry) + (BaseDemo.Program -> program)
     List("circleShape", "custom", "circleShape", "custom").foreach { program =>
       (1 to 15).foreach { round =>

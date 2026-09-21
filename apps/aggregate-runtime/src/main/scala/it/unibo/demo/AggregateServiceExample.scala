@@ -14,10 +14,6 @@ import org.slf4j.LoggerFactory
 import scala.concurrent.duration.*
 
 private val BROKER_URL = System.getenv().getOrDefault("MQTT_URL", "tcp://localhost:1883")
-// Matches the vision system's own 20 Hz pose rate (`publish_hz` in apps/vision/config.local.json):
-// running the controller slower than its feedback wastes information, and running it faster only
-// re-processes the same pose. The control law caps its turn rate against the measured period, so
-// this value is a performance knob rather than a stability one.
 private val PROGRAM_FREQUENCY: Double = 20 // Hz
 
 class AllDemoToLoad(demos: (String, BaseDemo)*) extends BaseDemo {
@@ -42,8 +38,6 @@ class AllDemoToLoad(demos: (String, BaseDemo)*) extends BaseDemo {
 object ResearchNightDemos extends IOApp.Simple:
 
   override def run: IO[Unit] =
-    // Every molecule a program can `sense` needs a default, or the round throws and the robot
-    // halts; see FormationDefaults for why the map lives there rather than here.
     val defaults = FormationDefaults.All
 
     val makeResources: Resource[IO, (MqttContext, Dispatcher[IO], Ref[IO, Map[String, Any]], Ref[IO, Map[ID, TimedPose]], Ref[IO, Map[ID, Set[ID]]])] =
@@ -67,7 +61,6 @@ object ResearchNightDemos extends IOApp.Simple:
 
       val provider = MqttProvider(configRef, worldMapRef, neighborhoodRef)
       val demoToLaunch = AllDemoToLoad(FormationDefaults.Programs*)
-      // Halt a robot whose round failed rather than leaving it to drive on a stale command.
       val aggregateOrchestrator =
         AggregateOrchestrator[Position, Actuation](demoToLaunch, haltOnFailure = Some(Actuation.Stop))
 
@@ -83,9 +76,6 @@ object ResearchNightDemos extends IOApp.Simple:
         update     = RobotUpdateMqtt(publisher, driveConfig)
         _         <- provider.start()
         loopDuration = (1 / PROGRAM_FREQUENCY * 1000).toLong
-        // Motor commands go out on their own clock, faster than the control loop: the firmware
-        // smooths each command it receives, so its lag depends on how often we speak to it, and a
-        // command that stops being refreshed has to decay into a stop rather than latch.
         _ <- publisher.run().background.use { _ =>
           UpdateLoop.loop(loopDuration)(
             provider,
