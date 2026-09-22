@@ -16,11 +16,13 @@ from numpy.typing import NDArray
 
 from ..core.aruco import aruco_dictionary
 from ..core.config import (
+    AnchorFrameConfig,
     AppConfig,
     ArucoConfig,
     CameraConfig,
     ReferenceMarkerConfig,
     load_config,
+    load_config_recovering_anchor_frame,
     save_json,
 )
 from ..pipeline.capture import apply_camera_properties, apply_digital_zoom, open_video_capture
@@ -72,6 +74,77 @@ def image_to_world(
 ) -> NDArray[np.float64]:
     values = np.asarray(points, dtype=np.float64).reshape(1, -1, 2)
     return cv2.perspectiveTransform(values, np.asarray(mapping, dtype=np.float64))[0]
+
+
+def order_quad_points(points: NDArray[np.floating]) -> NDArray[np.intp]:
+    """Order 4 planar points clockwise starting from top-left (origin, +X, +X+Y, +Y)."""
+    pts = np.asarray(points, dtype=np.float64)
+    if pts.shape != (4, 2):
+        raise ValueError("order_quad_points requires exactly 4 2D points")
+    center = np.mean(pts, axis=0)
+    angles = np.arctan2(pts[:, 1] - center[1], pts[:, 0] - center[0])
+    order = np.argsort(angles)
+    sorted_pts = pts[order]
+    sums = sorted_pts[:, 0] + sorted_pts[:, 1]
+    top_left_index = int(np.argmin(sums))
+    return np.roll(order, -top_left_index)
+
+
+def resolve_anchor_targets(
+    args: argparse.Namespace,
+    base_config: AppConfig | None,
+    recovered_frame: AnchorFrameConfig | None,
+) -> tuple[list[int] | None, bool, float | None, float | None]:
+    """Resolve target anchor IDs, whether their order is fixed, and known distances.
+
+    Returns:
+        tuple of (anchor_ids, order_fixed, width_m, height_m)
+    """
+    configured_frame = (
+        base_config.aruco.anchor_frame
+        if base_config is not None and base_config.aruco.anchor_frame is not None
+        else recovered_frame
+    )
+    width_m = args.width_m
+    height_m = args.height_m
+
+    # 1. Explicit --anchor-ids
+    if args.anchor_ids:
+        if len(set(args.anchor_ids)) != 4:
+            raise ValueError("--anchor-ids richiede quattro ID diversi")
+        if configured_frame is not None:
+            width_m = width_m if width_m is not None else configured_frame.x_distance_m
+            height_m = height_m if height_m is not None else configured_frame.y_distance_m
+        return list(args.anchor_ids), True, width_m, height_m
+
+    # 2. Configured anchor_frame
+    if configured_frame is not None:
+        if configured_frame.opposite_id is None:
+            raise ValueError("anchor_frame requires opposite_id")
+        width_m = width_m if width_m is not None else configured_frame.x_distance_m
+        height_m = height_m if height_m is not None else configured_frame.y_distance_m
+        frame_ids = [
+            configured_frame.origin_id,
+            configured_frame.x_axis_id,
+            configured_frame.opposite_id,
+            configured_frame.y_axis_id,
+        ]
+        return frame_ids, True, width_m, height_m
+
+    # 3. Passed or configured IDs (--ids or reference_ids or reference_markers)
+    passed_ids: list[int] = []
+    if args.ids:
+        passed_ids = list(dict.fromkeys(args.ids))
+    elif base_config is not None:
+        if base_config.aruco.reference_ids:
+            passed_ids = list(dict.fromkeys(base_config.aruco.reference_ids))
+        elif base_config.aruco.reference_markers:
+            passed_ids = list(dict.fromkeys(marker.id for marker in base_config.aruco.reference_markers))
+
+    if len(passed_ids) == 4 and len(set(passed_ids)) == 4:
+        return passed_ids, False, width_m, height_m
+
+    return None, False, width_m, height_m
 
 
 def detect_marker_centers(
@@ -756,9 +829,10 @@ def reference_mapper_main() -> None:
     if config_target and config_target != args.config and config_target.exists() and not args.force:
         parser.error(f"{config_target} esiste gia; usa --force per sovrascriverlo")
     base_config: AppConfig | None = None
+    recovered_frame: AnchorFrameConfig | None = None
     if args.config:
         try:
-            base_config = load_config(args.config)
+            base_config, recovered_frame = load_config_recovering_anchor_frame(args.config)
             diagnostic_event(
                 LOGGER,
                 "reference_mapping_config_loaded",
@@ -769,30 +843,24 @@ def reference_mapper_main() -> None:
         except (OSError, ValueError) as error:
             parser.error(f"configurazione non valida: {error}")
 
+    try:
+        target_anchor_ids, order_fixed, width_m, height_m = resolve_anchor_targets(
+            args, base_config, recovered_frame
+        )
+    except ValueError as error:
+        parser.error(str(error))
+
     auto_anchor_ids: list[int] | None = None
     auto_min_markers: int | None = None
-    if args.anchor_ids:
-        if len(set(args.anchor_ids)) != 4:
-            parser.error("--anchor-ids richiede quattro ID diversi")
-        auto_anchor_ids = list(args.anchor_ids)
     if args.auto_capture:
         if args.mode != "anchors":
             parser.error("--auto-capture richiede --mode anchors")
         if args.image is not None:
             parser.error("--auto-capture richiede l'acquisizione live, non --image")
-        if auto_anchor_ids is None:
-            anchor_frame = base_config.aruco.anchor_frame if base_config is not None else None
-            if anchor_frame is not None:
-                if anchor_frame.opposite_id is None:
-                    parser.error("--auto-capture richiede anchor_frame con opposite_id")
-                auto_anchor_ids = [
-                    anchor_frame.origin_id,
-                    anchor_frame.x_axis_id,
-                    anchor_frame.opposite_id,
-                    anchor_frame.y_axis_id,
-                ]
-            else:
-                auto_min_markers = 4
+        if target_anchor_ids is not None:
+            auto_anchor_ids = list(target_anchor_ids)
+        else:
+            auto_min_markers = 4
         diagnostic_event(
             LOGGER,
             "reference_auto_capture_armed",
@@ -835,50 +903,32 @@ def reference_mapper_main() -> None:
             camera_id=captured_camera_id,
             shape=image.shape,
         )
-    width_m = args.width_m
-    height_m = args.height_m
-    if args.mode == "anchors" and base_config is not None:
-        anchor_frame = base_config.aruco.anchor_frame
-        if anchor_frame is not None:
-            width_m = width_m if width_m is not None else anchor_frame.x_distance_m
-            height_m = height_m if height_m is not None else anchor_frame.y_distance_m
-    try:
-        width_m = _positive_value(
-            width_m,
-            "Distanza origine -> +X in metri (distanza tra gli anchor): "
-            if args.mode == "anchors"
-            else "Distanza origine -> +X in metri: ",
-        )
-        height_m = _positive_value(
-            height_m,
-            "Distanza origine -> +Y in metri (distanza tra gli anchor): "
-            if args.mode == "anchors"
-            else "Distanza origine -> +Y in metri: ",
-        )
-        marker_size_m = _positive_value(args.marker_size_m, "Lato nero marker in metri: ")
-    except (ValueError, EOFError) as error:
-        parser.error(str(error))
 
     labels = ["origine (0,0)", "+X", "+Y"]
     if args.mode in ("rectangle", "anchors"):
         labels = ["origine (0,0)", "+X", "+X,+Y", "+Y"]
     anchor_ids: list[int] = []
-    if auto_anchor_ids is not None:
+    points: NDArray[np.float64] | None = None
+    if args.mode == "anchors" and target_anchor_ids is not None:
         centers, detected_ids, _, _ = detect_marker_centers(image, args.dictionary)
         by_id = dict(zip(detected_ids, centers, strict=True))
-        missing = [marker_id for marker_id in auto_anchor_ids if marker_id not in by_id]
+        missing = [marker_id for marker_id in target_anchor_ids if marker_id not in by_id]
         if missing:
             parser.error(f"anchor non rilevati nello scatto: {sorted(missing)}")
-        points = np.asarray(
-            [by_id[marker_id] for marker_id in auto_anchor_ids], dtype=np.float64
-        )
-        anchor_ids = list(auto_anchor_ids)
+        if order_fixed:
+            anchor_ids = list(target_anchor_ids)
+            points = np.asarray([by_id[marker_id] for marker_id in anchor_ids], dtype=np.float64)
+        else:
+            raw_pts = np.asarray([by_id[marker_id] for marker_id in target_anchor_ids], dtype=np.float64)
+            order = order_quad_points(raw_pts)
+            anchor_ids = [target_anchor_ids[i] for i in order]
+            points = raw_pts[order]
         diagnostic_event(
             LOGGER,
             "reference_anchor_selection_completed",
             mode=args.mode,
             anchor_ids=anchor_ids,
-            trigger="auto_capture",
+            trigger="auto_capture" if args.auto_capture else "target_ids",
         )
     else:
         snap_centers: list[tuple[float, float]] = []
@@ -907,6 +957,39 @@ def reference_mapper_main() -> None:
             mode=args.mode,
             anchor_ids=anchor_ids,
         )
+
+    if width_m is None or height_m is None:
+        if base_config is not None and base_config.aruco.reference_markers and len(anchor_ids) == 4:
+            refs = base_config.references_by_id()
+            if anchor_ids[0] in refs and anchor_ids[1] in refs and width_m is None:
+                p0 = np.array(refs[anchor_ids[0]].position_m[:2])
+                p1 = np.array(refs[anchor_ids[1]].position_m[:2])
+                dx = float(np.linalg.norm(p1 - p0))
+                if dx > 0:
+                    width_m = dx
+            if anchor_ids[0] in refs and anchor_ids[3] in refs and height_m is None:
+                p0 = np.array(refs[anchor_ids[0]].position_m[:2])
+                p3 = np.array(refs[anchor_ids[3]].position_m[:2])
+                dy = float(np.linalg.norm(p3 - p0))
+                if dy > 0:
+                    height_m = dy
+
+    try:
+        width_m = _positive_value(
+            width_m,
+            "Distanza origine -> +X in metri (distanza tra gli anchor): "
+            if args.mode == "anchors"
+            else "Distanza origine -> +X in metri: ",
+        )
+        height_m = _positive_value(
+            height_m,
+            "Distanza origine -> +Y in metri (distanza tra gli anchor): "
+            if args.mode == "anchors"
+            else "Distanza origine -> +Y in metri: ",
+        )
+        marker_size_m = _positive_value(args.marker_size_m, "Lato nero marker in metri: ")
+    except (ValueError, EOFError) as error:
+        parser.error(str(error))
     try:
         mapping = planar_mapping(
             points,
@@ -954,11 +1037,24 @@ def reference_mapper_main() -> None:
     updated_config: AppConfig | None = None
     if base_config is not None:
         try:
-            updated_config = config_with_references(base_config, references)
+            aruco_payload = base_config.aruco.model_dump(mode="python")
+            aruco_payload["reference_markers"] = [
+                marker.model_dump(mode="python") for marker in references
+            ]
             if args.mode == "anchors":
-                updated_config = config_with_anchor_frame(
-                    updated_config, anchor_ids, width_m, height_m, args.plane_z_m
-                )
+                aruco_payload["anchor_frame"] = {
+                    "origin_id": anchor_ids[0],
+                    "x_axis_id": anchor_ids[1],
+                    "opposite_id": anchor_ids[2],
+                    "y_axis_id": anchor_ids[3],
+                    "x_distance_m": width_m,
+                    "y_distance_m": height_m,
+                    "plane_z_m": args.plane_z_m,
+                }
+            aruco = ArucoConfig.model_validate(aruco_payload)
+            updated_config = base_config.model_copy(
+                update={"aruco": aruco, "revision": base_config.revision + 1}
+            )
         except ValueError as error:
             parser.error(f"configurazione non valida: {error}")
 

@@ -21,6 +21,7 @@ from ..core.config import (
     AppConfig,
     CameraConfig,
     ReferenceMarkerConfig,
+    load_config_recovering_anchor_frame,
     save_json,
 )
 from ..pipeline.capture import apply_camera_properties, apply_digital_zoom, open_video_capture
@@ -956,34 +957,7 @@ def capture_scene(
         cv2.destroyWindow(WINDOW_NAME)
 
 
-def _load_stitch_config(path: Path) -> tuple[AppConfig, AnchorFrameConfig | None]:
-    """Load a config, temporarily detaching an orphaned anchor frame.
-
-    Other commands must reject an anchor frame whose marker records are
-    missing.  The stitcher is the recovery path that recreates those records,
-    so it may retain the frame metadata while validating the rest of the app
-    configuration.
-    """
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    try:
-        return AppConfig.model_validate(payload), None
-    except ValueError as original_error:
-        if not isinstance(payload, dict) or not isinstance(payload.get("aruco"), dict):
-            raise original_error
-        aruco_payload = payload["aruco"]
-        raw_anchor_frame = aruco_payload.get("anchor_frame")
-        if raw_anchor_frame is None:
-            raise original_error
-        try:
-            recovered_frame = AnchorFrameConfig.model_validate(raw_anchor_frame)
-            repaired_payload = dict(payload)
-            repaired_aruco = dict(aruco_payload)
-            repaired_aruco["anchor_frame"] = None
-            repaired_payload["aruco"] = repaired_aruco
-            repaired_config = AppConfig.model_validate(repaired_payload)
-        except ValueError:
-            raise original_error from None
-        return repaired_config, recovered_frame
+_load_stitch_config = load_config_recovering_anchor_frame
 
 
 def _anchor_ids_from_args(

@@ -161,7 +161,7 @@ class ArucoConfig(BaseModel):
             roles = {frame.origin_id, frame.x_axis_id, frame.y_axis_id}
             if frame.opposite_id is not None:
                 roles.add(frame.opposite_id)
-            missing = roles - set(reference)
+            missing = roles - (set(reference) | set(declared_reference))
             if missing:
                 raise ValueError(f"anchor frame marker ids are not references: {sorted(missing)}")
             positions = {
@@ -284,6 +284,37 @@ class CameraCalibration(BaseModel):
 
 def load_config(path: Path) -> AppConfig:
     return AppConfig.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+def load_config_recovering_anchor_frame(
+    path: Path,
+) -> tuple[AppConfig, AnchorFrameConfig | None]:
+    """Load a config, temporarily detaching an orphaned anchor frame if references are missing.
+
+    Mapping and stitching tools reconstruct reference markers from the anchor frame,
+    so they may preserve the anchor frame definition while validating the rest of the configuration.
+    """
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        config = AppConfig.model_validate(payload)
+        return config, config.aruco.anchor_frame
+    except ValueError as original_error:
+        if not isinstance(payload, dict) or not isinstance(payload.get("aruco"), dict):
+            raise original_error
+        aruco_payload = payload["aruco"]
+        raw_anchor_frame = aruco_payload.get("anchor_frame")
+        if raw_anchor_frame is None:
+            raise original_error
+        try:
+            recovered_frame = AnchorFrameConfig.model_validate(raw_anchor_frame)
+            repaired_payload = dict(payload)
+            repaired_aruco = dict(aruco_payload)
+            repaired_aruco["anchor_frame"] = None
+            repaired_payload["aruco"] = repaired_aruco
+            repaired_config = AppConfig.model_validate(repaired_payload)
+        except ValueError:
+            raise original_error from None
+        return repaired_config, recovered_frame
 
 
 def initial_config(config_path: Path | None, cache_path: Path) -> AppConfig:
