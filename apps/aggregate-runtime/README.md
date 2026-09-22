@@ -3,6 +3,15 @@
 Runs the aggregate program for the whole fleet: it reads robot poses from the vision system over
 MQTT, works out where each robot should go, and drives the motors.
 
+Formation steering stays in `FormationSteering`: neighbours contribute radial repulsion, and a
+robot approaching a neighbour on its route also follows a tangent around it. A per-device Scafi
+`rep` holds the neighbour and the chosen side until the route has been clear for three rounds.
+The tangent starts within 1.15 times `collisionArea` and fades to zero at that boundary; radial
+repulsion keeps its existing radius and strength. A brief missing observation retains the side,
+but contributes no force from the missing neighbour. Arrival clears the detour, leaving the
+existing final orientation behaviour in place. The travel distance passed to the drive controller
+remains the distance to the assigned slot.
+
 ```
 /pose/<id>       ->  MqttProvider     ->  AggregateOrchestrator  ->  Actuation
 /neighbors/<id>                           (scafi program)             |

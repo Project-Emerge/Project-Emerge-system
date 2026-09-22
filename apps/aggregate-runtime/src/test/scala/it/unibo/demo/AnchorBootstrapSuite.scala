@@ -6,19 +6,11 @@ import it.unibo.demo.robot.Actuation
 import it.unibo.demo.scenarios.*
 import it.unibo.utils.Position.given
 
-/**
- * What the fleet does in the rounds *before* it has settled, which
- * [[AssignmentChurnSuite]] deliberately does not look at.
- *
- * The anchor is decided by two field computations that both need a few rounds to cross the
- * fleet: the distance to a named leader starts at +Infinity everywhere, and sparse choice
- * opens with every device claiming to be a leader and gives the claim up one hop per round.
- * Acting on either before it has settled puts several anchors in the fleet at once, each
- * planning a shape out of the handful of offsets its own collect has reached and
- * broadcasting it -- and the robots physically drive those plans for the several further
- * rounds it takes them to wash out of the collect/broadcast pipeline. The visible symptom
- * is a fleet that lurches about before it starts converging.
- */
+/** Fleet behaviour before the anchor fields settle; [[AssignmentChurnSuite]] skips this phase.
+  * Named-leader distance starts at `+Infinity`, while sparse choice initially elects every
+  * device and propagates claims one hop per round. Acting too early creates multiple anchors,
+  * partial plans, and the resulting visible lurch before convergence.
+  */
 class AnchorBootstrapSuite extends munit.FunSuite:
 
   private final class World(val positions: Map[Int, (Double, Double)], val config: Map[String, Any])

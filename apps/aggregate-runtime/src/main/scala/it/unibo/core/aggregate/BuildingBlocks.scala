@@ -34,18 +34,7 @@ trait BuildingBlocks:
     private def accumulateAndCast[A](data: (Double, A), accumulation: A => A): (Double, A) =
       (data._1 + nbrRange(), accumulation(data._2))
 
-    /**
-     * Distance field from the closest `source`, as a rising value.
-     *
-     * This is deliberately not expressed with [[gradientCast]]: that block returns its
-     * `center` seed when no source is reachable, so an isolated device would read distance
-     * 0 and believe it is standing on the source. Here a device with no reachable source
-     * reads exactly `+Infinity`, which is what lets [[BlockS]] notice that the leader it
-     * was following has left the fleet.
-     *
-     * `minHoodPlus` must exclude the device itself: including it would make
-     * `min(ownPreviousValue + 0, ...)` a fixed point and the value would never rise.
-     */
+    /** Distance to the closest source, or `+Infinity` when none is reachable. */
     def distanceToSource(source: Boolean, metric: Metric): Double =
       share(Double.PositiveInfinity) { (_, neighbourDistance) =>
         mux(source)(0.0)(minHoodPlus(neighbourDistance() + metric()))
@@ -74,14 +63,7 @@ trait BuildingBlocks:
 
   /**
    * Sparse choice: the swarm elects its own leaders, roughly `grain` apart, with no
-   * external input. A port of ScaFi's `BlockS` onto this project's own blocks, since the
-   * ScaFi standard library cannot be mixed into the incarnation without clashing with the
-   * `BlockG`/`BlockC`/`BlockT` names defined above.
-   *
-   * The competing identity is the deterministic `(0.0, mid())` rather than ScaFi's
-   * `randomUid`: the latter needs the `LSNS_RANDOM` sensor, which this runtime does not
-   * provide. Any total order works, so this simply means the lowest id wins — which also
-   * makes the election reproducible across runs.
+   * external input. 
    */
   trait BlockS:
     self: AggregateProgram & StandardSensors & BlockG =>
@@ -92,12 +74,9 @@ trait BuildingBlocks:
     private given uidBounded: Builtins.Bounded[Uid] =
       Builtins.Bounded.tupleBounded[Double, ID]
 
-    /**
-     * @param grain the mean distance between two elected leaders, in the unit of `metric`.
-     *              Above the network diameter this elects exactly one leader.
-     * @param metric defaults to hops, so that recovery after a leader leaves takes
-     *               `grain` rounds rather than `grain / linkLength` rounds.
-     */
+    /** @param grain mean leader distance in `metric` units; above network diameter, one leader.
+      * @param metric distance metric; defaults to hops for `grain`-round recovery.
+      */
     def S(grain: Double, metric: Metric = () => 1.0): Boolean =
       breakUsingUids((0.0, mid()), grain, metric)
 
@@ -106,13 +85,7 @@ trait BuildingBlocks:
         distanceCompetition(distanceToSource(uid == lead, metric), leadQuery, uid, grain, metric)
       }
 
-    /**
-     * Candidate leaders surrender to the lowest nearby identity.
-     *
-     * Every `mux` here is deliberately strict: turning any of them into `branch` or a bare
-     * `if` would make the shape of the export device-dependent and break the alignment the
-     * competition relies on.
-     */
+    /** Candidates surrender to the lowest nearby identity; strict `mux` preserves alignment. */
     private def distanceCompetition(
         d: Double,
         leadQuery: () => Uid,
