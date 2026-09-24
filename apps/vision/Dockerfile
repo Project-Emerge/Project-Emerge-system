@@ -32,4 +32,4 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 RUN mkdir -p /app/calibrations /app/config /app/diagnostics /app/state
 
-CMD ["vision-localizer", "--config", "/app/config/config.local.json", "--calibrations", "/app/calibrations", "--cache", "/app/state/last_good_config.json"]
+CMD ["vision-localizer", "--config", "/app/config/config.local.json", "--calibrations", "/app/calibrations", "--cache", "/app/state/last_good_config.json", "--allow-low-quality"]

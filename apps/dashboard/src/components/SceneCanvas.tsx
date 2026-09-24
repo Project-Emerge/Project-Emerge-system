@@ -2,6 +2,7 @@ import { Html, OrbitControls } from "@react-three/drei";
 import { Canvas, type ThreeEvent, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { bodyHeadingRad } from "../domain/telemetry";
 import { computeSceneBounds, DEFAULT_SCENE_BOUNDS, type SceneBounds } from "../domain/bounds";
 import { neighborLinks } from "../domain/neighborhood";
 import { useTheme, type ResolvedTheme } from "../services/theme-context";
@@ -14,6 +15,17 @@ const ROBOT_HEIGHT_M = 0.04;
 const TRAIL_DURATION_MS = 4_000;
 const MAX_TRAIL_POINTS = 96;
 const LINK_HEIGHT_M = 0.03;
+// The world is right-handed with Z up, so seen from above world Y must point up on screen:
+// it maps to scene -Z. Mapping it to +Z would draw the arena mirrored. The whole arena is then
+// turned 180° (a rotation, never a mirror) to match where the operator stands, so the arena
+// centre (x, y) sits at scene (-x, +y).
+// Notched arrowhead pointing along local +x (the robot's forward), so heading reads at a glance.
+const ROBOT_SHAPE = new THREE.Shape([
+  new THREE.Vector2(0.055, 0),
+  new THREE.Vector2(-0.045, 0.04),
+  new THREE.Vector2(-0.02, 0),
+  new THREE.Vector2(-0.045, -0.04),
+]);
 
 // Links read the rendered meshes instead of the raw store poses so they stay glued to the
 // robots while RobotMesh eases each body towards its latest position.
@@ -31,15 +43,15 @@ type Bounds = SceneBounds;
 function CameraControls({ mode, bounds, resetToken }: { mode: SceneMode; bounds: Bounds; resetToken: number }): React.JSX.Element {
   const { camera, invalidate } = useThree();
   useEffect(() => {
-    const target = new THREE.Vector3(bounds.centerX, 0, bounds.centerY);
+    const target = new THREE.Vector3(-bounds.centerX, 0, bounds.centerY);
     if (mode === "2d") {
-      camera.position.set(bounds.centerX, Math.max(12, bounds.span * 2.2), bounds.centerY);
+      camera.position.set(-bounds.centerX, Math.max(12, bounds.span * 2.2), bounds.centerY);
       if (camera instanceof THREE.OrthographicCamera) {
         camera.zoom = Math.max(0.65, 11 / bounds.span);
         camera.updateProjectionMatrix();
       }
     } else {
-      camera.position.set(bounds.centerX + bounds.span * 0.9, bounds.span * 0.95, bounds.centerY + bounds.span * 0.9);
+      camera.position.set(-bounds.centerX + bounds.span * 0.9, bounds.span * 0.95, bounds.centerY + bounds.span * 0.9);
     }
     camera.lookAt(target);
     invalidate();
@@ -48,7 +60,7 @@ function CameraControls({ mode, bounds, resetToken }: { mode: SceneMode; bounds:
   return (
     <OrbitControls
       key={`${mode}-${resetToken}`}
-      target={[bounds.centerX, 0, bounds.centerY]}
+      target={[-bounds.centerX, 0, bounds.centerY]}
       enableDamping
       dampingFactor={0.08}
       enableRotate={mode === "3d"}
@@ -215,7 +227,7 @@ function RobotTrail({ id, theme }: { id: string; theme: ResolvedTheme }): React.
     samples.current.forEach((sample, index) => {
       const visibility = Math.max(0, Math.min(1, (sample.receivedAt - cutoff) / TRAIL_DURATION_MS));
       const color = fadedTone.clone().lerp(trailTone, visibility ** 1.8);
-      positions.setXYZ(index, sample.x, 0.006, sample.y);
+      positions.setXYZ(index, sample.x, 0.006, -sample.y);
       colors.setXYZ(index, color.r, color.g, color.b);
     });
     positions.needsUpdate = true;
@@ -253,9 +265,9 @@ function RobotMesh({ id, theme }: { id: string; theme: ResolvedTheme }): React.J
     const robot = useDashboardStore.getState().robots[id];
     const pose = target.current ?? robot?.pose;
     if (!group.current || !pose) return;
-    const targetPosition = new THREE.Vector3(pose.x_m, ROBOT_RADIUS_M, pose.y_m);
+    const targetPosition = new THREE.Vector3(pose.x_m, ROBOT_RADIUS_M, -pose.y_m);
     group.current.position.lerp(targetPosition, 1 - Math.exp(-delta * 17));
-    const heading = -pose.heading_rad;
+    const heading = bodyHeadingRad(pose);
     group.current.rotation.y += THREE.MathUtils.euclideanModulo(heading - group.current.rotation.y + Math.PI, Math.PI * 2) - Math.PI;
     const stale = !robot || Date.now() - robot.lastSeenAt > 3_000;
     const uncertain = pose.position_variance_m2 !== null && pose.position_variance_m2 > 0.1;
@@ -275,13 +287,9 @@ function RobotMesh({ id, theme }: { id: string; theme: ResolvedTheme }): React.J
 
   return (
     <group ref={group} onClick={handleClick}>
-      <mesh castShadow receiveShadow position={[0, -ROBOT_RADIUS_M + ROBOT_HEIGHT_M / 2, 0]} rotation={[0, -Math.PI / 2, 0]}>
-        <cylinderGeometry args={[ROBOT_RADIUS_M, ROBOT_RADIUS_M, ROBOT_HEIGHT_M, 3]} />
+      <mesh castShadow receiveShadow position={[0, -ROBOT_RADIUS_M, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <extrudeGeometry args={[ROBOT_SHAPE, { depth: ROBOT_HEIGHT_M, bevelEnabled: false }]} />
         <meshStandardMaterial ref={bodyMaterial} color="#45a487" roughness={0.48} metalness={0.12} />
-      </mesh>
-      <mesh position={[0, -ROBOT_RADIUS_M + ROBOT_HEIGHT_M + 0.001, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[0.026, 3]} />
-        <meshBasicMaterial color="#f8fcff" side={THREE.DoubleSide} />
       </mesh>
       <mesh position={[-0.018, -ROBOT_RADIUS_M + ROBOT_HEIGHT_M + 0.004, 0.018]}>
         <sphereGeometry args={[0.008, 12, 12]} />
@@ -315,17 +323,19 @@ function SceneContents({ mode, bounds, resetToken, theme }: { mode: SceneMode; b
       <fog attach="fog" args={[sceneBackground, 10, 45]} />
       <ambientLight intensity={0.7} />
       <directionalLight position={[5, 8, 3]} intensity={1.8} castShadow />
-      <gridHelper args={[
-        Math.max(12, bounds.span * 2.2),
-        Math.max(12, Math.ceil(bounds.span * 2.2)),
-        theme === "dark" ? "#3f5262" : "#aab4c0",
-        theme === "dark" ? "#252f39" : "#d6dce3",
-      ]} />
-      <axesHelper args={[1]} />
       <CameraControls mode={mode} bounds={bounds} resetToken={resetToken} />
-      <NeighborhoodLinks theme={theme} />
-      {robotIds.map((id) => <RobotTrail key={`${id}-trail`} id={id} theme={theme} />)}
-      {robotIds.map((id) => <RobotMesh key={id} id={id} theme={theme} />)}
+      <group rotation={[0, Math.PI, 0]}>
+        <gridHelper args={[
+          Math.max(12, bounds.span * 2.2),
+          Math.max(12, Math.ceil(bounds.span * 2.2)),
+          theme === "dark" ? "#3f5262" : "#aab4c0",
+          theme === "dark" ? "#252f39" : "#d6dce3",
+        ]} />
+        <axesHelper args={[1]} scale={[1, 1, -1]} />
+        <NeighborhoodLinks theme={theme} />
+        {robotIds.map((id) => <RobotTrail key={`${id}-trail`} id={id} theme={theme} />)}
+        {robotIds.map((id) => <RobotMesh key={id} id={id} theme={theme} />)}
+      </group>
     </>
   );
 }
@@ -359,11 +369,11 @@ export function SceneCanvas({ mode, resetToken }: SceneCanvasProps): React.JSX.E
   const bounds = useFramingBounds(resetToken);
   const { resolvedTheme } = useTheme();
   if (mode === "2d") {
-    return <Canvas orthographic camera={{ position: [bounds.centerX, 18, bounds.centerY], zoom: 1 }} shadows dpr={[1, 2]} gl={{ antialias: true }}>
+    return <Canvas orthographic camera={{ position: [-bounds.centerX, 18, bounds.centerY], zoom: 1 }} shadows dpr={[1, 2]} gl={{ antialias: true }}>
       <SceneContents mode={mode} bounds={bounds} resetToken={resetToken} theme={resolvedTheme} />
     </Canvas>;
   }
-  return <Canvas camera={{ position: [bounds.centerX + 6, 6, bounds.centerY + 6], fov: 45 }} shadows dpr={[1, 2]} gl={{ antialias: true }}>
+  return <Canvas camera={{ position: [-bounds.centerX + 6, 6, bounds.centerY + 6], fov: 45 }} shadows dpr={[1, 2]} gl={{ antialias: true }}>
     <SceneContents mode={mode} bounds={bounds} resetToken={resetToken} theme={resolvedTheme} />
   </Canvas>;
 }

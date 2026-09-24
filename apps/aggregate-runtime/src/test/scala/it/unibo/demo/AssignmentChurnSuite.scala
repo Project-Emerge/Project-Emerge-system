@@ -35,13 +35,16 @@ class AssignmentChurnSuite extends munit.FunSuite:
       ++ Map(
         BaseDemo.Anchor -> BaseDemo.AnchorLeader,
         BaseDemo.Leader -> 0,
-        BaseDemo.CollisionArea -> 0.3,
-        BaseDemo.StabilityThreshold -> 0.1
+        // The operating point proven stable on the real fleet.
+        BaseDemo.CollisionArea -> 0.1,
+        BaseDemo.StabilityThreshold -> 0.05
       )
 
   /**
    * Total distance every robot travels over the final rounds. A settled fleet travels none.
-   * The dead band mirrors the real controller, which ignores commands under 3cm.
+   * The dead band mirrors the real controller, which ignores commands under 3cm. The step is
+   * twice the real robot's (0.094 m/s at 20 Hz): the plan reaches a robot about three rounds late,
+   * so a faster step overshoots by more than the stability threshold and bounces for ever.
    */
   private def residualMotion(
       program: BaseDemo,
@@ -49,7 +52,7 @@ class AssignmentChurnSuite extends munit.FunSuite:
       robots: Int,
       rounds: Int = 700,
       tail: Int = 200,
-      step: Double = 0.03
+      step: Double = 0.01
   ): (Double, Map[Int, (Double, Double)]) =
     val orchestrator = AggregateOrchestrator[(Double, Double), Actuation](program)
     var positions = (0 until robots).map(i => i -> ((i % 4) * 0.7 + 0.3, (i / 4) * 0.7 + 0.3)).toMap

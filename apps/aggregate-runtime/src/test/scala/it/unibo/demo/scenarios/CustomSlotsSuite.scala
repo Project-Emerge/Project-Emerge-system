@@ -316,19 +316,19 @@ class CustomSlotsSuite extends munit.FunSuite:
   }
 
   test("scaling up a path the fleet had to be grown into stops growing it") {
-    // growToFit only rescues a shape too small to stand on. A path at 0.2 has adjacent slots
-    // 0.283 apart, under the 0.3 minimum, so it is grown; the same path at scale 2 already clears
-    // the minimum and is left exactly as written. Doubling the scale therefore does not quite
-    // double the radii -- worth knowing before reading it as a bug.
-    val cramped = CustomSpec.Points(List((0.2, 0.0), (0.0, 0.2), (-0.2, 0.0)), closed = false)
+    // growToFit only rescues a shape too small to stand on. A path with slots 0.2 apart, under
+    // the 0.3 minimum, is grown; the same path at scale 2 already clears the minimum and is left
+    // exactly as written. Doubling the scale therefore does not quite double the radii -- worth
+    // knowing before reading it as a bug. Off to the side, so the anchor keep-out plays no part.
+    val cramped = CustomSpec.Points(List((0.4, -0.2), (0.4, 0.0), (0.4, 0.2)), closed = false)
     val plain = slots(cramped, 3)
     val doubled = slots(cramped, 3, scale = 2.0)
     val spacingOf = (placed: List[(Double, Double)]) =>
       placed.sliding(2).collect { case List(a, b) => math.hypot(b._1 - a._1, b._2 - a._2) }.min
     assertEqualsDouble(spacingOf(plain), gap, 1e-9)
-    assertEqualsDouble(radiusOf(doubled.head), 0.4, 1e-9)
+    assertEqualsDouble(radiusOf(doubled(1)), 0.8, 1e-9)
     // Still monotone in the scale, which is what an operator dragging the slider expects.
-    assert(radiusOf(doubled.head) > radiusOf(plain.head))
+    assert(radiusOf(doubled(1)) > radiusOf(plain(1)))
   }
 
   test("an absurd or non-finite scale is clamped rather than obeyed") {
@@ -371,3 +371,19 @@ class CustomSlotsSuite extends munit.FunSuite:
         )
       }
   }
+
+  test("a formula ring too tight for the fleet is grown to the clearance") {
+    val placed = slots(polarSpec("0.2", "2*pi*i/n"), 8)
+    val closest = placed.combinations(2).map { case List(a, b) => math.hypot(a._1 - b._1, a._2 - b._2) }.min
+    assertEqualsDouble(closest, gap, 1e-9)
+  }
+
+  test("the travel of a spinning spec is its radius per radian, and a still one does not move") {
+    val layout = (spin: String) => (phase: Double) =>
+      CustomSlots.slotsFor(polarSpec("0.6", spin), ctx(6, phase), 1.0, maxRadius, collisionArea)
+    val step = 2 * math.Pi / CustomSlots.TravelSamples
+    // A chord, not the arc: a hair under the radius.
+    assertEqualsDouble(CustomSlots.travel(layout("2*pi*i/n + t")), 0.6 * 2 * math.sin(step / 2) / step, 1e-9)
+    assertEqualsDouble(CustomSlots.travel(layout("2*pi*i/n")), 0.0, 1e-9)
+  }
+

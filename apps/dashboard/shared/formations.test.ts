@@ -120,7 +120,7 @@ describe("metadati delle formazioni", () => {
   it("elenca per il modello ogni programma con ancoraggi e intervalli", () => {
     const prompt = describeFormationsForPrompt();
     FORMATION_PROGRAMS.forEach((program) => expect(prompt).toContain(program));
-    expect(prompt).toContain("radius 0.2..1.5 m (default 0.6)");
+    expect(prompt).toContain("radius 0.2..1.5 m (default 0.35)");
     expect(prompt).toContain("none (leaderless)");
   });
 });

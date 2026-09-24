@@ -99,6 +99,15 @@ export const TelemetrySchema = z.object({
 });
 
 export type Pose = z.infer<typeof PoseSchema>;
+
+// heading_rad is the ArUco marker's yaw, not the robot's forward axis. Keep in sync with the
+// aggregate runtime's DRIVE_MARKER_YAW_OFFSET_DEG, which depends on how the sticker was glued.
+const MARKER_YAW_OFFSET_RAD = Number(import.meta.env.VITE_MARKER_YAW_OFFSET_DEG ?? 90) * Math.PI / 180;
+
+export function bodyHeadingRad(pose: Pose): number {
+  const heading = pose.heading_rad + MARKER_YAW_OFFSET_RAD;
+  return Math.atan2(Math.sin(heading), Math.cos(heading));
+}
 export type ImuTelemetry = z.infer<typeof ImuTelemetrySchema>;
 export type Telemetry = z.infer<typeof TelemetrySchema>;
 export type { MotorConfiguration, ArucoMap, Neighbors };

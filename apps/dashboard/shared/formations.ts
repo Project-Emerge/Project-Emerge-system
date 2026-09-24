@@ -40,7 +40,7 @@ const COLLISION_AREA: FormationParamDefinition = {
   min: 0.05,
   max: 1,
   step: 0.05,
-  defaultValue: 0.3,
+  defaultValue: 0.1,
 };
 
 const STABILITY_THRESHOLD: FormationParamDefinition = {
@@ -50,7 +50,7 @@ const STABILITY_THRESHOLD: FormationParamDefinition = {
   min: 0.01,
   max: 0.5,
   step: 0.01,
-  defaultValue: 0.1,
+  defaultValue: 0.05,
 };
 
 // Mean distance between two elected leaders, in hops. Above the fleet's hop diameter this
@@ -72,7 +72,7 @@ const RADIUS: FormationParamDefinition = {
   min: 0.2,
   max: 1.5,
   step: 0.05,
-  defaultValue: 0.6,
+  defaultValue: 0.35,
 };
 
 const WAVE_PERIOD: FormationParamDefinition = {
@@ -92,7 +92,7 @@ const WAVE_AMPLITUDE: FormationParamDefinition = {
   min: 0.05,
   max: 0.6,
   step: 0.05,
-  defaultValue: 0.2,
+  defaultValue: 0.1,
 };
 
 const WAVE_NUMBER: FormationParamDefinition = {
@@ -157,7 +157,7 @@ export const FORMATION_DEFINITIONS: FormationDefinition[] = [
     group: "shape",
     anchors: ALL_ANCHORS,
     params: [
-      { key: "interDistanceV", label: "Arm spacing", unit: "m", min: 0.1, max: 1.2, step: 0.05, defaultValue: 0.4 },
+      { key: "interDistanceV", label: "Arm spacing", unit: "m", min: 0.1, max: 1.2, step: 0.05, defaultValue: 0.2 },
       { key: "angleV", label: "Arm angle", unit: "rad", min: -Math.PI, max: Math.PI, step: 0.05, defaultValue: -0.79 },
       COLLISION_AREA,
       STABILITY_THRESHOLD,
@@ -171,7 +171,7 @@ export const FORMATION_DEFINITIONS: FormationDefinition[] = [
     group: "shape",
     anchors: ALL_ANCHORS,
     params: [
-      { key: "interDistanceLine", label: "Robot spacing", unit: "m", min: 0.1, max: 1.2, step: 0.05, defaultValue: 0.4 },
+      { key: "interDistanceLine", label: "Robot spacing", unit: "m", min: 0.1, max: 1.2, step: 0.05, defaultValue: 0.2 },
       COLLISION_AREA,
       STABILITY_THRESHOLD,
       ELECTION_GRAIN,
@@ -192,7 +192,7 @@ export const FORMATION_DEFINITIONS: FormationDefinition[] = [
     group: "shape",
     anchors: ALL_ANCHORS,
     params: [
-      { key: "interDistanceSquare", label: "Grid spacing", unit: "m", min: 0.1, max: 1.2, step: 0.05, defaultValue: 0.4 },
+      { key: "interDistanceSquare", label: "Grid spacing", unit: "m", min: 0.1, max: 1.2, step: 0.05, defaultValue: 0.2 },
       COLLISION_AREA,
       STABILITY_THRESHOLD,
       ELECTION_GRAIN,
@@ -205,7 +205,7 @@ export const FORMATION_DEFINITIONS: FormationDefinition[] = [
     group: "shape",
     anchors: ALL_ANCHORS,
     params: [
-      { key: "interDistanceVertical", label: "Robot spacing", unit: "m", min: 0.1, max: 1.2, step: 0.05, defaultValue: 0.4 },
+      { key: "interDistanceVertical", label: "Robot spacing", unit: "m", min: 0.1, max: 1.2, step: 0.05, defaultValue: 0.2 },
       COLLISION_AREA,
       STABILITY_THRESHOLD,
       ELECTION_GRAIN,
@@ -218,7 +218,7 @@ export const FORMATION_DEFINITIONS: FormationDefinition[] = [
     group: "shape",
     anchors: ALL_ANCHORS,
     params: [
-      { key: "scaleHeart", label: "Heart size", unit: "m", min: 0.02, max: 0.2, step: 0.01, defaultValue: 0.06 },
+      { key: "scaleHeart", label: "Heart size", unit: "m", min: 0.02, max: 0.2, step: 0.01, defaultValue: 0.02 },
       COLLISION_AREA,
       STABILITY_THRESHOLD,
       ELECTION_GRAIN,
@@ -255,7 +255,7 @@ export const FORMATION_DEFINITIONS: FormationDefinition[] = [
     group: "dynamic",
     anchors: ALL_ANCHORS,
     params: [
-      { key: "interDistanceLine", label: "Robot spacing", unit: "m", min: 0.1, max: 1.2, step: 0.05, defaultValue: 0.4 },
+      { key: "interDistanceLine", label: "Robot spacing", unit: "m", min: 0.1, max: 1.2, step: 0.05, defaultValue: 0.2 },
       WAVE_AMPLITUDE,
       WAVE_NUMBER,
       WAVE_PERIOD,

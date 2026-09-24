@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ImuTelemetry } from "../domain/telemetry";
+import { bodyHeadingRad, type ImuTelemetry } from "../domain/telemetry";
 import { ManualDriveControl } from "./ManualDriveControl";
 import { useLocale } from "../services/locale-context";
 import {
@@ -108,7 +108,7 @@ function RobotTelemetry({ robot, now }: { robot: RobotLiveState; now: number }):
         <h3>{t.sidebar.position}</h3>
         <InfoRow label="X" value={robot.pose?.x_m} unit="m" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
         <InfoRow label="Y" value={robot.pose?.y_m} unit="m" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
-        <InfoRow label={t.sidebar.heading} value={robot.pose ? robot.pose.heading_rad * 180 / Math.PI : null} unit="°" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
+        <InfoRow label={t.sidebar.heading} value={robot.pose ? bodyHeadingRad(robot.pose) * 180 / Math.PI : null} unit="°" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
         <InfoRow label={t.sidebar.speed} value={robot.pose?.speed_m_s} unit="m/s" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
         <InfoRow label={t.sidebar.variance} value={robot.pose?.position_variance_m2} unit="m²" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />
         <InfoRow label={t.sidebar.timestamp} value={robot.pose?.timestamp_us} unit="µs" yesLabel={t.sidebar.yes} noLabel={t.sidebar.no} />

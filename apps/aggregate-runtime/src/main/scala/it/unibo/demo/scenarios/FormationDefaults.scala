@@ -16,8 +16,8 @@ object FormationDefaults:
   val All: Map[String, Any] = Map(
     BaseDemo.Program -> "pointToLeader",
     BaseDemo.Leader -> BaseDemo.NoLeader,
-    BaseDemo.CollisionArea -> 0.3,
-    BaseDemo.StabilityThreshold -> 0.1
+    BaseDemo.CollisionArea -> 0.1,
+    BaseDemo.StabilityThreshold -> 0.05
   ) ++ BaseDemo.Defaults
     ++ LineFormation.DEFAULTS
     ++ VFormation.DEFAULTS

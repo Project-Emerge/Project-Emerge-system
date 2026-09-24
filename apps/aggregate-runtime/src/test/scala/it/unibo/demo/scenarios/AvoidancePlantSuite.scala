@@ -78,6 +78,11 @@ class AvoidancePlantSuite extends munit.FunSuite:
           override def position(id: Int) = if id == 0 then (0.0, 0.0) else observed
           override def neighbors(id: Int) = nodes
           override def sensing(id: Int): Map[String, Any] = FormationDefaults.All ++ Map(
+            // The radius this journey was measured at, not the fleet's default. The slot at 0.4
+            // is exactly the clearance 0.3 + 2 * 0.05 allows.
+            BaseDemo.CollisionArea -> 0.3,
+            BaseDemo.StabilityThreshold -> 0.05,
+            VerticalLineFormation.INTER_DISTANCE_SENSING -> 0.4,
             BaseDemo.Leader -> 0,
             BaseDemo.Anchor -> BaseDemo.AnchorLeader,
             BaseDemo.Orientation -> (if id == 0 then -math.Pi / 2 - config.markerYawOffsetRad else plant.markerYaw)

@@ -29,10 +29,10 @@ describe("pannello di formazione dello sciame", () => {
       leaderId: "A1B2C3",
       anchor: "leader",
       params: {
-        interDistanceV: 0.4,
+        interDistanceV: 0.2,
         angleV: -0.79,
-        collisionArea: 0.3,
-        stabilityThreshold: 0.1,
+        collisionArea: 0.1,
+        stabilityThreshold: 0.05,
         electionGrain: 8,
       },
           custom: null,
@@ -96,9 +96,9 @@ describe("pannello di formazione dello sciame", () => {
       leaderId: null,
       anchor: "auto",
       params: {
-        radius: 0.6,
-        collisionArea: 0.3,
-        stabilityThreshold: 0.1,
+        radius: 0.35,
+        collisionArea: 0.1,
+        stabilityThreshold: 0.05,
         electionGrain: 8,
       },
           custom: null,
@@ -164,7 +164,7 @@ describe("pannello di formazione dello sciame", () => {
       expect.objectContaining({
         program: "ringWave",
         anchor: "auto",
-        params: expect.objectContaining({ wavePeriod: 6, waveAmplitude: 0.2, waveNumber: 1, radius: 0.6 }),
+        params: expect.objectContaining({ wavePeriod: 6, waveAmplitude: 0.1, waveNumber: 1, radius: 0.35 }),
       }),
     );
   });
@@ -184,8 +184,8 @@ describe("pannello di formazione dello sciame", () => {
         anchor: "auto",
         leaderId: null,
         params: expect.objectContaining({
-          interDistanceLine: 0.4,
-          waveAmplitude: 0.2,
+          interDistanceLine: 0.2,
+          waveAmplitude: 0.1,
           waveNumber: 1,
           wavePeriod: 6,
         }),

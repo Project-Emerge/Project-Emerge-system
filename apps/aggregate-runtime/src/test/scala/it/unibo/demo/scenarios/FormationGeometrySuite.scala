@@ -153,3 +153,41 @@ class FormationGeometrySuite extends munit.FunSuite:
     assertEquals(HeartFormation.curve(0, 0.06), List.empty)
     assertEquals(SineLineFormation.wave(0, 0.4, 0.3, 1.0, 0.0), List.empty)
   }
+
+  test("a moving shape too fast for the robots has its cycle stretched, a slow one keeps it") {
+    // An orbit of 0.6 m in 6 s asks for 0.63 m/s; the robots top out near 0.09 m/s.
+    val stretched = ShapeFormation.followablePeriod(6.0, travel = 0.6, speed = 0.06)
+    assertEqualsDouble(stretched, 2 * math.Pi * 0.6 / 0.06, tolerance)
+    assertEqualsDouble(ShapeFormation.followablePeriod(90.0, 0.6, 0.06), 90.0, tolerance)
+    assertEqualsDouble(ShapeFormation.followablePeriod(0.0, 0.6, 0.06), 0.0, tolerance)
+    assertEqualsDouble(ShapeFormation.followablePeriod(6.0, 0.6, Double.NaN), 6.0, tolerance)
+  }
+
+  test("a ring never seats neighbours, or the anchor, closer than the clearance") {
+    // The operating point proven stable on the real fleet: collision 0.1, stability 0.05.
+    val clearance = ShapeFormation.clearance(0.1, 0.05)
+    assertEqualsDouble(clearance, 0.2, tolerance)
+    (1 to 16).foreach { count =>
+      val slots = ShapeFormation.ring(count, 0.0)(_ => ShapeFormation.minRingRadius(count, clearance))
+      val closest = (slots :+ (0.0, 0.0)).combinations(2).map { case List(a, b) =>
+        math.hypot(a._1 - b._1, a._2 - b._2)
+      }.min
+      assert(closest >= clearance - tolerance, s"$count slots came $closest apart")
+    }
+  }
+
+  test("a breathing ring is raised so its tightest point still clears, keeping its full swing") {
+    val clearance = 0.4
+    val rest = BreathingCircleFormation.rest(0.6, 0.2, 10, clearance)
+    assertEqualsDouble(rest - 0.2, ShapeFormation.minRingRadius(10, clearance), tolerance)
+    assertEqualsDouble(BreathingCircleFormation.rest(1.2, 0.2, 10, clearance), 1.2, tolerance)
+  }
+
+  test("an even fleet on the heart keeps its spacing through the top notch") {
+    // Sampling the parameter evenly pinched 8 slots to 3.8 units at the notch; a unit heart is
+    // about 102 around, so a fleet of up to ten should keep 8 or more.
+    (6 to 10).foreach { count =>
+      val closest = ShapeFormation.tightestPair((0.0, 0.0) :: HeartFormation.curve(count, 1.0))
+      assert(closest > 7.5, s"$count slots pinched to $closest")
+    }
+  }

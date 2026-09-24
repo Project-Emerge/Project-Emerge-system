@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseInboundMqttMessage } from "./telemetry";
+import { bodyHeadingRad, parseInboundMqttMessage, type Pose } from "./telemetry";
 
 describe("normalizzazione della telemetria firmware", () => {
   it("estrae il device ID e la posa dal topic", () => {
@@ -121,5 +121,15 @@ describe("normalizzazione della telemetria firmware", () => {
       leaderId: null,
       params: {},
     })).toBeNull();
+  });
+});
+
+describe("orientamento del robot", () => {
+  const pose = (heading_rad: number) => ({ heading_rad }) as Pose;
+
+  it("ruota lo yaw del marker sull'asse di marcia e resta in (-pi, pi]", () => {
+    expect(bodyHeadingRad(pose(0))).toBeCloseTo(Math.PI / 2);
+    expect(bodyHeadingRad(pose(-Math.PI / 2))).toBeCloseTo(0);
+    expect(bodyHeadingRad(pose(Math.PI))).toBeCloseTo(-Math.PI / 2);
   });
 });

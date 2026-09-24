@@ -28,11 +28,14 @@ class CollisionAvoidanceSuite extends munit.FunSuite:
     override def sensing(id: Int): Map[String, Any] =
       val at = positions(id)
       val target = goals.getOrElse(id, at)
-      FormationDefaults.All ++ settings ++ Map(
+      FormationDefaults.All ++ DetourTuning ++ settings ++ Map(
         BaseDemo.Orientation -> 0.0,
         "testGoal" -> (target._1 - at._1, target._2 - at._2),
         "testRoot" -> !goals.contains(id)
       )
+
+  // The radius the detour's geometry below was designed at, not the fleet's default.
+  private val DetourTuning = Map(BaseDemo.CollisionArea -> 0.3, BaseDemo.StabilityThreshold -> 0.1)
 
   private def orchestrator = AggregateOrchestrator[Position, Actuation](SteeringProbe())
   private val start = Map(0 -> (0.0, 0.0), 1 -> (0.0, 0.28))

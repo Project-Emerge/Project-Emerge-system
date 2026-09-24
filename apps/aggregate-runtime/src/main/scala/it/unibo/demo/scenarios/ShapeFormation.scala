@@ -20,6 +20,19 @@ abstract class ShapeFormation() extends BaseDemo, SlotAssignment, FormationSteer
   protected def phase: Double =
     ShapeFormation.phaseAt(timestamp(), sense[Double](ShapeFormation.WavePeriod))
 
+  /** [[phase]], its cycle stretched so a slot moving `travel` metres per radian stays followable. */
+  protected def phaseFor(travel: Double): Double =
+    val period = ShapeFormation.followablePeriod(
+      sense[Double](ShapeFormation.WavePeriod),
+      travel,
+      sense[Double](ShapeFormation.SlotSpeed)
+    )
+    ShapeFormation.phaseAt(timestamp(), period)
+
+  /** How close two slots may sit, the anchor included. */
+  protected def clearance: Double =
+    ShapeFormation.clearance(sense[Double](BaseDemo.CollisionArea), sense[Double](BaseDemo.StabilityThreshold))
+
   /**
    * The G/C/G sandwich: offsets collected at the root, matched there, plan broadcast back down.
    *
@@ -50,14 +63,47 @@ object ShapeFormation:
   /** How many crests fit across a travelling wave. */
   val WaveNumber = "waveNumber"
 
+  /**
+   * The fastest a time-varying slot may move, in m/s. Kept under the robots' top speed (a 3 cm
+   * wheel at 60 rpm, about 0.094 m/s) to leave room for turning and catching up. A robot that
+   * falls behind is handed the slot coming up from behind, and the motion never shows.
+   */
+  val SlotSpeed = "slotSpeed"
+
   /** Radius floor, so a pulsing ring can never invert through its own centre. */
   val MinRadius: Double = 0.05
 
   val DEFAULTS: Map[String, Double] = Map(
     WavePeriod -> 6.0,
-    WaveAmplitude -> 0.2,
-    WaveNumber -> 1.0
+    WaveAmplitude -> 0.1,
+    WaveNumber -> 1.0,
+    SlotSpeed -> 0.06
   )
+
+  /** `period`, or the shortest one that keeps a slot moving `travel` metres per radian within `speed`. */
+  def followablePeriod(period: Double, travel: Double, speed: Double): Double =
+    if period <= 0.0 || !(speed > 0.0) || !travel.isFinite then period
+    else math.max(period, 2 * math.Pi * math.abs(travel) / speed)
+
+  /**
+   * How close two slots may sit, the anchor included: the repulsion radius, plus how far short of
+   * its slot each of the two robots may stop. Any closer and settled neighbours push each other off.
+   */
+  def clearance(collisionArea: Double, stabilityThreshold: Double): Double =
+    val sum = collisionArea + 2 * stabilityThreshold
+    if sum.isFinite then math.max(MinRadius, sum) else MinRadius
+
+  /** Closest two of `points`. ponytail: quadratic, fine for a fleet of a few dozen. */
+  def tightestPair(points: List[(Double, Double)]): Double =
+    points
+      .combinations(2)
+      .collect { case List(a, b) => math.hypot(a._1 - b._1, a._2 - b._2) }
+      .minOption
+      .getOrElse(Double.PositiveInfinity)
+
+  /** Smallest ring on which `count` evenly spaced slots keep `clearance` from each other and the anchor. */
+  def minRingRadius(count: Int, clearance: Double): Double =
+    if count < 2 then clearance else math.max(clearance, clearance / (2 * math.sin(math.Pi / count)))
 
   /** Phase of a `periodSeconds`-long cycle at the given shared-clock reading. */
   def phaseAt(timestampMillis: Long, periodSeconds: Double): Double =

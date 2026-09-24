@@ -268,10 +268,19 @@ class FusionEngine:
 
         initial = average_transforms(candidates)
         optimized, error = self._optimize(initial, observations, target_ns, velocity)
+        if error > self.config.max_fused_reprojection_error_px and len(observations) > 1:
+            # The retained cameras cannot agree on a single rigid pose, so the
+            # joint optimum is fabricated. Dropping the tag, though, would make
+            # a marker seen by several cameras vanish where one seen by a single
+            # camera survives: trust the closest view on its own instead.
+            best = int(np.argmax([item.marker_side_px for item in observations]))
+            rejected += [
+                item.camera_id for index, item in enumerate(observations) if index != best
+            ]
+            observations = [observations[best]]
+            optimized, error = candidates[best], observations[0].reprojection_error_px
         if error > self.config.max_fused_reprojection_error_px:
-            # The retained cameras still cannot agree on a single rigid pose.
-            # Publishing this would be a fabricated position; let the caller
-            # dead-reckon from the last trustworthy measurement instead.
+            # Not even one camera explains its own corners; dead-reckon instead.
             return None
         quality = self._quality(observations, error, disagreement)
         if tracker is None:

@@ -239,7 +239,10 @@ class CustomFormationRoundSuite extends munit.FunSuite:
   test("a spec that puts every slot on the anchor does not stack the fleet") {
     val onAnchor = spec("""{"kind":"points","points":[[0,0]]}""")
     val settled = converge(CustomFormation(), fiveRobots, _ => withSpec(onAnchor))
-    val gap = CustomSlots.minSeparation(0.3)
+    val gap = ShapeFormation.clearance(
+      FormationDefaults.All(BaseDemo.CollisionArea).asInstanceOf[Double],
+      FormationDefaults.All(BaseDemo.StabilityThreshold).asInstanceOf[Double]
+    )
     val pairs = settled.values.toList.combinations(2).toList
     pairs.foreach { case List(a, b) =>
       assert(

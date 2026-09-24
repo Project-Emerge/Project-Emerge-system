@@ -34,12 +34,13 @@ object CustomSlots:
   val MinScale: Double = 0.05
   val MaxScale: Double = 10.0
 
-  /** Closest pair the controller holds without fighting itself: [[ShapeFormation]]'s repulsion
-    * radius, inside which it already pushes robots apart.
-    */
-  def minSeparation(collisionArea: Double): Double =
-    if !collisionArea.isFinite then ShapeFormation.MinRadius
-    else math.max(ShapeFormation.MinRadius, collisionArea)
+  /** Samples per cycle when measuring how fast a time-varying spec moves its slots. */
+  val TravelSamples: Int = 24
+
+  /** Closest pair the controller holds without fighting itself: [[ShapeFormation.clearance]]. */
+  def minSeparation(clearance: Double): Double =
+    if !clearance.isFinite then ShapeFormation.MinRadius
+    else math.max(ShapeFormation.MinRadius, clearance)
 
   /**
    * `None` (absent or rejected) leaves the fallback policy to [[CustomFormation]]. `Some` holds
@@ -51,7 +52,7 @@ object CustomSlots:
       ctx: SlotContext,
       scale: Double,
       maxRadius: Double,
-      collisionArea: Double
+      clearance: Double
   ): Option[List[(Double, Double)]] =
     if ctx.count <= 0 then Some(List.empty)
     else
@@ -61,24 +62,42 @@ object CustomSlots:
           val cap =
             if maxRadius.isFinite then math.min(math.max(maxRadius, ShapeFormation.MinRadius), AbsoluteMaxRadius)
             else AbsoluteMaxRadius
-          val gap = minSeparation(collisionArea)
+          val gap = minSeparation(clearance)
           val k =
             if scale.isFinite then math.min(MaxScale, math.max(MinScale, scale)) else 1.0
-          // Only a path has a uniform spacing to judge "too small for the fleet" by.
-          val (raw, pathGap) = spec match
+          // A path is judged by arc length; a formula has no uniform spacing, so by its tightest pair.
+          val (raw, spacing) = spec match
             case CustomSpec.Points(points, closed) =>
               val path = dedupeConsecutive(points)
-              (resample(path, closed, ctx.count), Some(pathSpacing(path, closed, ctx.count)))
-            case CustomSpec.Cartesian(x, y) => (cartesian(x, y, ctx), None)
-            case CustomSpec.Polar(r, theta) => (polar(r, theta, ctx), None)
-            case _ => (List.empty, None)
+              (resample(path, closed, ctx.count), pathSpacing(path, closed, ctx.count))
+            case CustomSpec.Cartesian(x, y) => withTightestPair(cartesian(x, y, ctx))
+            case CustomSpec.Polar(r, theta) => withTightestPair(polar(r, theta, ctx))
+            case _ => (List.empty, 0.0)
           // Coerce first: a runaway infinity becomes an origin-coincident slot instead of
           // dominating the growth factor.
           val scaled = finite(raw).map((x, y) => (x * k, y * k))
-          val grown = pathGap match
-            case Some(spacing) => growToFit(scaled, spacing * k, gap, cap)
-            case None => scaled
-          Some(nudgeOffAnchor(separateCoincident(clampRadius(grown, cap), gap), gap / 2))
+          val grown = growToFit(scaled, spacing * k, gap, cap)
+          // The anchor is a robot too: a slot any nearer than `gap` is one its neighbour cannot hold.
+          Some(nudgeOffAnchor(separateCoincident(clampRadius(grown, cap), gap), gap))
+
+  /**
+   * Metres a slot moves per radian of phase, at most, sampled over one cycle. The wrap back to
+   * phase zero is left out: a spec that jumps there asks for a jump no speed limit can smooth.
+   */
+  def travel(layout: Double => Option[List[(Double, Double)]]): Double =
+    val step = 2 * math.Pi / TravelSamples
+    val frames = (0 until TravelSamples).map(k => layout(k * step))
+    val moves = frames.sliding(2).collect {
+      case Seq(Some(a), Some(b)) => a.zip(b).map((p, q) => distance(p, q)).maxOption.getOrElse(0.0)
+    }
+    moves.maxOption.getOrElse(0.0) / step
+
+  /** Coincident slots are [[separateCoincident]]'s to fan out, so they do not count as the pair.
+    * ponytail: quadratic, fine for a fleet of a few dozen.
+    */
+  private def withTightestPair(slots: List[(Double, Double)]): (List[(Double, Double)], Double) =
+    val gaps = slots.combinations(2).collect { case List(a, b) if distance(a, b) >= Epsilon => distance(a, b) }
+    (slots, gaps.minOption.getOrElse(0.0))
 
   /** Consecutive duplicates within [[Epsilon]] collapsed, and a closing duplicate dropped. */
   def dedupeConsecutive(points: List[(Double, Double)]): List[(Double, Double)] =
@@ -151,9 +170,7 @@ object CustomSlots:
         val total = arcLengths(vertices, closed).last
         if closed then total / count else total / (count - 1)
 
-  /** Grows undersized paths to `minSpacing`, without exceeding `maxRadius` or distorting them.
-    * `spacing` is arc length; formula modes have no uniform spacing and skip this step.
-    */
+  /** Grows undersized shapes to `minSpacing`, without exceeding `maxRadius` or distorting them. */
   def growToFit(
       slots: List[(Double, Double)],
       spacing: Double,
@@ -261,15 +278,12 @@ object CustomSlots:
  */
 class CustomFormation extends ShapeFormation():
   override protected def slots(ctx: SlotContext): List[(Double, Double)] =
-    CustomSlots
-      .slotsFor(
-        sense[CustomSpec](CustomFormation.SPEC_SENSING),
-        ctx,
-        scale = sense[Double](CustomFormation.SCALE_SENSING),
-        maxRadius = sense[Double](CustomFormation.MAX_RADIUS_SENSING),
-        collisionArea = sense[Double](BaseDemo.CollisionArea)
-      )
-      .getOrElse(fallback(ctx))
+    val spec = sense[CustomSpec](CustomFormation.SPEC_SENSING)
+    val scale = sense[Double](CustomFormation.SCALE_SENSING)
+    val maxRadius = sense[Double](CustomFormation.MAX_RADIUS_SENSING)
+    val gap = clearance
+    val layout = (phase: Double) => CustomSlots.slotsFor(spec, ctx.copy(phase = phase), scale, maxRadius, gap)
+    layout(phaseFor(CustomSlots.travel(layout))).getOrElse(fallback(ctx))
 
   /**
    * A ring, not a hold: an empty slot list makes every robot pivot to the reference heading, which
@@ -277,7 +291,8 @@ class CustomFormation extends ShapeFormation():
    * with a visible transient. A ring says "running, nobody has told me a shape yet".
    */
   private def fallback(ctx: SlotContext): List[(Double, Double)] =
-    ShapeFormation.ring(ctx.count, 0.0)(_ => sense[Double](CircleFormation.RADIUS_SENSING))
+    val radius = math.max(sense[Double](CircleFormation.RADIUS_SENSING), ShapeFormation.minRingRadius(ctx.count, clearance))
+    ShapeFormation.ring(ctx.count, 0.0)(_ => radius)
 
 object CustomFormation:
   /**
