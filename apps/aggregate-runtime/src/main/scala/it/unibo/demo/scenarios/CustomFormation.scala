@@ -7,7 +7,7 @@ enum CustomSpec:
   /** `reason` is what to show the author. */
   case Invalid(reason: String)
 
-  /** Path in metres, anchor at the origin, resampled to the fleet size at equal arc length. */
+  /** Path in metres, anchor at the origin, resampled to the fleet size corners first. */
   case Points(points: List[(Double, Double)], closed: Boolean)
 
   case Cartesian(x: Formula, y: Formula)
@@ -123,7 +123,10 @@ object CustomSlots:
       index += 1
     builder.result()
 
-  /** `count` equally spaced points; degenerate paths yield copies for [[separateCoincident]]. */
+  /**
+   * `count` points on the path, a corner on every one of them when there are enough to go round;
+   * degenerate paths yield copies for [[separateCoincident]].
+   */
   def resample(points: List[(Double, Double)], closed: Boolean, count: Int): List[(Double, Double)] =
     if count <= 0 then List.empty
     else if points.isEmpty then List.fill(count)((0.0, 0.0))
@@ -135,13 +138,52 @@ object CustomSlots:
         val total = lengths.last
         if total < Epsilon then List.fill(count)(vertices.head)
         else
-          (0 until count).map { step =>
-            val target =
-              if count == 1 then 0.0
-              else if closed then total * step / count
-              else total * step / (count - 1)
-            pointAt(vertices, lengths, closed, target)
-          }.toList
+          targets(vertices, lengths, closed, count)
+            .map(at => pointAt(vertices, lengths, closed, if closed then at % total else at))
+            .toList
+
+  /**
+   * Arc lengths of the slots, ascending and unwrapped. A shape reads by its corners, so each gets a
+   * slot and the rest go to whichever span between corners has the widest gap left; with no corner,
+   * or more corners than slots, equal steps. The seam of a closed path is the last span's end.
+   */
+  private def targets(
+      vertices: IndexedSeq[(Double, Double)],
+      lengths: IndexedSeq[Double],
+      closed: Boolean,
+      count: Int
+  ): IndexedSeq[Double] =
+    val total = lengths.last
+    val corners = cornerIndices(vertices, closed).map(lengths(_))
+    if corners.isEmpty || corners.size > count then
+      (0 until count).map { step =>
+        if count == 1 then 0.0
+        else if closed then total * step / count
+        else total * step / (count - 1)
+      }
+    else
+      val ends = if closed then corners.tail :+ (corners.head + total) else corners.tail
+      val spans = corners.zip(ends).map((from, to) => to - from)
+      val extra = Array.fill(spans.size)(0)
+      (0 until count - corners.size).foreach { _ =>
+        extra(spans.indices.maxBy(j => spans(j) / (extra(j) + 1))) += 1
+      }
+      val placed = spans.indices.flatMap(j => (0 to extra(j)).map(m => corners(j) + spans(j) * m / (extra(j) + 1)))
+      if closed then placed else placed :+ total
+
+  /** A vertex turning at least this sharply is a corner. A sampled curve turns more gently. */
+  val CornerAngle: Double = math.toRadians(35)
+
+  /** Corners in path order; an open path's two ends always count. */
+  def cornerIndices(vertices: IndexedSeq[(Double, Double)], closed: Boolean): IndexedSeq[Int] =
+    val size = vertices.size
+    def turn(i: Int): Double =
+      val (previous, here, next) = (vertices((i - 1 + size) % size), vertices(i), vertices((i + 1) % size))
+      val (ax, ay) = (here._1 - previous._1, here._2 - previous._2)
+      val (bx, by) = (next._1 - here._1, next._2 - here._2)
+      math.abs(math.atan2(ax * by - ay * bx, ax * bx + ay * by))
+    if closed then (0 until size).filter(turn(_) >= CornerAngle)
+    else (0 +: (1 until size - 1).filter(turn(_) >= CornerAngle)) :+ (size - 1)
 
   /** Non-finite coordinates replaced by zero, per coordinate. */
   def finite(slots: List[(Double, Double)]): List[(Double, Double)] =
@@ -160,15 +202,20 @@ object CustomSlots:
         (x * factor, y * factor)
     }
 
-  /** Arc length, uniform by construction - unlike the chord, which shortens at every corner. */
+  /**
+   * Tightest arc between neighbouring slots. Arc, not chord: the chord shortens at every corner,
+   * and a slot on the corner itself makes the two agree.
+   */
   def pathSpacing(points: List[(Double, Double)], closed: Boolean, count: Int): Double =
     if count <= 1 then 0.0
     else
       val vertices = points.toIndexedSeq
       if vertices.size < 2 then 0.0
       else
-        val total = arcLengths(vertices, closed).last
-        if closed then total / count else total / (count - 1)
+        val lengths = arcLengths(vertices, closed)
+        val at = targets(vertices, lengths, closed, count)
+        val seam = if closed then List(at.head + lengths.last - at.last) else List.empty
+        (at.sliding(2).map(pair => pair(1) - pair(0)) ++ seam).min
 
   /** Grows undersized shapes to `minSpacing`, without exceeding `maxRadius` or distorting them. */
   def growToFit(

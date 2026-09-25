@@ -20,6 +20,7 @@ import {
   FormationCommandSchema,
   type FormationCommand,
 } from "../shared/protocol.js";
+import { DESIGN_EXTENT, inspectDesign } from "./design-check.js";
 import type { DesignRecord } from "./design-log.js";
 import { describeFleetForPrompt } from "./fleet-snapshot.js";
 
@@ -114,13 +115,15 @@ export type FormationAgent = {
 export const DEFAULT_CHAT_MODEL = "gemini-2.5-flash";
 
 function systemPrompt(fleet: FleetSnapshot): string {
+  const slots = Math.max(0, fleet.posedRobotIds.length - 1);
   return [
     "You steer a swarm of small differential-drive robots on a flat indoor arena a few metres",
     "across. An operator talks to you and you choose a formation for the fleet.",
     "",
     "Reply with one short sentence saying what you did, in the operator's own language. Call at",
     "most one tool. When the request is a question, or too vague to act on, answer it and call no",
-    "tool at all rather than guessing.",
+    "tool at all rather than guessing. Nothing reaches the robots without a tool call, so never say",
+    "you drew or changed a formation unless you called the tool that does it.",
     "",
     "Built-in formations:",
     describeFormationsForPrompt(),
@@ -129,12 +132,17 @@ function systemPrompt(fleet: FleetSnapshot): string {
     "the located robots below, or `auto` to let the fleet elect one. Prefer `auto` unless the",
     "operator names a robot. Programs with no anchors ignore both.",
     "",
-    "For a shape none of the built-ins produce, call design_formation:",
-    "- `points`: an outline as [x, y] pairs in metres, anchor at the origin. It is resampled at",
-    "  equal spacing to however many robots are present, so give the outline's shape and not one",
-    "  point per robot. Set closed for a loop.",
+    "For a shape none of the built-ins produce, call design_formation. The anchor robot stands at",
+    `the origin and takes no slot, so the other robots fill ${slots} slots.`,
+    "- `points`: an outline as [x, y] pairs in metres, for anything with corners: letters,",
+    "  polygons, stars, arrows. Every corner gets a robot of its own when there are at least as many",
+    "  slots as corners, and the spare robots spread evenly along the longest sides. So give a",
+    `  polygon as its corners only, at most ${slots} of them, and not one point per robot. A curve given`,
+    "  as more points than slots is sampled at equal spacing instead. Robots stand on the outline",
+    "  only: never fill the inside. Set closed for a loop.",
     "- `cartesian`: formulas for x and y. `polar`: formulas for r and theta, where theta is a",
-    "  bearing in radians with x = r*sin(theta) and y = r*cos(theta).",
+    "  bearing in radians with x = r*sin(theta) and y = r*cos(theta). Use these for smooth curves",
+    "  and for motion.",
     "",
     "Formula syntax: + - * / % ^ and parentheses, with the variables i (0-based slot index),",
     "n (number of slots) and t (a shared clock phase that runs 0 to 2*pi once per wavePeriod",
@@ -146,10 +154,11 @@ function systemPrompt(fleet: FleetSnapshot): string {
     "0.06 m/s: a 0.35 m orbit takes about 40 s whatever wavePeriod says. Prefer small moves",
     "(0.05 to 0.15 m) over big ones, so the motion stays quick enough to read.",
     "",
-    "Keep designed shapes between about 0.2 and 0.8 metres from the anchor: a circle of 0.35 m is",
-    "the proven size. Aim for about 0.2 m between adjacent slots; closer than the collision radius",
-    "plus the stability threshold (0.15 m by default) is grown apart by the runtime, so a fleet of",
-    "six cannot hold a shape with fine detail. The anchor robot stands at the origin and takes no slot.",
+    "Size a designed shape so its farthest point is about 0.8 m from the anchor, never under",
+    `${DESIGN_EXTENT.min} m or over ${DESIGN_EXTENT.max} m: smaller shapes look cramped. Centre the shape on the anchor and keep the`,
+    "outline at least 0.3 m from the origin, since the anchor is a robot too. Aim for about 0.4 m",
+    "between adjacent robots; closer than the collision radius plus twice the stability threshold",
+    "(0.2 m by default) is grown apart by the runtime, so a small fleet cannot hold fine detail.",
     "",
     "The fleet right now:",
     describeFleetForPrompt(fleet),
@@ -229,7 +238,9 @@ function geometryFrom(args: z.infer<typeof designFormationSchema>): FormationCom
  * Deliberately not an agent loop. These tools are effects the browser performs -- they publish to
  * the swarm -- rather than functions whose results the model needs to see, and the fleet's state
  * is already in the system prompt, so there is nothing to fetch and feed back. A single turn is
- * both simpler and far more predictable about what reaches the robots.
+ * both simpler and far more predictable about what reaches the robots, and it keeps the chat
+ * real-time: a second round to correct a design doubles the wait, so [[inspectDesign]] only
+ * annotates the design log.
  *
  * Nothing the model returns is trusted: every command is rebuilt through
  * [[FormationCommandSchema]] and clamped against the published parameter ranges, so an invented
@@ -297,6 +308,9 @@ export function createFormationAgent(options: FormationAgentOptions): FormationA
           raw: call.args ?? {},
           command: "error" in outcome ? null : outcome.command,
           error: "error" in outcome ? outcome.error : null,
+          issues: "error" in outcome || !outcome.command.custom
+            ? []
+            : inspectDesign(outcome.command.custom, fleet.posedRobotIds.length - 1, outcome.command.params),
         });
       }
 

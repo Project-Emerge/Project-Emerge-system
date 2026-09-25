@@ -171,7 +171,8 @@ class CustomSlotsSuite extends munit.FunSuite:
     // fleet settled dead on a shape 1.54x the one that was published.
     val triangle = List((0.0, 0.8), (0.8, -0.4), (-0.8, -0.4))
     val spacing = CustomSlots.pathSpacing(triangle, closed = true, count = 11)
-    assertEqualsDouble(spacing, 4.4844 / 11, 1e-3)
+    // Corners first: the two 1.44 m sides take four gaps and three, the 1.6 m base four.
+    assertEqualsDouble(spacing, math.hypot(0.8, 1.2) / 4, 1e-9)
     assert(spacing > 0.3, s"the probe path is genuinely crowded at $spacing")
 
     val placed = slots(CustomSpec.Points(triangle, closed = true), 11)
@@ -185,19 +186,57 @@ class CustomSlotsSuite extends munit.FunSuite:
       val offOutline = (0 until 3).map(i => toSegment(slot, vertices(i), vertices((i + 1) % 3))).min
       assert(offOutline < 1e-6, s"$slot left the requested outline by $offOutline")
     }
-    // And the shape keeps its size: the apex is where the author put it.
-    assertEqualsDouble(placed.map(radiusOf).max, 0.8, 1e-6)
+    // And the shape keeps its size: the base corners, its farthest points, are where the author put them.
+    assertEqualsDouble(placed.map(radiusOf).max, math.hypot(0.8, 0.4), 1e-6)
   }
 
-  test("a chord shorter than the minimum at a corner is left to the repulsion") {
-    // The pinch is real -- two slots either side of a vertex are inside the collision radius --
-    // and deliberately not corrected here: growing the shape to fix one corner distorts nothing
-    // but does move every other robot.
+  test("a slot on every corner leaves no pinch either side of it") {
+    // Equal arc steps used to straddle each vertex with two slots inside the collision radius.
     val triangle = List((0.0, 0.8), (0.8, -0.4), (-0.8, -0.4))
     val placed = slots(CustomSpec.Points(triangle, closed = true), 11)
-    val chords = placed.sliding(2).collect { case List(a, b) => math.hypot(b._1 - a._1, b._2 - a._2) }.toList
-    assert(chords.min < gap, s"expected a corner pinch, tightest chord was ${chords.min}")
-    assertEqualsDouble(chords.max, 4.4844 / 11, 1e-3)
+    triangle.foreach { corner =>
+      assert(placed.exists(slot => math.hypot(slot._1 - corner._1, slot._2 - corner._2) < 1e-9), s"$corner has no slot")
+    }
+    val chords = (placed :+ placed.head).sliding(2).collect { case List(a, b) => math.hypot(b._1 - a._1, b._2 - a._2) }.toList
+    assert(chords.min >= gap, s"tightest chord was ${chords.min}")
+  }
+
+  test("a square's spare slots go to the middle of its sides") {
+    val placed = CustomSlots.resample(square, closed = true, count = 8)
+    val midpoints = List((0.5, 0.0), (0.0, -0.5), (-0.5, 0.0), (0.0, 0.5))
+    (square ++ midpoints).foreach { expected =>
+      assert(placed.exists(slot => math.hypot(slot._1 - expected._1, slot._2 - expected._2) < 1e-9), s"$expected has no slot")
+    }
+  }
+
+  test("an open letter keeps every stroke end and bend") {
+    // An M on nine robots: eight slots, five of them its vertices, the rest on the longest strokes.
+    val letter = List((-0.6, -0.6), (-0.6, 0.6), (0.0, 0.0), (0.6, 0.6), (0.6, -0.6))
+    val placed = CustomSlots.resample(letter, closed = false, count = 8)
+    assertEquals(placed.size, 8)
+    letter.foreach { vertex =>
+      assert(placed.exists(slot => math.hypot(slot._1 - vertex._1, slot._2 - vertex._2) < 1e-9), s"$vertex has no slot")
+    }
+  }
+
+  test("more corners than slots falls back to equal steps") {
+    val star = (0 until 10).map { k =>
+      val angle = 2 * math.Pi * k / 10
+      val radius = if k % 2 == 0 then 0.8 else 0.35
+      (math.sin(angle) * radius, math.cos(angle) * radius)
+    }.toList
+    assertEquals(CustomSlots.cornerIndices(star.toIndexedSeq, closed = true).size, 10)
+    val placed = CustomSlots.resample(star, closed = true, count = 8)
+    assertEquals(placed.size, 8)
+    assertEqualsDouble(CustomSlots.pathSpacing(star, closed = true, count = 8), CustomSlots.arcLengths(star.toIndexedSeq, closed = true).last / 8, 1e-9)
+  }
+
+  test("a sampled circle has no corners") {
+    val circle = (0 until 16).map { k =>
+      val angle = 2 * math.Pi * k / 16
+      (math.sin(angle) * 0.5, math.cos(angle) * 0.5)
+    }
+    assertEquals(CustomSlots.cornerIndices(circle, closed = true), IndexedSeq.empty)
   }
 
   test("a non-finite coordinate is replaced rather than propagated") {

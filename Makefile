@@ -1,7 +1,8 @@
-.PHONY: bootstrap test build compose-config up up-simulator down logs ps \
+.PHONY: bootstrap test build compose-config up up-core up-simulator down logs ps \
 	vision-all vision-server vision-client vision-gui
 
-SIMULATOR_SERVICES := dashboard aggregate-runtime simulator neighborhood-system mosquitto
+CORE_SERVICES := dashboard aggregate-runtime neighborhood-system mosquitto
+SIMULATOR_SERVICES := $(CORE_SERVICES) simulator
 
 bootstrap:
 	npm ci
@@ -20,12 +21,21 @@ compose-config:
 up:
 	docker compose up --build -d
 
+# Everything except vision: pairs with the distributed vision-server/vision-client.
+up-core:
+	docker compose stop vision
+	docker compose up --build -d $(CORE_SERVICES)
+
 up-simulator:
 	docker compose stop vision
 	docker compose --profile simulator up --build -d $(SIMULATOR_SERVICES)
 
+# Every profile plus every camera node started with `make vision-client`.
 down:
-	docker compose down
+	docker compose --profile distributed --profile simulator down --remove-orphans
+	for project in $$(docker compose ls -aq --filter name=vision-node-); do \
+		docker compose -f apps/vision/compose.node.yaml -p $$project down; \
+	done
 
 logs:
 	docker compose logs --follow

@@ -103,8 +103,8 @@ const customLabel = z.string().min(1).max(60).optional();
  * A formation geometry described as data, so one the runtime has never seen costs no
  * recompilation and no restart.
  *
- * `points` is an explicit path in metres, resampled at equal arc length to however many robots
- * are present. The two formula modes are evaluated once per slot with `i` (0-based slot index),
+ * `points` is an explicit path in metres, resampled to however many robots are present: a slot
+ * on every corner when there are enough, the rest spread along the longest spans. The two formula modes are evaluated once per slot with `i` (0-based slot index),
  * `n` (slot count) and `t` (shared phase, wrapped to one turn) in scope; `polar` follows the
  * runtime's bearing convention, where `x = r*sin(theta)` and `y = r*cos(theta)`.
  */

@@ -389,6 +389,58 @@ describe("registrazione delle geometrie disegnate", () => {
     expect(records[0].error).toContain("y");
   });
 
+  describe("con un controllo del disegno", () => {
+    const nine: FleetSnapshot = {
+      robotIds: Array.from({ length: 9 }, (_, k) => `00000${k}`),
+      posedRobotIds: Array.from({ length: 9 }, (_, k) => `00000${k}`),
+      activeFormation: null,
+    };
+    const star = Array.from({ length: 10 }, (_, k) => {
+      const radius = k % 2 === 0 ? 0.9 : 0.45;
+      return [Math.sin((Math.PI * k) / 5) * radius, Math.cos((Math.PI * k) / 5) * radius];
+    });
+    const pentagram = [0, 2, 4, 6, 8].map((k) => star[k]);
+    const design = (points: number[][]) => ({
+      name: "design_formation",
+      args: { kind: "points", label: "Stella", points, closed: true, anchor: "auto", leaderId: null },
+    });
+
+    /** Answers each call with the next reply, and remembers what it was shown. */
+    function scripted(replies: ToolCall[]) {
+      const seen: unknown[][] = [];
+      const model = {
+        bindTools: () => model,
+        invoke: async (history: unknown[]) => {
+          seen.push(history);
+          const call = replies[seen.length - 1];
+          return new AIMessage({ content: "", tool_calls: [{ ...call, id: `call-${seen.length}` }] });
+        },
+      };
+      return { model: model as unknown as BaseChatModel, seen };
+    }
+
+    it("annota i difetti di un disegno senza una seconda chiamata al modello", async () => {
+      // La chat e' in tempo reale: il controllo scrive nel registro, non rimanda indietro.
+      const { model, seen } = scripted([design(star)]);
+      const records: DesignRecord[] = [];
+      const agent = createFormationAgent({ chatModel: model, onDesign: (record) => records.push(record) });
+
+      const reply = await agent.run([{ role: "user", content: "fai una stella" }], nine);
+
+      expect(seen).toHaveLength(1);
+      expect(reply.command?.custom).toMatchObject({ kind: "points", points: star });
+      expect(records).toHaveLength(1);
+      expect(records[0].issues?.[0]).toContain("10 corners");
+    });
+
+    it("pubblica al primo colpo un disegno gia a posto", async () => {
+      const { model, seen } = scripted([design(pentagram)]);
+      const reply = await createFormationAgent({ chatModel: model }).run([{ role: "user", content: "stella" }], nine);
+      expect(seen).toHaveLength(1);
+      expect(reply.command?.custom).toMatchObject({ points: pentagram });
+    });
+  });
+
   it("non annota le formazioni integrate", async () => {
     // Un programma compilato e' gia' ricostruibile dal nome e dai parametri sul topic retained.
     const { agent, records } = agentRecording({

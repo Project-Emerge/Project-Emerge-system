@@ -23,6 +23,8 @@ export type DesignRecord = {
   command: FormationCommand | null;
   /** Why it was refused, when it was. */
   error?: string | null;
+  /** What [[inspectDesign]] found wrong with it, so a bad shape on the floor has a reason on record. */
+  issues?: string[];
 };
 
 export type DesignLog = {
