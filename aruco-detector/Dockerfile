@@ -1,5 +1,5 @@
 # ArUco Detector Dockerfile
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 # Install system dependencies for OpenCV and camera access
 RUN apt-get update && apt-get install -y \
