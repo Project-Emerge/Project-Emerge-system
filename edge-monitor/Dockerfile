@@ -1,5 +1,5 @@
 # Edge Monitor (React + Vite) — live view of each EdgeRobotRuntime's computation state.
-FROM node:24-alpine
+FROM node:26-alpine
 WORKDIR /app
 
 COPY edge-monitor/package.json ./
