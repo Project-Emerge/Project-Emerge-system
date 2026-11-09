@@ -220,19 +220,25 @@ def test_occluding_a_camera_does_not_move_the_fused_pose() -> None:
     assert np.linalg.norm(occluded.position_m - seen_by_all.position_m) < 1e-3
 
 
-def test_fusion_is_discarded_when_no_rigid_pose_explains_every_camera() -> None:
+def test_unexplainable_fusion_falls_back_to_the_closest_view() -> None:
     engine = FusionEngine(
         FusionConfig(max_camera_disagreement_m=10.0, max_fused_reprojection_error_px=1.0)
     )
     pose = engine.fuse(
         [
-            make_observation("cam_0", 0.0, 1_000_000_000),
-            misaligned_observation(
-                make_observation("cam_1", 0.5, 1_000_000_000), (0.3, 0.0, 0.0)
+            replace(
+                misaligned_observation(
+                    make_observation("cam_1", 0.5, 1_000_000_000), (0.3, 0.0, 0.0)
+                ),
+                marker_side_px=40.0,
             ),
+            make_observation("cam_0", 0.0, 1_000_000_000),
         ]
     )
-    assert pose is None
+    assert pose is not None
+    assert pose.cameras == ["cam_0"]
+    assert pose.rejected_cameras == ["cam_1"]
+    np.testing.assert_allclose(pose.position_m, [0.1, -0.05, 2.0], atol=1e-6)
 
 
 def test_pairwise_disagreement_keeps_the_closest_view() -> None:
@@ -261,10 +267,15 @@ def test_rejected_fusion_falls_back_to_dead_reckoning() -> None:
     poses, failed = window.fuse({23})
     assert len(poses) == 1 and not failed
 
-    window.add(make_observation("cam_0", 0.0, 1_010_000_000))
     window.add(
-        misaligned_observation(
-            make_observation("cam_1", 0.5, 1_010_000_000), (0.3, 0.0, 0.0)
+        replace(make_observation("cam_0", 0.0, 1_010_000_000), reprojection_error_px=2.0)
+    )
+    window.add(
+        replace(
+            misaligned_observation(
+                make_observation("cam_1", 0.5, 1_010_000_000), (0.3, 0.0, 0.0)
+            ),
+            reprojection_error_px=2.0,
         )
     )
     poses, failed = window.fuse({23})
