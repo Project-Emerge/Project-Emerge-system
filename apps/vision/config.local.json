@@ -1,0 +1,170 @@
+{
+  "aruco": {
+    "adaptive_thresh_win_size_max": 23,
+    "adaptive_thresh_win_size_min": 3,
+    "anchor_frame": {
+      "opposite_id": 23,
+      "origin_id": 21,
+      "plane_z_m": 0.0,
+      "x_axis_id": 22,
+      "x_distance_m": 1.11,
+      "y_axis_id": 20,
+      "y_distance_m": 1.11
+    },
+    "auto_mobile_markers": {
+      "default_size_m": 0.07,
+      "enabled": true,
+      "ignored_ids": [
+        17
+      ]
+    },
+    "corner_refinement": true,
+    "dictionary": "DICT_4X4_50",
+    "error_correction_rate": 0.6,
+    "mobile_markers": [],
+    "perspective_remove_pixel_per_cell": 4,
+    "reference_ids": [
+      20,
+      21,
+      22,
+      23
+    ],
+    "reference_markers": [
+      {
+        "id": 20,
+        "name": "ref-20",
+        "orientation_xyzw": [
+          0.0,
+          0.0,
+          0.001958061308960625,
+          0.9999980829961177
+        ],
+        "position_m": [
+          0.0,
+          1.11,
+          0.0
+        ],
+        "size_m": 0.07,
+        "uncertainty_m": 0.003655930466936347
+      },
+      {
+        "id": 21,
+        "name": "ref-21",
+        "orientation_xyzw": [
+          0.0,
+          0.0,
+          -0.00817426638390696,
+          0.9999665901264326
+        ],
+        "position_m": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "size_m": 0.07,
+        "uncertainty_m": 0.0033763340627013306
+      },
+      {
+        "id": 22,
+        "name": "ref-22",
+        "orientation_xyzw": [
+          0.0,
+          0.0,
+          0.007805139566274584,
+          0.9999695394342525
+        ],
+        "position_m": [
+          1.11,
+          0.0,
+          0.0
+        ],
+        "size_m": 0.07,
+        "uncertainty_m": 0.0029836743623924615
+      },
+      {
+        "id": 23,
+        "name": "ref-23",
+        "orientation_xyzw": [
+          0.0,
+          0.0,
+          -0.001549880343347146,
+          0.9999987989347394
+        ],
+        "position_m": [
+          1.11,
+          1.11,
+          0.0
+        ],
+        "size_m": 0.07,
+        "uncertainty_m": 0.0034237109492315063
+      }
+    ]
+  },
+  "cameras": [
+    {
+      "auto_exposure": false,
+      "autofocus": false,
+      "digital_zoom": 1.0,
+      "exposure": null,
+      "focus": null,
+      "fps": 30.0,
+      "height": 1080,
+      "id": "cam_0",
+      "source": 5,
+      "width": 1920,
+      "zoom": null
+    },
+    {
+      "auto_exposure": false,
+      "autofocus": false,
+      "digital_zoom": 1.0,
+      "exposure": null,
+      "focus": null,
+      "fps": 30.0,
+      "height": 1080,
+      "id": "cam_1",
+      "source": 6,
+      "width": 1920,
+      "zoom": null
+    },
+    {
+      "auto_exposure": false,
+      "autofocus": false,
+      "digital_zoom": 1.0,
+      "exposure": null,
+      "focus": null,
+      "fps": 30.0,
+      "height": 1080,
+      "id": "cam_2",
+      "source": "/dev/v4l/by-id/usb-Global_Shutter_Camera_Global_Shutter_Camera_01.00.00-video-index0",
+      "width": 1920,
+      "zoom": null
+    }
+  ],
+  "debug": {
+    "mosaic": false,
+    "trail_seconds": 3.0,
+    "world_view": false
+  },
+  "fusion": {
+    "huber_scale_px": 1.5,
+    "max_camera_disagreement_m": 0.25,
+    "max_fused_reprojection_error_px": 8.0,
+    "max_reprojection_error_px": 4.0,
+    "one_euro_beta": 5.0,
+    "one_euro_derivative_cutoff_hz": 1.0,
+    "one_euro_min_cutoff_hz": 2.0,
+    "publish_hz": 20.0,
+    "stale_after_ms": 250.0,
+    "tracker_filter": "one_euro",
+    "tracker_max_innovation_m": 0.15,
+    "tracker_orientation_gain": 0.55,
+    "tracker_position_gain": 0.65,
+    "tracker_velocity_gain": 0.12,
+    "window_ms": 40.0
+  },
+  "revision": 6,
+  "schema_version": 1,
+  "site": "lab",
+  "system_id": "indoor-01"
+}

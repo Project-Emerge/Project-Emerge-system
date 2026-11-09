@@ -1,0 +1,171 @@
+name: project-emerge
+
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: apps/dashboard/Dockerfile
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+        restart: true
+    environment:
+      FIRMWARE_DIRECTORY: /var/lib/project-emerge/firmware
+      HTTP_PORT: "8787"
+      MQTT_URL: mqtt://mosquitto:1883
+      # Empty by default: with no key the swarm chat reports itself unavailable and the rest of
+      # the dashboard behaves exactly as before.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
+      CUSTOM_FORMATION_LOG: /var/lib/project-emerge/logs/custom-formations.jsonl
+    ports:
+      - "${DASHBOARD_PORT:-8787}:8787"
+    restart: unless-stopped
+    stop_grace_period: 15s
+    volumes:
+      - dashboard-firmware:/var/lib/project-emerge/firmware
+      # A bind mount rather than a named volume: the whole point of this log is that an operator
+      # can open it without reaching inside the container. Create ./logs before the first `up` --
+      # Docker creates a missing bind source as root, and the image runs as `node`.
+      - ./logs:/var/lib/project-emerge/logs
+    networks:
+      - emerge-backplane
+
+  aggregate-runtime:
+    build:
+      context: apps/aggregate-runtime
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+        restart: true
+    environment:
+      MQTT_URL: tcp://mosquitto:1883
+    restart: unless-stopped
+    networks:
+      - emerge-backplane
+
+  vision:
+    build:
+      context: apps/vision
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+        restart: true
+    environment:
+      VISION_MQTT_HOST: mosquitto
+      VISION_MQTT_PORT: 1883
+    # USB cameras are V4L2 character devices (major 81). Mounting /dev keeps
+    # numeric sources and stable /dev/v4l/by-id paths usable without listing
+    # every camera node in this file.
+    device_cgroup_rules:
+      - "c 81:* rmw"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    volumes:
+      - /dev:/dev
+      - ./apps/vision/config.local.json:/app/config/config.local.json:ro
+      - ./apps/vision/calibrations:/app/calibrations
+      - vision-diagnostics:/app/diagnostics
+      - vision-state:/app/state
+    networks:
+      - emerge-backplane
+
+  # Fusion server for distributed deployment: no camera attached here;
+  # receives node observations via MQTT. Mutually exclusive with `vision`
+  # (the monolith publishes the same poses): `make server` stops the other.
+  vision-server:
+    profiles:
+      - distributed
+    build:
+      context: apps/vision
+    command:
+      - vision-server
+      - --config
+      - /app/config/config.local.json
+      - --calibrations
+      - /app/calibrations
+      - --cache
+      - /app/state/last_good_config.json
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+        restart: true
+    environment:
+      VISION_MQTT_HOST: mosquitto
+      VISION_MQTT_PORT: 1883
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    volumes:
+      # The server reconstructs observations with local extrinsics: this
+      # directory must contain the file for each camera in the roster,
+      # including those attached to remote PCs.
+      - ./apps/vision/config.local.json:/app/config/config.local.json:ro
+      - ./apps/vision/calibrations:/app/calibrations
+      - vision-diagnostics:/app/diagnostics
+      - vision-state:/app/state
+    networks:
+      - emerge-backplane
+
+  simulator:
+    profiles:
+      - simulator
+      - dev
+    build:
+      context: apps/robot-emulator
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+        restart: true
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+    restart: unless-stopped
+    networks:
+      - emerge-backplane
+
+  neighborhood-system:
+    build:
+      context: apps/neighborhood-system
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+        restart: true
+    environment:
+      - MQTT_BROKER=mosquitto
+      - MQTT_PORT=1883
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+    networks:
+      - emerge-backplane
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    user: "1883:1883"
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-p", "1883", "-t", "project-emerge/healthcheck", "-m", "ping", "-q", "1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 5s
+      retries: 5
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+    restart: unless-stopped
+    stop_grace_period: 30s
+    volumes:
+      - ./infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+    networks:
+      - emerge-backplane
+
+networks:
+  emerge-backplane:
+    name: emerge-backplane
+
+volumes:
+  dashboard-firmware:
+  mosquitto-data:
+  vision-diagnostics:
+  vision-state:

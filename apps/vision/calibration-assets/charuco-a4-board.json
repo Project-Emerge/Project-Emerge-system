@@ -1,0 +1,12 @@
+{
+  "dictionary": "DICT_5X5_100",
+  "dpi": 600,
+  "height_m": 0.24,
+  "marker_length_m": 0.022,
+  "print_scale": "100%",
+  "sha256": "59ad905abca7662962bc523be9f3d0e8f7759680afab102290d7f1a3e490fd3f",
+  "square_length_m": 0.03,
+  "squares_x": 6,
+  "squares_y": 8,
+  "width_m": 0.18
+}

@@ -1,0 +1,36 @@
+ThisBuild / version := "0.1.0-SNAPSHOT"
+ThisBuild / assemblyMergeStrategy := {
+  case PathList("javax", "servlet", xs @ _*)         => MergeStrategy.first
+  case PathList(ps @ _*) if ps.last endsWith ".html" => MergeStrategy.first
+  case "application.conf"                            => MergeStrategy.concat
+  case "unwanted.txt"                                => MergeStrategy.discard
+  case "module-info.class"                           => MergeStrategy.discard
+  case PathList("META-INF", "services", xs @ _*) => MergeStrategy.concat
+  case PathList("META-INF", "versions", "9", "module-info.class") => MergeStrategy.discard
+  case PathList("META-INF", xs @ _*) => MergeStrategy.discard
+  case x =>
+    val oldStrategy = (ThisBuild / assemblyMergeStrategy).value
+    oldStrategy(x)
+}
+
+val underlineJava = System.getProperty("java.version").split("\\.")(0)
+
+ThisBuild / scalaVersion := "3.7.3"
+val slf4jVersion = "2.0.17"
+lazy val root =
+    project
+    .in(file("."))
+    .settings(
+        name := "researcher-night-demo",
+        libraryDependencies += ("it.unibo.scafi" %% "scafi-core" % "1.6.0").cross(CrossVersion.for3Use2_13),
+        libraryDependencies += ("it.unibo.scafi" %% "scafi-simulator" % "1.6.0").cross(CrossVersion.for3Use2_13),
+        libraryDependencies += "com.lihaoyi" %% "requests" % "0.9.0",
+        libraryDependencies += "com.lihaoyi" %% "upickle" % "4.4.0",
+        libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.5.20",
+        libraryDependencies += "org.typelevel" %% "cats-effect" % "3.5.7",
+        libraryDependencies += "org.typelevel" %% "log4cats-slf4j" % "2.7.0",
+        libraryDependencies += "org.eclipse.paho" % "org.eclipse.paho.client.mqttv3" % "1.2.5",
+        libraryDependencies += "org.scalameta" %% "munit" % "1.1.1" % Test,
+        assembly / mainClass := Some("it.unibo.demo.ResearchNightDemos"),
+        mainClass := Some("it.unibo.demo.ResearchNightDemos")
+    )

@@ -1,0 +1,47 @@
+# Standalone camera node ("client"): one camera, ArUco observations via MQTT.
+# Contains neither mosquitto nor the `emerge-backplane` network, so the same file
+# works both for a node on the server PC (broker reached via host-gateway) and
+# for a node on another PC (broker reached via IP on the LAN).
+#
+#   make client CAMERA=cam_1                          broker on the same PC
+#   make client CAMERA=cam_1 MQTT_HOST=192.168.1.10    broker on another PC
+name: emerge-vision-node
+
+services:
+  vision-node:
+    build:
+      context: .
+    command:
+      - vision-node
+      - --camera
+      - ${VISION_CAMERA:-cam_0}
+      - --config
+      - /app/config/config.local.json
+      - --calibrations
+      - /app/calibrations
+      - --cache
+      - /app/state/last_good_config.json
+    environment:
+      # Default: broker runs on the host of this container (server and node on
+      # the same PC). For a remote node pass the IP of the PC hosting the broker.
+      VISION_MQTT_HOST: ${VISION_MQTT_HOST:-host.docker.internal}
+      VISION_MQTT_PORT: ${VISION_MQTT_PORT:-1883}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # USB cameras are V4L2 character devices (major 81): mounting /dev keeps
+    # both numeric indices and /dev/v4l/by-id/... paths usable.
+    device_cgroup_rules:
+      - "c 81:* rmw"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    volumes:
+      - /dev:/dev
+      - ./config.local.json:/app/config/config.local.json:ro
+      - ./calibrations:/app/calibrations
+      - node-diagnostics:/app/diagnostics
+      - node-state:/app/state
+
+volumes:
+  node-diagnostics:
+  node-state:
