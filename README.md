@@ -1,4 +1,50 @@
+<p align="center">
+  <img src="./images/logo.jpg" alt="Project Emerge Logo" width="50%"/>
+</p>
+
 # Project Emerge
+
+![GitHub license](https://img.shields.io/github/license/Project-Emerge/Project-Emerge-system) ![GitHub language count](https://img.shields.io/github/languages/count/Project-Emerge/Project-Emerge-system) ![GitHub contributors](https://img.shields.io/github/contributors/Project-Emerge/Project-Emerge-system)
+
+![Scala](https://img.shields.io/badge/Scala-DC322F?style=for-the-badge&logo=scala&logoColor=white) ![Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![MQTT](https://img.shields.io/badge/MQTT-FF6F00?style=for-the-badge&logo=mqtt&logoColor=white) ![Docker](https://img.shields.io/badge/Docker-2CA5E0?style=for-the-badge&logo=docker&logoColor=white) ![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
+
+## Description
+
+**Project Emerge** is a modular, open-source toolchain for practical multi-robot demonstrations based on aggregate computing principles. It is designed for research, demonstrations, and educational robotics.
+
+Swarm coordination uses **[ScaFi](https://github.com/scafi/scafi)**, an [aggregate programming](https://ieeexplore.ieee.org/document/7274429) framework for expressing collective behavior through computations over each robot's local state and its neighbors. In this stack, a Scala runtime executes the aggregate programs for the fleet and publishes motor commands over MQTT.
+
+A real-time React dashboard visualizes and controls the robots, a Python neighborhood service computes their communication neighborhoods, and **VisionSystem** localizes ArUco markers using calibrated USB cameras. MQTT connects localization, coordination, monitoring, and robot actuation. The dashboard also provides fleet configuration and firmware OTA updates.
+
+When hardware is unavailable, the bundled **robot emulator** supplies simulated poses and responds to motor commands, allowing the same dashboard and aggregate runtime to be used without physical robots or cameras.
+
+## Project structure
+
+```mermaid
+flowchart LR
+  AR["Aggregate Runtime<br/>Scala / ScaFi"]
+  NS["Neighborhood System<br/>Python / Flask"]
+  D["Dashboard & Gateway<br/>React / Node.js"]
+  MB[("MQTT Broker<br/>Mosquitto")]
+  V["VisionSystem<br/>Python / OpenCV"]
+  S["Robot Emulator<br/>Python"]
+  R["Physical Robots"]
+
+  V -- "poses" --> MB
+  MB -- "poses" --> NS
+  NS -- "neighbors" --> MB
+  MB -- "poses, neighbors, formation" --> AR
+  AR -- "motor commands" --> MB
+  MB -- "state & telemetry" --> D
+  D -- "configuration & manual commands" --> MB
+  MB -- "commands" --> R
+  R -- "telemetry" --> MB
+  MB -- "commands" --> S
+  S -- "simulated poses & telemetry" --> MB
+  R -. "camera observations" .-> V
+```
+
+VisionSystem and the emulator provide alternative pose sources. VisionSystem can run on one machine or split camera acquisition and pose fusion across multiple machines; see the [VisionSystem guide](apps/vision/README.md).
 
 Polyglot monorepo for the Project Emerge services. Deployable applications live in `apps/` regardless of implementation language; infrastructure shared by the stack lives in `infra/`.
 
@@ -8,13 +54,29 @@ Polyglot monorepo for the Project Emerge services. Deployable applications live 
 apps/
   dashboard/          React dashboard and Node MQTT/WebSocket gateway
   aggregate-runtime/  Scala/ScaFi aggregate-computing runtime, publishes robot actuation over MQTT
-  vision/             Python/OpenCV localization runtime for USB cameras
+  neighborhood-system/ Python/Flask neighborhood computation and HTTP configuration
+  vision/             Python/OpenCV localization, calibration, and distributed camera nodes
   robot-emulator/     Python robot simulator used instead of physical vision input
 packages/             Optional language-specific shared libraries
 infra/mosquitto/      MQTT broker configuration
 compose.yaml          Local/edge service orchestration
 Makefile              Language-neutral entry points
+tools/                Supporting utilities, including battery-life analysis
+images/               Project branding
 ```
+
+### Components
+
+| Component | Role |
+| --- | --- |
+| [Dashboard](apps/dashboard/) | Live swarm visualization, manual driving, formation selection, marker mapping, and OTA uploads; Node.js bridges the browser to MQTT. |
+| [Aggregate runtime](apps/aggregate-runtime/README.md) | Executes ScaFi formation programs and converts their outputs into differential-wheel commands. |
+| [VisionSystem](apps/vision/README.md) | Camera calibration, ArUco detection, multi-camera pose fusion, and publication of mapped robot poses. |
+| [Robot emulator](apps/robot-emulator/) | Simulates robot motion and MQTT feedback for demonstrations without hardware. |
+| [Neighborhood system](apps/neighborhood-system/) | Consumes robot poses and publishes full or radius-based neighbor lists; exposes HTTP configuration on port `5000`. |
+| [Mosquitto](infra/mosquitto/) | Shared MQTT messaging for all services and robots. |
+
+### Monorepo conventions
 
 The root npm workspace lists JavaScript applications explicitly. Do not replace it with an `apps/*` glob: future Python and Scala applications are not npm packages.
 
@@ -108,7 +170,7 @@ volumes survive container recreation and normal `docker compose down`. Running
 | `VITE_OTA_SERVER` | Current dashboard host and port | Optional OTA address suggested by the UI. |
 | `VITE_GATEWAY_URL` | Same-origin `/ws` | Optional WebSocket gateway override. |
 
-## MQTT and OTA behavior
+## MQTT behavior
 
 The gateway subscribes to `/pose/+`, `/telemetry/+`, `/imu/+`, `/config/ota`, `/config/motors`, `/config/aruco-map`, and `/config/formation`. Motor configuration is fleet-wide: it is published once with QoS 1 and retention on `/config/motors`, so every robot — including robots that join later — applies the same settings.
 
@@ -116,8 +178,20 @@ Manual dashboard driving publishes normalized differential-wheel commands to `/m
 
 The `aggregate-runtime` service publishes the same `/motors/{id}` topic and `{"Move":{...}}`/`"Stop"` payload shape when it drives a robot swarm through an aggregate-computing program, using the robot's device ID formatted as 6 uppercase hex digits.
 
-For OTA updates, provide a dashboard `host:port` reachable by the robots, the firmware version, and the compiled `.bin` file in **Settings → OTA update**. Use the dashboard's LAN address rather than `localhost`. The gateway stores the image, retains the OTA server on `/config/ota`, and publishes a non-retained `/ota/check/{id}` command to each discovered robot.
-
 **Settings → Marker mapping** lets an operator register which ArUco marker ID (0-49) corresponds to which robot device ID. The mapping is retained as a single JSON object (`{"<markerId>": "<deviceId>", ...}`) on `/config/aruco-map` with QoS 1, so it survives broker restarts. VisionSystem consumes this mapping and publishes each mapped marker on `/pose/{deviceId}` while retaining its detailed raw-marker pose under the `vision/<site>/<system_id>/pose/{markerId}` namespace.
 
 The dashboard's home page has a **Formation & parameters** panel for choosing a swarm formation (`pointToLeader`, `vShape`, `lineShape`, `circleShape`, `squareShape`, `verticalLineShape`, `stop`), a leader robot, and that formation's numeric parameters. Applying it retains a single JSON object (`{"program": "<name>", "leaderId": "<deviceId>" | null, "params": {"<key>": <number>, ...}}`) on `/config/formation` with QoS 1. `aggregate-runtime` is the only subscriber: it merges `program`, the resolved `leader` (decoded from the hex device ID), and `params` into the sensor map its ScaFi formation programs read via `sense(...)`.
+
+## OTA updates
+
+For OTA updates, provide a dashboard `host:port` reachable by the robots, the firmware version, and the compiled `.bin` file in **Settings → OTA update**. Use the dashboard's LAN address rather than `localhost`. The gateway stores the image, retains the OTA server on `/config/ota`, and publishes a non-retained `/ota/check/{id}` command to each discovered robot.
+
+## Credits
+
+**Contributors:**
+
+<a href="https://github.com/Project-Emerge/Project-Emerge-system/graphs/contributors">
+  <img src="https://contributors-img.web.app/image?repo=Project-Emerge/Project-Emerge-system" alt="Project Emerge contributors" />
+</a>
+
+Contributions are welcome: open an [issue](https://github.com/Project-Emerge/Project-Emerge-system/issues), submit a [pull request](https://github.com/Project-Emerge/Project-Emerge-system/pulls), or suggest an improvement.
