@@ -22,7 +22,7 @@ lazy val root =
     .in(file("."))
     .settings(
         name := "researcher-night-demo",
-        libraryDependencies += ("it.unibo.scafi" %% "scafi-core" % "1.6.0").cross(CrossVersion.for3Use2_13),
+        libraryDependencies += ("it.unibo.scafi" %% "scafi-core" % "1.8.0").cross(CrossVersion.for3Use2_13),
         libraryDependencies += ("it.unibo.scafi" %% "scafi-simulator" % "1.6.0").cross(CrossVersion.for3Use2_13),
         libraryDependencies += "com.lihaoyi" %% "requests" % "0.9.3",
         libraryDependencies += "com.lihaoyi" %% "upickle" % "4.4.3",
