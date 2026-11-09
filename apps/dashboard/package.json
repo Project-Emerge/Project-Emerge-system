@@ -37,7 +37,7 @@
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.5",
     "concurrently": "^10.0.4",
-    "jsdom": "^30.0.1",
+    "jsdom": "^31.0.0",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2",
     "vite": "^8.2.1",
