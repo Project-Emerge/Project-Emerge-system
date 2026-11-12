@@ -10,12 +10,17 @@ type Point = (Double, Double)
  * What a formation is told each time it lays out its slots.
  *
  * @param count  slots to fill; the anchor stands on the origin and takes none
- * @param phase  shared clock phase in radians, advancing one turn per cycle
- * @param params the operator's live parameters, by molecule name
+ * @param phase  shared clock phase in radians, wrapped to one turn, advancing once per cycle
+ * @param lookup the operator's live parameters, by molecule name
  */
-final case class FormationContext(count: Int, phase: Double, params: Map[String, Double]):
+final case class FormationContext(count: Int, phase: Double, lookup: String => Option[Double]):
   /** `default` when the operator never set `name`, or set it to something non-finite. */
-  def param(name: String, default: Double): Double = params.get(name).filter(_.isFinite).getOrElse(default)
+  def param(name: String, default: Double): Double = lookup(name).filter(_.isFinite).getOrElse(default)
+
+object FormationContext:
+  /** For a fixed set of parameters, as a check or a test has them. */
+  def fromParams(count: Int, phase: Double, params: Map[String, Double]): FormationContext =
+    FormationContext(count, phase, params.get)
 
 /** Geometry only: a formation decides where the slots are, never how robots reach them. */
 trait Formation:

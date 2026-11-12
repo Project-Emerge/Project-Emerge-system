@@ -1,27 +1,33 @@
 package it.unibo.demo.scenarios
 
-/** Dashboard's `custom` payload, compiled at the edge and applied atomically per round. */
+import it.unibo.demo.formation.Fuel
+import it.unibo.demo.formation.dsl.{Formation, FormationContext, Point}
+import org.slf4j.LoggerFactory
+
+import java.util.concurrent.atomic.AtomicLong
+import scala.util.control.NonFatal
+
+/**
+ * The dashboard's `custom` payload, compiled where it arrives, off the control loop, and applied
+ * atomically per round.
+ */
 enum CustomSpec:
   case Absent
 
   /** `reason` is what to show the author. */
   case Invalid(reason: String)
 
-  /** Path in metres, anchor at the origin, resampled to the fleet size corners first. */
-  case Points(points: List[(Double, Double)], closed: Boolean)
+  /** Geometry only: [[CustomFormation]] plans, assigns and steers around it. */
+  case Geometry(formation: Formation)
 
-  case Cartesian(x: Formula, y: Formula)
+  /**
+   * A whole aggregate program, run in place of [[CustomFormation]] under the `custom` name.
+   * `id` is derived from its source, so devices briefly holding different programs never share
+   * `rep` or `nbr` state: see `AllDemoToLoad`.
+   */
+  case Program(id: String, program: BaseDemo)
 
-  /** `theta` follows [[ShapeFormation.ring]]'s bearing exactly, so a constant radius reproduces
-    * [[CircleFormation]] bit for bit.
-    */
-  case Polar(r: Formula, theta: Formula)
-
-object CustomSpec:
-  /** Longest point list a payload may carry, before resampling. */
-  val MaxPoints: Int = 256
-
-/** Turns a [[CustomSpec]] into a slot set a fleet can execute. Pure and total throughout. */
+/** Turns a designed layout into a slot set a fleet can execute. Pure and total throughout. */
 object CustomSlots:
 
   /** No payload can exceed this, whatever it says. Enforced in [[slotsFor]], not by the caller. */
@@ -43,42 +49,32 @@ object CustomSlots:
     else math.max(ShapeFormation.MinRadius, clearance)
 
   /**
-   * `None` (absent or rejected) leaves the fallback policy to [[CustomFormation]]. `Some` holds
-   * exactly `ctx.count` finite entries - load-bearing, since `AssignmentSolver.solveIndices`
-   * returns an empty map on a size mismatch and silently freezes the fleet.
+   * `raw` inside the envelope: scaled, grown if too cramped to stand on, capped, separated and
+   * kept off the anchor. `None` when it does not hold exactly `count` slots, leaving the fallback
+   * to [[CustomFormation]] -- load-bearing, since `AssignmentSolver.solveIndices` returns an empty
+   * map on a size mismatch and silently freezes the fleet.
    */
   def slotsFor(
-      spec: CustomSpec,
-      ctx: SlotContext,
+      raw: List[Point],
+      count: Int,
       scale: Double,
       maxRadius: Double,
       clearance: Double
-  ): Option[List[(Double, Double)]] =
-    if ctx.count <= 0 then Some(List.empty)
+  ): Option[List[Point]] =
+    if count <= 0 then Some(List.empty)
+    else if raw.sizeIs != count then None
     else
-      spec match
-        case CustomSpec.Absent | CustomSpec.Invalid(_) => None
-        case _ =>
-          val cap =
-            if maxRadius.isFinite then math.min(math.max(maxRadius, ShapeFormation.MinRadius), AbsoluteMaxRadius)
-            else AbsoluteMaxRadius
-          val gap = minSeparation(clearance)
-          val k =
-            if scale.isFinite then math.min(MaxScale, math.max(MinScale, scale)) else 1.0
-          // A path is judged by arc length; a formula has no uniform spacing, so by its tightest pair.
-          val (raw, spacing) = spec match
-            case CustomSpec.Points(points, closed) =>
-              val path = dedupeConsecutive(points)
-              (resample(path, closed, ctx.count), pathSpacing(path, closed, ctx.count))
-            case CustomSpec.Cartesian(x, y) => withTightestPair(cartesian(x, y, ctx))
-            case CustomSpec.Polar(r, theta) => withTightestPair(polar(r, theta, ctx))
-            case _ => (List.empty, 0.0)
-          // Coerce first: a runaway infinity becomes an origin-coincident slot instead of
-          // dominating the growth factor.
-          val scaled = finite(raw).map((x, y) => (x * k, y * k))
-          val grown = growToFit(scaled, spacing * k, gap, cap)
-          // The anchor is a robot too: a slot any nearer than `gap` is one its neighbour cannot hold.
-          Some(nudgeOffAnchor(separateCoincident(clampRadius(grown, cap), gap), gap))
+      val cap =
+        if maxRadius.isFinite then math.min(math.max(maxRadius, ShapeFormation.MinRadius), AbsoluteMaxRadius)
+        else AbsoluteMaxRadius
+      val gap = minSeparation(clearance)
+      val k = if scale.isFinite then math.min(MaxScale, math.max(MinScale, scale)) else 1.0
+      // Coerce first: a runaway infinity becomes an origin-coincident slot instead of dominating
+      // the growth factor.
+      val scaled = finite(raw).map((x, y) => (x * k, y * k))
+      val grown = growToFit(scaled, tightestPair(scaled), gap, cap)
+      // The anchor is a robot too: a slot any nearer than `gap` is one its neighbour cannot hold.
+      Some(nudgeOffAnchor(separateCoincident(clampRadius(grown, cap), gap), gap))
 
   /**
    * Metres a slot moves per radian of phase, at most, sampled over one cycle. The wrap back to
@@ -95,9 +91,9 @@ object CustomSlots:
   /** Coincident slots are [[separateCoincident]]'s to fan out, so they do not count as the pair.
     * ponytail: quadratic, fine for a fleet of a few dozen.
     */
-  private def withTightestPair(slots: List[(Double, Double)]): (List[(Double, Double)], Double) =
+  private def tightestPair(slots: List[Point]): Double =
     val gaps = slots.combinations(2).collect { case List(a, b) if distance(a, b) >= Epsilon => distance(a, b) }
-    (slots, gaps.minOption.getOrElse(0.0))
+    gaps.minOption.getOrElse(0.0)
 
   /** Consecutive duplicates within [[Epsilon]] collapsed, and a closing duplicate dropped. */
   def dedupeConsecutive(points: List[(Double, Double)]): List[(Double, Double)] =
@@ -190,8 +186,8 @@ object CustomSlots:
     slots.map((x, y) => (if x.isFinite then x else 0.0, if y.isFinite then y else 0.0))
 
   /**
-   * Per slot, not a uniform shrink: a uniform one couples the slots, so a single runaway formula
-   * value collapses the whole formation to a dot. Wrong-unit paths are [[growToFit]]'s job.
+   * Per slot, not a uniform shrink: a uniform one couples the slots, so a single runaway designed
+   * slot collapses the whole formation to a dot. Wrong-unit paths are [[growToFit]]'s job.
    */
   def clampRadius(slots: List[(Double, Double)], maxRadius: Double): List[(Double, Double)] =
     slots.map { (x, y) =>
@@ -201,21 +197,6 @@ object CustomSlots:
         val factor = maxRadius / radius
         (x * factor, y * factor)
     }
-
-  /**
-   * Tightest arc between neighbouring slots. Arc, not chord: the chord shortens at every corner,
-   * and a slot on the corner itself makes the two agree.
-   */
-  def pathSpacing(points: List[(Double, Double)], closed: Boolean, count: Int): Double =
-    if count <= 1 then 0.0
-    else
-      val vertices = points.toIndexedSeq
-      if vertices.size < 2 then 0.0
-      else
-        val lengths = arcLengths(vertices, closed)
-        val at = targets(vertices, lengths, closed, count)
-        val seam = if closed then List(at.head + lengths.last - at.last) else List.empty
-        (at.sliding(2).map(pair => pair(1) - pair(0)) ++ seam).min
 
   /** Grows undersized shapes to `minSpacing`, without exceeding `maxRadius` or distorting them. */
   def growToFit(
@@ -275,23 +256,6 @@ object CustomSlots:
         (x * factor, y * factor)
     }
 
-  def cartesian(x: Formula, y: Formula, ctx: SlotContext): List[(Double, Double)] =
-    val phase = Formula.wrapPhase(ctx.phase)
-    val n = ctx.count.toDouble
-    (0 until ctx.count).map { i =>
-      (Formula.evaluate(x, i.toDouble, n, phase), Formula.evaluate(y, i.toDouble, n, phase))
-    }.toList
-
-  /** In [[ShapeFormation.ring]]'s bearing convention. */
-  def polar(r: Formula, theta: Formula, ctx: SlotContext): List[(Double, Double)] =
-    val phase = Formula.wrapPhase(ctx.phase)
-    val n = ctx.count.toDouble
-    (0 until ctx.count).map { i =>
-      val radius = Formula.evaluate(r, i.toDouble, n, phase)
-      val bearing = Formula.evaluate(theta, i.toDouble, n, phase)
-      (math.sin(bearing) * radius, math.cos(bearing) * radius)
-    }.toList
-
   private def distance(a: (Double, Double), b: (Double, Double)): Double =
     math.hypot(a._1 - b._1, a._2 - b._2)
 
@@ -316,43 +280,65 @@ object CustomSlots:
       val fraction = math.min(1.0, math.max(0.0, (target - spanStart) / span))
       (from._1 + (to._1 - from._1) * fraction, from._2 + (to._2 - from._2) * fraction)
 
+
 /**
- * Geometry as data on the retained `/config/formation` message: a new shape costs no restart.
+ * Geometry as code on the retained `/config/formation` message: a new shape costs no restart.
  *
- * `slots` may call only `sense`, never `rep`, `share`, `nbr`, `branch` or `foldhood`. That is what
- * keeps a spec out of the export's shape, so devices briefly holding different specs still align
- * and the fleet follows the root's.
+ * A [[Formation]] is geometry only: `rep`, `share`, `nbr`, `branch` and `foldhood` are outside
+ * its sandbox. That is what keeps a geometry out of the export's shape, so devices briefly
+ * holding different geometries still align and the fleet follows the root's.
+ *
+ * Whatever the geometry does wrong -- runs out of fuel, throws, lays out the wrong number of
+ * slots -- the fleet falls back to the ring, and the reason is logged, rate-limited.
  */
 class CustomFormation extends ShapeFormation():
-  override protected def slots(ctx: SlotContext): List[(Double, Double)] =
-    val spec = sense[CustomSpec](CustomFormation.SPEC_SENSING)
-    val scale = sense[Double](CustomFormation.SCALE_SENSING)
-    val maxRadius = sense[Double](CustomFormation.MAX_RADIUS_SENSING)
-    val gap = clearance
-    val layout = (phase: Double) => CustomSlots.slotsFor(spec, ctx.copy(phase = phase), scale, maxRadius, gap)
-    layout(phaseFor(CustomSlots.travel(layout))).getOrElse(fallback(ctx))
+  override protected def slots(ctx: SlotContext): List[Point] =
+    sense[CustomSpec](CustomFormation.SPEC_SENSING) match
+      case CustomSpec.Geometry(formation) => designed(formation, ctx.count).getOrElse(fallback(ctx))
+      case _ => fallback(ctx)
+
+  /** Every evaluation in the round, the cycle sampled to pace it included, draws on one budget. */
+  private def designed(formation: Formation, count: Int): Option[List[Point]] =
+    val layout = CustomFormation.layout(
+      formation,
+      count,
+      parameter,
+      sense[Double](CustomFormation.SCALE_SENSING),
+      sense[Double](CustomFormation.MAX_RADIUS_SENSING),
+      clearance
+    )
+    CustomFormation.attempt(layout(phaseFor(CustomSlots.travel(layout)))) match
+      case Right(Some(slots)) => Some(slots)
+      case Right(None) => CustomFormation.warn(s"the designed formation did not lay out $count slots"); None
+      case Left(reason) => CustomFormation.warn(reason); None
+
+  /** A live parameter, or nothing: a molecule nobody set must not throw the way `sense` does. */
+  private def parameter(name: String): Option[Double] =
+    vm.context.sense[Any](name).collect { case value: Double => value }
 
   /**
    * A ring, not a hold: an empty slot list makes every robot pivot to the reference heading, which
-   * looks identical to a lost leader, and leaves the G/C/G path cold so the first real spec lands
-   * with a visible transient. A ring says "running, nobody has told me a shape yet".
+   * looks identical to a lost leader, and leaves the G/C/G path cold so the first real geometry
+   * lands with a visible transient. A ring says "running, nobody has told me a shape yet".
    */
-  private def fallback(ctx: SlotContext): List[(Double, Double)] =
+  private def fallback(ctx: SlotContext): List[Point] =
     val radius = math.max(sense[Double](CircleFormation.RADIUS_SENSING), ShapeFormation.minRingRadius(ctx.count, clearance))
     ShapeFormation.ring(ctx.count, 0.0)(_ => radius)
 
 object CustomFormation:
+  private val logger = LoggerFactory.getLogger(classOf[CustomFormation])
+
   /**
    * The compiled spec, and the one molecule that is not a `Double`. `sense` is an unchecked cast,
    * so the default below must be a real [[CustomSpec]] or every robot throws on its first round.
    */
   val SPEC_SENSING = "customSpec"
 
-  /** Live multiplier on a spec, so an operator can resize a shape without a new spec. */
+  /** Live multiplier on a geometry, so an operator can resize a shape without redesigning it. */
   val SCALE_SENSING = "customScale"
 
-  /** Metres. On the same message as the spec, so it guards the mistaken author, not the malicious
-    * one; [[CustomSlots.AbsoluteMaxRadius]] is the bound no message can raise.
+  /** Metres. On the same message as the geometry, so it guards the mistaken author, not the
+    * malicious one; [[CustomSlots.AbsoluteMaxRadius]] is the bound no message can raise.
     */
   val MAX_RADIUS_SENSING = "customMaxRadius"
 
@@ -361,3 +347,36 @@ object CustomFormation:
     SCALE_SENSING -> 1.0,
     MAX_RADIUS_SENSING -> 1.5
   )
+
+  /**
+   * What one round's layout may spend, at the root only, every sampled phase included. A runaway
+   * geometry exhausts it in about three milliseconds.
+   */
+  val Budget: Fuel.Budget = Fuel.Budget(steps = 200_000L, bytes = 64L * 1024 * 1024)
+
+  /** `formation` at a phase, inside the safety envelope; `None` for the wrong number of slots. */
+  def layout(
+      formation: Formation,
+      count: Int,
+      lookup: String => Option[Double],
+      scale: Double,
+      maxRadius: Double,
+      clearance: Double
+  ): Double => Option[List[Point]] = phase =>
+    val raw = formation.slots(FormationContext(count, ShapeFormation.wrapPhase(phase), lookup))
+    CustomSlots.slotsFor(raw, count, scale, maxRadius, clearance)
+
+  /** `body` metered, with every way designed code can fail turned into the reason it failed. */
+  def attempt[A](body: => A): Either[String, A] =
+    try Fuel.metered(Budget)(body).left.map(_.getMessage)
+    catch case NonFatal(error) => Left(s"the designed formation threw $error")
+
+  private val WarningInterval: Long = 5_000L
+  private val lastWarning = AtomicLong(0L)
+
+  /** At the tick rate a failing geometry would otherwise log twenty times a second. */
+  private def warn(reason: String): Unit =
+    val now = System.currentTimeMillis()
+    val last = lastWarning.get()
+    if now - last >= WarningInterval && lastWarning.compareAndSet(last, now) then
+      logger.warn(s"Falling back to a ring: $reason")

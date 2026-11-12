@@ -1,4 +1,4 @@
-import { AIMessage, HumanMessage, SystemMessage, type BaseMessage } from "@langchain/core/messages";
+import { AIMessage, HumanMessage, SystemMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { StructuredToolParams } from "@langchain/core/tools";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
@@ -12,17 +12,20 @@ import {
   summariseCommand,
 } from "../shared/formations.js";
 import {
-  CUSTOM_FORMULA_MAX_LENGTH,
-  CUSTOM_MAX_COORDINATE,
-  CUSTOM_MAX_POINTS,
+  CUSTOM_KINDS,
+  CUSTOM_SOURCE_MAX_LENGTH,
   FORMATION_ANCHORS,
   FORMATION_PROGRAMS,
   FormationCommandSchema,
   type FormationCommand,
+  type FormationCompileProblem,
+  type FormationCompileRequest,
+  type FormationCompileResult,
 } from "../shared/protocol.js";
-import { DESIGN_EXTENT, inspectDesign } from "./design-check.js";
 import type { DesignRecord } from "./design-log.js";
 import { describeFleetForPrompt } from "./fleet-snapshot.js";
+
+type ToolCall = NonNullable<AIMessage["tool_calls"]>[number];
 
 /** Programs the agent picks from `apply_formation`; `custom` has its own tool. */
 const APPLIABLE_PROGRAMS = FORMATION_PROGRAMS.filter((program) => program !== "custom");
@@ -58,20 +61,14 @@ const applyFormationSchema = z.object({
   params: paramsSchema(APPLIABLE_PROGRAMS),
 });
 
-const pointSchema = z.array(z.number()).length(2);
-
 const designFormationSchema = z.object({
-  kind: z.enum(["points", "cartesian", "polar"])
-    .describe("`points` for an explicit outline, `cartesian` or `polar` for formulas."),
-  label: z.string().max(60).describe("A short name for the shape, such as `Five-pointed star`."),
-  points: z.array(pointSchema).max(CUSTOM_MAX_POINTS).optional()
-    .describe(`For \`points\`: [x, y] pairs in metres, each within +/-${CUSTOM_MAX_COORDINATE}.`),
-  closed: z.boolean().optional()
-    .describe("For `points`: true to walk the path back to its start, making a closed outline."),
-  x: z.string().max(CUSTOM_FORMULA_MAX_LENGTH).optional().describe("For `cartesian`: x in metres."),
-  y: z.string().max(CUSTOM_FORMULA_MAX_LENGTH).optional().describe("For `cartesian`: y in metres."),
-  r: z.string().max(CUSTOM_FORMULA_MAX_LENGTH).optional().describe("For `polar`: radius in metres."),
-  theta: z.string().max(CUSTOM_FORMULA_MAX_LENGTH).optional().describe("For `polar`: bearing in radians."),
+  kind: z.enum(CUSTOM_KINDS)
+    .describe("`formation` for a shape, an expression of type Formation; `program` for a whole aggregate program, an expression of type BaseDemo."),
+  label: z.string().max(60).describe("A short name for the design, such as `Five-pointed star`."),
+  // Optional in the schema so that a call without it gets a plain-spoken refusal naming it,
+  // rather than the schema's generic one.
+  source: z.string().max(CUSTOM_SOURCE_MAX_LENGTH).optional()
+    .describe("The Scala source: one expression, of type Formation or BaseDemo as `kind` says."),
   anchor: anchorSchema,
   leaderId: leaderIdSchema,
   params: paramsSchema(["custom"]),
@@ -94,6 +91,9 @@ export function formationToolSchemas(): Record<string, z.ZodTypeAny> {
   };
 }
 
+/** What the agent asks the runtime to compile: the gateway adds the id. */
+export type FormationCheckRequest = Omit<FormationCompileRequest, "id">;
+
 export type FormationAgentOptions = {
   apiKey?: string;
   model?: string;
@@ -106,6 +106,11 @@ export type FormationAgentOptions = {
    * gateway hands it [[DesignLog.record]] and the tests hand it an array's push.
    */
   onDesign?: (record: DesignRecord) => void;
+  /**
+   * Compiles a design on the aggregate runtime before it is handed back to be published. Without
+   * one the design goes out unchecked, and the runtime falls back to a ring if it fails there.
+   */
+  checkDesign?: (request: FormationCheckRequest) => Promise<FormationCompileResult>;
 };
 
 export type FormationAgent = {
@@ -132,33 +137,45 @@ function systemPrompt(fleet: FleetSnapshot): string {
     "the located robots below, or `auto` to let the fleet elect one. Prefer `auto` unless the",
     "operator names a robot. Programs with no anchors ignore both.",
     "",
-    "For a shape none of the built-ins produce, call design_formation. The anchor robot stands at",
-    `the origin and takes no slot, so the other robots fill ${slots} slots.`,
-    "- `points`: an outline as [x, y] pairs in metres, for anything with corners: letters,",
-    "  polygons, stars, arrows. Every corner gets a robot of its own when there are at least as many",
-    "  slots as corners, and the spare robots spread evenly along the longest sides. So give a",
-    `  polygon as its corners only, at most ${slots} of them, and not one point per robot. A curve given`,
-    "  as more points than slots is sampled at equal spacing instead. Robots stand on the outline",
-    "  only: never fill the inside. Set closed for a loop.",
-    "- `cartesian`: formulas for x and y. `polar`: formulas for r and theta, where theta is a",
-    "  bearing in radians with x = r*sin(theta) and y = r*cos(theta). Use these for smooth curves",
-    "  and for motion.",
+    "For a shape none of the built-ins produce, call design_formation with Scala source. The anchor",
+    `robot stands at the origin and takes no slot, so the other robots fill ${slots} slots.`,
     "",
-    "Formula syntax: + - * / % ^ and parentheses, with the variables i (0-based slot index),",
-    "n (number of slots) and t (a shared clock phase that runs 0 to 2*pi once per wavePeriod",
-    "seconds; use it to make a shape move). Constants pi and e. Functions sin cos tan asin acos",
-    "atan atan2 sqrt abs floor ceil round exp log sign hypot min max. Nothing else parses.",
+    "kind `formation`: the source is one Scala expression of type Formation, usually",
+    "Formation { ctx => ... } returning a List[(Double, Double)] of exactly ctx.count slots, in metres",
+    "from the anchor, x to the right and y straight ahead. In scope:",
+    "- ctx.count (Int); ctx.phase (Double, the shared clock, 0 to 2*Pi once per wavePeriod seconds,",
+    "  to make a shape move); ctx.param(name, default) for one of the live parameters.",
+    "- ring(count, radius): count slots evenly round a circle, the first straight ahead.",
+    "- line(count, spacing): count slots on a line through the anchor.",
+    "- outline(count, closed)(points*): count slots along a path through [x, y] corners, a slot on",
+    "  every corner when there are enough: letters, polygons, stars, arrows. Give a polygon as its",
+    `  corners only, at most ${slots} of them. Robots stand on the outline only: never fill the inside.`,
+    "- xs.rotated(angle), xs.scaled(k), xs.translated(dx, dy) on any List[(Double, Double)].",
+    "- math.*, Math.PI, 0 until n, immutable collections, tuples, Option, lambdas and local defs.",
+    "Nothing else is reachable: no I/O, no while loops, no try/catch, no mutable collections, and",
+    "every call is metered, so a design that never finishes is stopped and replaced by a ring.",
+    "Example: Formation { ctx => ring(ctx.count, 0.8).rotated(ctx.phase / 4) }",
     "",
-    "Whenever a designed shape uses t, wavePeriod is the seconds for one full cycle. The robots top",
-    "out near 0.09 m/s, so the runtime stretches any cycle whose slots would move faster than about",
-    "0.06 m/s: a 0.35 m orbit takes about 40 s whatever wavePeriod says. Prefer small moves",
-    "(0.05 to 0.15 m) over big ones, so the motion stays quick enough to read.",
+    "kind `program`: the source is one expression of type BaseDemo, a whole ScaFi aggregate program",
+    "that replaces the formation planner. Use it only for behaviour a shape cannot express. rep,",
+    "nbr, foldhood, branch, mid, sense and the G, C and S blocks are available, as is ShapeFormation:",
+    "  new ShapeFormation:",
+    "    override protected def slots(ctx: SlotContext): List[(Double, Double)] =",
+    "      ShapeFormation.ring(ctx.count, 0.0)(_ => 0.6)",
     "",
-    "Size a designed shape so its farthest point is about 0.8 m from the anchor, never under",
-    `${DESIGN_EXTENT.min} m or over ${DESIGN_EXTENT.max} m: smaller shapes look cramped. Centre the shape on the anchor and keep the`,
-    "outline at least 0.3 m from the origin, since the anchor is a robot too. Aim for about 0.4 m",
-    "between adjacent robots; closer than the collision radius plus twice the stability threshold",
-    "(0.2 m by default) is grown apart by the runtime, so a small fleet cannot hold fine detail.",
+    "The runtime compiles the source before anything moves. If it refuses, you are shown its errors,",
+    "with line and column, once: answer with a corrected design_formation call.",
+    "",
+    "Whenever a designed shape uses ctx.phase, wavePeriod is the seconds for one full cycle. The",
+    "robots top out near 0.09 m/s, so the runtime stretches any cycle whose slots would move faster",
+    "than about 0.06 m/s: a 0.35 m orbit takes about 40 s whatever wavePeriod says. Prefer small",
+    "moves (0.05 to 0.15 m) over big ones, so the motion stays quick enough to read.",
+    "",
+    "Size a designed shape so its farthest point is about 0.8 m from the anchor, never under 0.4 m",
+    "or over 1.2 m: smaller shapes look cramped. Centre the shape on the anchor and keep it at least",
+    "0.3 m from the origin, since the anchor is a robot too. Aim for about 0.4 m between adjacent",
+    "robots; closer than the collision radius plus twice the stability threshold (0.2 m by",
+    "default) is grown apart by the runtime, so a small fleet cannot hold fine detail.",
     "",
     "The fleet right now:",
     describeFleetForPrompt(fleet),
@@ -214,22 +231,35 @@ function buildCommand(
   return { command: parsed.data };
 }
 
-function geometryFrom(args: z.infer<typeof designFormationSchema>): FormationCommand["custom"] | string {
-  if (args.kind === "points") {
-    if (!args.points || args.points.length === 0) return "A points geometry needs at least one [x, y] pair.";
-    return {
-      kind: "points",
-      points: args.points.map((pair) => [pair[0], pair[1]] as [number, number]),
-      closed: args.closed ?? false,
-      label: args.label,
-    };
-  }
-  if (args.kind === "cartesian") {
-    if (!args.x || !args.y) return "A cartesian geometry needs both an x and a y formula.";
-    return { kind: "cartesian", x: args.x, y: args.y, label: args.label };
-  }
-  if (!args.r || !args.theta) return "A polar geometry needs both an r and a theta formula.";
-  return { kind: "polar", r: args.r, theta: args.theta, label: args.label };
+function designFrom(args: z.infer<typeof designFormationSchema>): FormationCommand["custom"] | string {
+  if (!args.source?.trim()) return "A design needs its Scala source.";
+  return { kind: args.kind, source: args.source, label: args.label };
+}
+
+/** How many times the model may write a design: the first try and one correction. */
+const MAX_DESIGN_ATTEMPTS = 2;
+
+type Outcome = { command: FormationCommand; note: string | null } | { error: string };
+
+/** As the author reads it, and as the model is shown it when asked to fix it. */
+function describeProblem(problem: FormationCompileProblem): string {
+  return problem.line > 0 ? `line ${problem.line}, column ${problem.column}: ${problem.message}` : problem.message;
+}
+
+/** The runtime's verdict on a design, as problems; empty when it compiled and laid out cleanly. */
+async function verify(
+  command: FormationCommand,
+  fleet: FleetSnapshot,
+  checkDesign: (request: FormationCheckRequest) => Promise<FormationCompileResult>,
+): Promise<string[]> {
+  if (!command.custom) return [];
+  const result = await checkDesign({
+    kind: command.custom.kind,
+    source: command.custom.source,
+    slots: Math.max(1, fleet.posedRobotIds.length - 1),
+    params: command.params,
+  });
+  return result.ok ? [] : result.problems.map(describeProblem);
 }
 
 /**
@@ -239,8 +269,8 @@ function geometryFrom(args: z.infer<typeof designFormationSchema>): FormationCom
  * the swarm -- rather than functions whose results the model needs to see, and the fleet's state
  * is already in the system prompt, so there is nothing to fetch and feed back. A single turn is
  * both simpler and far more predictable about what reaches the robots, and it keeps the chat
- * real-time: a second round to correct a design doubles the wait, so [[inspectDesign]] only
- * annotates the design log.
+ * real-time. The one exception is a design the runtime refuses to compile: a compiler error is
+ * precise enough to fix, so the model is shown it once and may answer with a corrected design.
  *
  * Nothing the model returns is trusted: every command is rebuilt through
  * [[FormationCommandSchema]] and clamped against the published parameter ranges, so an invented
@@ -259,7 +289,7 @@ export function createFormationAgent(options: FormationAgentOptions): FormationA
     },
     {
       name: "design_formation",
-      description: "Design a formation the built-ins cannot make, from an outline or from formulas.",
+      description: "Write a formation the built-ins cannot make, as Scala the runtime compiles.",
       schema: designFormationSchema,
     },
     {
@@ -282,9 +312,9 @@ export function createFormationAgent(options: FormationAgentOptions): FormationA
         );
       }
 
-      const response = await bound.invoke(history);
-      const spoken = textOf(response.content);
-      const call = (response as AIMessage).tool_calls?.[0];
+      let response = await bound.invoke(history);
+      let spoken = textOf(response.content);
+      let call = (response as AIMessage).tool_calls?.[0];
 
       if (!call) {
         return {
@@ -295,11 +325,45 @@ export function createFormationAgent(options: FormationAgentOptions): FormationA
         };
       }
 
-      const outcome = commandFor(call.name, call.args ?? {}, fleet);
+      let outcome: Outcome = commandFor(call.name, call.args ?? {}, fleet);
+      let attempts = 1;
+      let issues: string[] = [];
+
+      if (call.name === "design_formation" && options.checkDesign) {
+        for (;;) {
+          if ("error" in outcome) break;
+          try {
+            issues = await verify(outcome.command, fleet, options.checkDesign);
+          } catch (error) {
+            // No verdict is not a pass: the runtime is unreachable, and so are the robots.
+            outcome = { error: `The design could not be checked: ${error instanceof Error ? error.message : String(error)}.` };
+            break;
+          }
+          if (issues.length === 0 || attempts >= MAX_DESIGN_ATTEMPTS) break;
+
+          history.push(response, new ToolMessage({
+            tool_call_id: call.id ?? "design_formation",
+            content: `The runtime refused this design. Fix it and call design_formation again.\n${issues.join("\n")}`,
+          }));
+          response = await bound.invoke(history);
+          attempts += 1;
+          spoken = textOf(response.content) || spoken;
+          const retry: ToolCall | undefined = (response as AIMessage).tool_calls?.[0];
+          if (!retry || retry.name !== "design_formation") {
+            outcome = { error: "The runtime refused the design and no corrected one followed." };
+            break;
+          }
+          call = retry;
+          outcome = commandFor(call.name, call.args ?? {}, fleet);
+        }
+        if (!("error" in outcome) && issues.length > 0) {
+          outcome = { error: `The runtime would not run this design: ${issues.join("; ")}` };
+        }
+      }
 
       // Only designs are recorded. The 17 built-ins are already on the retained `/config/formation`
-      // topic and reproducible from their name and params; an invented geometry is not, and once
-      // the next command overwrites it the only trace of what the fleet was asked to draw is here.
+      // topic and reproducible from their name and params; an invented design is not, and once
+      // the next command overwrites it the only trace of what the fleet was asked to run is here.
       if (call.name === "design_formation" && options.onDesign) {
         options.onDesign({
           prompt: lastPrompt(messages),
@@ -308,9 +372,8 @@ export function createFormationAgent(options: FormationAgentOptions): FormationA
           raw: call.args ?? {},
           command: "error" in outcome ? null : outcome.command,
           error: "error" in outcome ? outcome.error : null,
-          issues: "error" in outcome || !outcome.command.custom
-            ? []
-            : inspectDesign(outcome.command.custom, fleet.posedRobotIds.length - 1, outcome.command.params),
+          attempts,
+          issues,
         });
       }
 
@@ -336,11 +399,7 @@ export function createFormationAgent(options: FormationAgentOptions): FormationA
   };
 }
 
-function commandFor(
-  name: string,
-  rawArgs: Record<string, unknown>,
-  fleet: FleetSnapshot,
-): { command: FormationCommand; note: string | null } | { error: string } {
+function commandFor(name: string, rawArgs: Record<string, unknown>, fleet: FleetSnapshot): Outcome {
   if (name === "stop_fleet") {
     const built = buildCommand("stop", "leader", null, {}, null);
     return "error" in built ? built : { command: built.command, note: null };
@@ -361,10 +420,10 @@ function commandFor(
     if (!args.success) {
       return { error: `I could not read that design: ${args.error.issues[0]?.message}` };
     }
-    const geometry = geometryFrom(args.data);
-    if (typeof geometry === "string") return { error: geometry };
+    const design = designFrom(args.data);
+    if (typeof design === "string") return { error: design };
     const { leaderId, anchor, note } = resolveLeader(args.data.leaderId, args.data.anchor, fleet);
-    const built = buildCommand("custom", anchor, leaderId, numbersOnly(args.data.params), geometry);
+    const built = buildCommand("custom", anchor, leaderId, numbersOnly(args.data.params), design);
     return "error" in built ? built : { command: built.command, note };
   }
 

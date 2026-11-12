@@ -3,19 +3,19 @@ import { dirname } from "node:path";
 import type { FormationCommand } from "../shared/protocol.js";
 
 /**
- * One designed geometry, as it was before and after the gateway had its say.
+ * One design, as it was before and after the gateway and the runtime had their say.
  *
- * `raw` is what the model actually wrote and `command` is what survived validation and clamping,
- * which is the whole reason this record exists: a shape that comes out wrong on the floor is
- * either a bad formula or a formula the gateway trimmed, and only having both sides distinguishes
- * the two. A refused design carries `command: null` and the reason instead.
+ * `raw` is what the model actually wrote and `command` is what survived validation, clamping and
+ * the runtime's compile check, which is the whole reason this record exists: a shape that comes
+ * out wrong on the floor is either bad code or code the gateway trimmed, and only having both
+ * sides distinguishes the two. A refused design carries `command: null` and the reason instead.
  */
 export type DesignRecord = {
   /** The operator turn that prompted the design. */
   prompt: string;
   /** What the model said in words. */
   reply: string;
-  /** How many robots had a position when it designed, which is the `n` its formulas saw. */
+  /** How many robots had a position when it designed; one of them is the anchor. */
   posedRobots: number;
   /** The tool arguments exactly as the model wrote them, before any validation. */
   raw: unknown;
@@ -23,7 +23,9 @@ export type DesignRecord = {
   command: FormationCommand | null;
   /** Why it was refused, when it was. */
   error?: string | null;
-  /** What [[inspectDesign]] found wrong with it, so a bad shape on the floor has a reason on record. */
+  /** How many designs the model wrote: a second one only after the runtime refused the first. */
+  attempts?: number;
+  /** What the runtime's compile check refused in the last one, each with its line and column. */
   issues?: string[];
 };
 

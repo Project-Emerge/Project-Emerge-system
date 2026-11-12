@@ -19,7 +19,40 @@ remains the distance to the assigned slot.
                                        RobotUpdateMqtt -> HeadingController -> DifferentialDrive
                                                                       |
                                        MotorCommandPublisher  ->  /motors/<id>
+
+/formation/compile  ->  FormationCheckService  ->  /formation/compile/<id>
 ```
+
+## Designed formations
+
+The `custom` program runs Scala that arrives on `/config/formation` (see the root README for the
+payload), compiled in this process by an embedded Scala 3 compiler (`it.unibo.demo.formation`):
+
+- **Two kinds.** A `formation` is an expression of type `Formation`, geometry only: the runtime
+  plans, assigns and steers around the slots it lays out, inside the same safety envelope as
+  before (`CustomSlots`: scaled, grown if cramped, capped, separated, kept off the anchor). A
+  `program` is an expression of type `BaseDemo`, run by `AllDemoToLoad` in place of
+  `CustomFormation` and aligned on a hash of its source.
+- **Sandbox.** A compiler phase straight after the typer checks every term the source references
+  against an allowlist (`SandboxPolicy`): arithmetic, immutable collections, tuples, functions
+  and the DSL, plus ScaFi for a program. I/O, reflection, threads, `while`, `try`, `inline` and
+  the library calls that build something large from a number alone are refused at compile time,
+  with a line and column. Nothing is loaded unless every check passed.
+- **Fuel.** The same phase meters the code it lets through (`Fuel`): a step at the top of every
+  method, lambda and by-name argument, and a check on the bytes the thread has allocated. A
+  geometry's layout spends `CustomFormation.Budget` per round, a program
+  `AllDemoToLoad.ProgramBudget` per device per round. Running out falls back to a ring, or halts
+  that device, instead of hanging the loop. A single library call still costs one step whatever
+  it does inside: the sandbox is the bound there, not the meter.
+- **Compiling.** One compiler per process keeps its symbol table warm: the first compile takes
+  about two seconds and is paid at startup, later ones tens of milliseconds. Compiles run on the
+  blocking pool, never in the control loop, are cancelled after `FormationCompiler.DefaultCompileTimeout`,
+  and the last successful one is reused when the same source is published again.
+- **Checking first.** `FormationCheckService` answers `/formation/compile` with the compiler's
+  problems and, for a geometry, the slots it lays out for the requested fleet, after sampling a
+  whole cycle of `ctx.phase` under the same budget.
+
+The tests compile with the running JVM's own classpath, which is why `Test / fork := true`.
 
 ## Driving the robots
 

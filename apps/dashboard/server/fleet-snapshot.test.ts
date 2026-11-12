@@ -77,7 +77,7 @@ describe("stato della flotta per l'agente", () => {
     expect(prompt).toContain("Do not use these as a leader");
   });
 
-  it("include la geometria disegnata quando ne e' attiva una", () => {
+  it("mostra al modello il codice della formazione disegnata attiva, cosi' puo' modificarlo", () => {
     const prompt = describeFleetForPrompt(deriveFleetSnapshot(snapshotsOf({
       "/pose/A1B2C3": pose,
       "/config/formation": {
@@ -85,11 +85,13 @@ describe("stato della flotta per l'agente", () => {
         leaderId: null,
         anchor: "auto",
         params: { customScale: 1.5 },
-        custom: { kind: "polar", r: "0.5", theta: "2*pi*i/n", label: "Stella" },
+        custom: { kind: "formation", source: "Formation(ctx => ring(ctx.count, \"0.5\".toDouble))", label: "Stella" },
       },
     })));
     expect(prompt).toContain("custom (anchor auto)");
     expect(prompt).toContain("customScale=1.5");
-    expect(prompt).toContain("Stella");
+    expect(prompt).toContain("Its design, a formation named Stella:");
+    // Testo, non JSON: le virgolette arrivano al modello come le ha scritte.
+    expect(prompt).toContain('```scala\nFormation(ctx => ring(ctx.count, "0.5".toDouble))\n```');
   });
 });

@@ -18,7 +18,7 @@ class FormationCompilerSuite extends munit.FunSuite:
 
   override val munitTimeout = scala.concurrent.duration.Duration(120, "s")
 
-  private val compiler = FormationCompiler()
+  private val compiler = SharedCompiler.instance
 
   private def geometry(source: String) = compiler.compile(SnippetKind.Geometry, source)
 
@@ -33,7 +33,7 @@ class FormationCompilerSuite extends munit.FunSuite:
   private def radii(slots: List[Point]): List[Double] = slots.map((x, y) => math.hypot(x, y))
 
   private def context(count: Int, phase: Double = 0.0, params: Map[String, Double] = Map.empty) =
-    FormationContext(count, phase, params)
+    FormationContext.fromParams(count, phase, params)
 
   test("a geometry snippet becomes a formation with one slot per robot") {
     val slots = slotsOf("Formation { ctx => ring(ctx.count, 0.5) }", context(4))
@@ -238,4 +238,31 @@ class FormationCompilerSuite extends munit.FunSuite:
     compiler.compile(SnippetKind.Aggregate, source) match
       case Left(problems) => assert(problems.exists(p => p.line == 3 && p.message.contains("java.lang.System")), problems)
       case Right(_) => fail("System.exit must not compile")
+  }
+
+  test("source longer than the compiler accepts is refused before compiling") {
+    val long = s"Formation(ctx => ring(ctx.count, 0.5)) // ${"x" * FormationCompiler.MaxSourceLength}"
+    geometry(long) match
+      case Left(problems) => assert(problems.exists(_.message.contains(s"${FormationCompiler.MaxSourceLength}")), problems)
+      case Right(_) => fail("an over-long source must not compile")
+  }
+
+  test("a compile that outlasts its deadline is abandoned, and its result never loaded") {
+    val hasty = FormationCompiler(compileTimeout = scala.concurrent.duration.Duration.fromNanos(1))
+    hasty.compile(SnippetKind.Geometry, "Formation(ctx => ring(ctx.count, 0.5))") match
+      case Left(problems) => assert(problems.exists(_.message.contains("longer than")), problems)
+      case Right(_) => fail("a compile past its deadline must not produce a formation")
+  }
+
+  test("compiles may be requested from any thread, as the runtime's blocking pool does") {
+    // Regression found end to end: the compiler's context may only ever be touched by one
+    // thread, and every test above happened to compile on the same one.
+    val fresh = FormationCompiler()
+    val pool = java.util.concurrent.Executors.newFixedThreadPool(3)
+    try
+      val pending = (1 to 6).map { k =>
+        pool.submit(() => fresh.compile(SnippetKind.Geometry, s"Formation(ctx => ring(ctx.count, 0.$k))"))
+      }
+      pending.map(_.get()).foreach(result => assert(result.isRight, result))
+    finally pool.shutdown()
   }

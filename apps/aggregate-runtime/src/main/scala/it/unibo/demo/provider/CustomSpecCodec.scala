@@ -1,23 +1,45 @@
 package it.unibo.demo.provider
 
-import it.unibo.demo.scenarios.{CustomSlots, CustomSpec, Formula}
+import it.unibo.demo.formation.{FormationCompiler, Problem, SnippetKind}
+import it.unibo.demo.scenarios.CustomSpec
+
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicReference
 import scala.util.Try
 
+/** What a `custom` payload's source must evaluate to. */
+enum CustomKind(val wire: String):
+  /** A `Formation`: geometry only, planned and steered by `CustomFormation`. */
+  case Formation extends CustomKind("formation")
+
+  /** A `BaseDemo`: a whole aggregate program, run in place of `CustomFormation`. */
+  case Program extends CustomKind("program")
+
+object CustomKind:
+  def fromWire(wire: String): Option[CustomKind] = values.find(_.wire == wire)
+
+/** A `custom` payload read but not yet compiled: reading is cheap and total, compiling is neither. */
+enum CustomRequest:
+  /** An explicit null: forget the current spec. */
+  case Clear
+  case Compile(kind: CustomKind, source: String)
+  case Rejected(reason: String)
+
 /**
- * Reads the optional `custom` object of a `/config/formation` payload into a compiled
- * [[CustomSpec]], on the MQTT callback thread, once per message -- so the 5 Hz control loop only
- * ever evaluates formulas and never parses them.
+ * Reads the optional `custom` object of a `/config/formation` payload, then compiles it.
  *
- * Hand-walked rather than derived from a case class, for the reasons [[MqttProvider]] already
- * demonstrates: it uses `macroRW` for the strict, machine-generated payloads and walks `ujson` by
- * hand for `/config/formation`. That line matters more here. `/config/formation` is retained and
- * now agent-authored, so it must be lenient: an upickle `read` throws on any deviation -- one
- * unexpected key, a point with three numbers -- and that failure would propagate out of the
- * handler's for-comprehension and take the `program`, `leaderId` and `anchor` update down with
- * it. On a retained topic that is not a rejected shape but a stuck fleet, with no live publisher
- * to correct it. Per-field leniency gives graceful degradation instead.
+ * Two steps because they run in different places: reading happens on the MQTT callback, where it
+ * must be instant, and compiling on a blocking thread, where it may take a cold second. Neither
+ * runs in the 20 Hz control loop, which only ever evaluates what was compiled.
  *
- * Total by construction: a hostile payload can only ever produce [[CustomSpec.Invalid]].
+ * Hand-walked rather than derived from a case class, as [[MqttProvider]] does for this topic:
+ * `/config/formation` is retained and agent-authored, so it must be lenient. An upickle `read`
+ * throws on any deviation, and that failure would take the `program`, `leaderId` and `anchor`
+ * update down with it -- on a retained topic, a stuck fleet with no live publisher to correct it.
+ *
+ * Total by construction: a hostile payload can only ever produce [[CustomRequest.Rejected]], and
+ * a hostile source only [[CustomSpec.Invalid]].
  */
 object CustomSpecCodec:
 
@@ -29,83 +51,81 @@ object CustomSpecCodec:
    *
    * `None` must leave the previous spec in place -- the same "a message that omits a key changes
    * nothing about that key" semantics `params` already has, and what an operator expects when
-   * they switch to `circleShape` and back. An explicit null clears it to [[CustomSpec.Absent]].
+   * they switch to `circleShape` and back. An explicit null clears it.
    *
    * Deliberately unlike `leaderId`, which a message without the key does clear: that is
    * documented in [[MqttProvider]] and is about never rooting a gradient on a stale device id.
    */
-  def fromCommand(command: ujson.Value): Option[CustomSpec] =
-    Try(command.obj.get(Key)).toOption.flatten.map(decode)
+  def fromCommand(command: ujson.Value): Option[CustomRequest] =
+    Try(command.obj.get(Key)).toOption.flatten.map(read)
 
-  /** Never throws; a payload it cannot use becomes [[CustomSpec.Invalid]] with a reason. */
-  def decode(node: ujson.Value): CustomSpec =
-    Try(read(node)).getOrElse(CustomSpec.Invalid("custom could not be read"))
+  /** Never throws; a payload it cannot use becomes [[CustomRequest.Rejected]] with a reason. */
+  def read(node: ujson.Value): CustomRequest =
+    Try(readUnsafe(node)).getOrElse(CustomRequest.Rejected("custom could not be read"))
 
-  private def read(node: ujson.Value): CustomSpec =
-    if node.isNull then CustomSpec.Absent
+  private def readUnsafe(node: ujson.Value): CustomRequest =
+    if node.isNull then CustomRequest.Clear
     else
       node.objOpt match
-        case None => CustomSpec.Invalid("custom must be a JSON object")
+        case None => CustomRequest.Rejected("custom must be a JSON object")
         case Some(fields) =>
-          val declared = fields.get("kind").flatMap(_.strOpt)
-          val inferred = declared.orElse {
-            if fields.contains("points") then Some("points")
-            else if fields.contains("x") && fields.contains("y") then Some("cartesian")
-            else if fields.contains("r") && fields.contains("theta") then Some("polar")
-            else None
-          }
-          inferred match
-            case Some("points") => points(fields)
-            case Some("cartesian") => formulas(fields, "x", "y", CustomSpec.Cartesian.apply)
-            case Some("polar") => formulas(fields, "r", "theta", CustomSpec.Polar.apply)
-            case Some(other) =>
-              CustomSpec.Invalid(s"custom.kind '$other' is not one of points, cartesian, polar")
-            case None =>
-              CustomSpec.Invalid("custom must carry points, or x and y, or r and theta")
+          val kinds = CustomKind.values.map(_.wire).mkString(", ")
+          fields.get("kind").flatMap(_.strOpt).flatMap(CustomKind.fromWire) match
+            case None => CustomRequest.Rejected(s"custom.kind must be one of $kinds")
+            case Some(kind) =>
+              fields.get("source").flatMap(_.strOpt) match
+                case None | Some("") => CustomRequest.Rejected("custom.source must be a non-empty string of Scala")
+                case Some(source) if source.length > FormationCompiler.MaxSourceLength =>
+                  CustomRequest.Rejected(s"custom.source is longer than ${FormationCompiler.MaxSourceLength} characters")
+                case Some(source) => CustomRequest.Compile(kind, source)
 
-  private def points(fields: scala.collection.Map[String, ujson.Value]): CustomSpec =
-    fields.get("points").flatMap(_.arrOpt) match
-      case None => CustomSpec.Invalid("custom.points must be an array of [x, y] pairs")
-      case Some(entries) =>
-        // A malformed or non-finite pair is dropped and the rest survive. A JSON literal too
-        // large for a double parses to an infinity, which is the only route by which JSON can
-        // smuggle a non-finite number in at all.
-        val usable = entries.iterator
-          .flatMap { entry =>
-            entry.arrOpt
-              .filter(_.size >= 2)
-              .flatMap { pair =>
-                for
-                  x <- pair(0).numOpt if x.isFinite
-                  y <- pair(1).numOpt if y.isFinite
-                yield (x, y)
-              }
-          }
-          .take(CustomSpec.MaxPoints)
-          .toList
-        if usable.isEmpty then CustomSpec.Invalid("custom.points carried no usable [x, y] pair")
-        else
-          val declaredClosed = fields.get("closed").flatMap(_.boolOpt).getOrElse(false)
-          // An author who repeated the first point at the end meant a closed loop; keeping the
-          // duplicate would put two robots on the seam.
-          val repeatsFirst = usable.size > 2
-            && math.hypot(usable.head._1 - usable.last._1, usable.head._2 - usable.last._2) < CustomSlots.Epsilon
-          if repeatsFirst then CustomSpec.Points(usable.init, closed = true)
-          else CustomSpec.Points(usable, declaredClosed)
+  /** Blocking: a warm compile takes tens of milliseconds, a cold one over a second. */
+  def compile(compiler: FormationCompiler, request: CustomRequest): CustomSpec = request match
+    case CustomRequest.Clear => CustomSpec.Absent
+    case CustomRequest.Rejected(reason) => CustomSpec.Invalid(reason)
+    case CustomRequest.Compile(CustomKind.Formation, source) =>
+      compiler.compile(SnippetKind.Geometry, source).fold(rejection, CustomSpec.Geometry(_))
+    case CustomRequest.Compile(CustomKind.Program, source) =>
+      compiler.compile(SnippetKind.Aggregate, source).fold(rejection, CustomSpec.Program(programId(source), _))
 
-  private def formulas(
-      fields: scala.collection.Map[String, ujson.Value],
-      firstKey: String,
-      secondKey: String,
-      build: (Formula, Formula) => CustomSpec
-  ): CustomSpec =
-    (fields.get(firstKey).flatMap(_.strOpt), fields.get(secondKey).flatMap(_.strOpt)) match
-      case (Some(firstSource), Some(secondSource)) =>
-        // Naming the offending field is the whole point: the reason travels back to the agent
-        // that wrote the formula, which can then fix that one expression.
-        (Formula.compile(firstSource), Formula.compile(secondSource)) match
-          case (Right(first), Right(second)) => build(first, second)
-          case (Left(reason), _) => CustomSpec.Invalid(s"custom.$firstKey: $reason")
-          case (_, Left(reason)) => CustomSpec.Invalid(s"custom.$secondKey: $reason")
+  /** Every problem on a line of its own, each naming where it is, for the log and the author. */
+  def describe(problems: List[Problem]): String =
+    problems.map { problem =>
+      if problem.line > 0 then s"line ${problem.line}, column ${problem.column}: ${problem.message}"
+      else problem.message
+    }.mkString("\n")
+
+  private def rejection(problems: List[Problem]): CustomSpec = CustomSpec.Invalid(describe(problems))
+
+  /** Stable across devices and restarts, and short enough to sit in every export's path. */
+  private def programId(source: String): String =
+    MessageDigest
+      .getInstance("SHA-256")
+      .digest(source.getBytes(StandardCharsets.UTF_8))
+      .take(8)
+      .map(byte => f"${byte & 0xff}%02x")
+      .mkString
+
+/**
+ * [[CustomSpecCodec.compile]], reusing the last spec compiled from the very same source.
+ *
+ * Republishing is the common case, not the rare one: every slider an operator drags resends the
+ * whole command, `custom` included. Recompiling would cost tens of milliseconds each time and,
+ * worse, load a fresh class: devices holding the old and the new instance of a designed program
+ * would then sit on different `align` keys until every pose had picked up the new config.
+ *
+ * Only successes are kept. A refusal is cheap to reach again, and one caused by a compile that
+ * merely ran out of time deserves another try.
+ */
+final class CustomSpecCache(compiler: FormationCompiler):
+  private val last = AtomicReference[Option[(CustomRequest, CustomSpec)]](None)
+
+  def compile(request: CustomRequest): CustomSpec =
+    last.get() match
+      case Some((previous, spec)) if previous == request => spec
       case _ =>
-        CustomSpec.Invalid(s"custom.$firstKey and custom.$secondKey must both be formula strings")
+        val spec = CustomSpecCodec.compile(compiler, request)
+        spec match
+          case CustomSpec.Geometry(_) | CustomSpec.Program(_, _) => last.set(Some((request, spec)))
+          case _ => ()
+        spec
