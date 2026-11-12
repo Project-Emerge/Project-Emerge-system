@@ -207,7 +207,7 @@ export const en: TranslationDictionary = {
       },
       custom: {
         label: "Custom",
-        description: "A geometry supplied as data rather than compiled in, designed in the swarm chat.",
+        description: "Scala code the runtime compiles on arrival, a shape or a whole program, written in the swarm chat.",
       },
     },
     params: {

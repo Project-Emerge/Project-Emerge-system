@@ -105,6 +105,14 @@ object ShapeFormation:
   def minRingRadius(count: Int, clearance: Double): Double =
     if count < 2 then clearance else math.max(clearance, clearance / (2 * math.sin(math.Pi / count)))
 
+  /** `phase` within one turn, `[0, 2π)`; a non-finite one becomes zero. */
+  def wrapPhase(phase: Double): Double =
+    val turn = 2 * math.Pi
+    if !phase.isFinite then 0.0
+    else
+      val wrapped = phase % turn
+      if wrapped < 0 then wrapped + turn else wrapped
+
   /** Phase of a `periodSeconds`-long cycle at the given shared-clock reading. */
   def phaseAt(timestampMillis: Long, periodSeconds: Double): Double =
     if periodSeconds <= 0.0 then 0.0

@@ -13,8 +13,12 @@ import {
   motorConfigurationTopic,
   validateClientPublication,
   validateConfigurationPublication,
-  CUSTOM_FORMULA_MAX_LENGTH,
-  CUSTOM_MAX_COORDINATE,
+  CUSTOM_SOURCE_MAX_LENGTH,
+  FORMATION_COMPILE_REQUEST_TOPIC,
+  FormationCompileRequestSchema,
+  FormationCompileResultSchema,
+  formationCompileResultTopic,
+  isFormationCompileResultTopic,
 } from "./protocol.js";
 
 describe("contratti di configurazione MQTT", () => {
@@ -145,14 +149,13 @@ describe("contratti di configurazione MQTT", () => {
     })).not.toBeNull();
   });
 
-  it("accetta ogni forma di geometria disegnata", () => {
-    const geometries = [
-      { kind: "points", points: [[0, 0.5], [0.5, 0], [-0.5, 0]], closed: true, label: "Triangle" },
-      { kind: "points", points: [[0, 0.5]] },
-      { kind: "cartesian", x: "0.3*i", y: "0.2*sin(t)" },
-      { kind: "polar", r: "0.5", theta: "2*pi*i/n + t", label: "Star" },
+  it("accetta una geometria o un programma scritti in Scala", () => {
+    const designs = [
+      { kind: "formation", source: "Formation(ctx => ring(ctx.count, 0.6))", label: "Anello" },
+      { kind: "formation", source: "Formation(ctx => ring(ctx.count, 0.6))" },
+      { kind: "program", source: "new Stop()", label: "Fermi" },
     ];
-    geometries.forEach((custom) => {
+    designs.forEach((custom) => {
       const parsed = FormationCommandSchema.safeParse({
         program: "custom", leaderId: null, anchor: "auto", params: {}, custom,
       });
@@ -160,30 +163,27 @@ describe("contratti di configurazione MQTT", () => {
     });
   });
 
-  it("rifiuta una formazione custom senza la geometria che la definisce", () => {
+  it("rifiuta una formazione custom senza il codice che la definisce", () => {
     // Il runtime ricadrebbe su un anello silenziosamente: meglio non pubblicarla affatto.
     expect(validateConfigurationPublication(formationTopic(), {
       program: "custom", leaderId: null, anchor: "auto", params: {},
-    })).toBe("A custom formation must carry the geometry it is built from.");
+    })).toBe("A custom formation must carry the code it is built from.");
     expect(validateConfigurationPublication(formationTopic(), {
       program: "custom", leaderId: null, anchor: "auto", params: {}, custom: null,
     })).not.toBeNull();
   });
 
-  it("rifiuta le geometrie malformate", () => {
+  it("rifiuta i formati che Scala ha sostituito e il codice malformato", () => {
     const rejected = [
-      { kind: "points", points: [] },
-      { kind: "points", points: [[0, 0.5, 0.1]] },
-      { kind: "points", points: [["a", "b"]] },
-      // Oltre il tetto operatore: il runtime ha comunque il suo, non alzabile da un messaggio.
-      { kind: "points", points: [[0, CUSTOM_MAX_COORDINATE + 1]] },
-      { kind: "points", points: [[0, Number.NaN]] },
-      { kind: "cartesian", x: "0.3*i" },
-      { kind: "cartesian", x: "", y: "0" },
-      { kind: "cartesian", x: "1".repeat(CUSTOM_FORMULA_MAX_LENGTH + 1), y: "0" },
-      { kind: "polar", r: "0.5" },
-      { kind: "spline", points: [[0, 0.5]] },
-      { points: [[0, 0.5]] },
+      // I formati di prima: un comando retained che li porta ancora non deve sembrare valido.
+      { kind: "points", points: [[0, 0.5], [0.5, 0]] },
+      { kind: "cartesian", x: "0.3*i", y: "0" },
+      { kind: "polar", r: "0.5", theta: "i" },
+      { kind: "formation" },
+      { kind: "formation", source: "" },
+      { kind: "formation", source: "x".repeat(CUSTOM_SOURCE_MAX_LENGTH + 1) },
+      { kind: "script", source: "Formation(ctx => Nil)" },
+      { source: "Formation(ctx => Nil)" },
     ];
     rejected.forEach((custom) => {
       const parsed = FormationCommandSchema.safeParse({
@@ -191,6 +191,30 @@ describe("contratti di configurazione MQTT", () => {
       });
       expect(parsed.success, JSON.stringify(custom)).toBe(false);
     });
+  });
+
+  it("descrive la richiesta di compilazione e la risposta che il runtime pubblica", () => {
+    expect(FORMATION_COMPILE_REQUEST_TOPIC).toBe("/formation/compile");
+    expect(formationCompileResultTopic("abc-1")).toBe("/formation/compile/abc-1");
+    expect(isFormationCompileResultTopic("/formation/compile/abc-1")).toBe(true);
+    expect(isFormationCompileResultTopic("/formation/compile")).toBe(false);
+    expect(FormationCompileRequestSchema.safeParse({
+      id: "abc-1", kind: "formation", source: "Formation(ctx => Nil)", slots: 4, params: { radius: 0.5 },
+    }).success).toBe(true);
+    // Un id che uscirebbe dal proprio topic di risposta non e' una richiesta valida.
+    expect(FormationCompileRequestSchema.safeParse({
+      id: "a/b", kind: "formation", source: "x", slots: 4, params: {},
+    }).success).toBe(false);
+    const answer = FormationCompileResultSchema.safeParse({
+      id: "abc-1",
+      ok: false,
+      problems: [{ line: 2, column: 5, message: "Found: String" }],
+      preview: null,
+    });
+    expect(answer.success).toBe(true);
+    expect(FormationCompileResultSchema.safeParse({
+      id: "abc-1", ok: true, problems: [], preview: [[0, 0.6], [0.5, -0.3]],
+    }).success).toBe(true);
   });
 
   it("continua ad accettare un comando retained pubblicato prima delle formazioni custom", () => {
@@ -211,7 +235,7 @@ describe("contratti di configurazione MQTT", () => {
       leaderId: "A1B2C3",
       anchor: "leader",
       params: { radius: 0.6 },
-      custom: { kind: "polar", r: "0.5", theta: "2*pi*i/n" },
+      custom: { kind: "formation", source: "Formation(ctx => ring(ctx.count, 0.5))" },
     })).toBeNull();
   });
 });

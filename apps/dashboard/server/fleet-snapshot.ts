@@ -63,7 +63,10 @@ export function describeFleetForPrompt(fleet: FleetSnapshot): string {
       lines.push(`Its parameters: ${tuned.map(([key, value]) => `${key}=${value}`).join(", ")}.`);
     }
     if (custom) {
-      lines.push(`Its geometry: ${JSON.stringify(custom)}.`);
+      // As source, not JSON: escaped quotes would be one more thing to get wrong when the operator
+      // asks for a change to it and the model edits what is running.
+      const named = custom.label ? ` named ${custom.label}` : "";
+      lines.push(`Its design, a ${custom.kind}${named}:`, "```scala", custom.source, "```");
     }
   } else {
     lines.push("No formation is running yet.");
