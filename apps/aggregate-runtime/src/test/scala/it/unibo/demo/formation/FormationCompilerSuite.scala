@@ -2,7 +2,8 @@ package it.unibo.demo.formation
 
 import it.unibo.core.Environment
 import it.unibo.core.aggregate.AggregateOrchestrator
-import it.unibo.demo.formation.dsl.FormationContext
+import it.unibo.demo.formation.Fuel.{Budget, OutOfFuel}
+import it.unibo.demo.formation.dsl.{Formation, FormationContext, Point}
 import it.unibo.demo.robot.Actuation
 import it.unibo.demo.scenarios.{BaseDemo, CircleFormation, FormationDefaults}
 import it.unibo.utils.Position.given
@@ -21,31 +22,40 @@ class FormationCompilerSuite extends munit.FunSuite:
 
   private def geometry(source: String) = compiler.compile(SnippetKind.Geometry, source)
 
-  private def radii(slots: List[(Double, Double)]): List[Double] = slots.map((x, y) => math.hypot(x, y))
+  /** Compiled code only runs under a meter, as it will in the runtime. */
+  private def evaluate(formation: Formation, ctx: FormationContext): Either[OutOfFuel, List[Point]] =
+    Fuel.metered(Budget.Default)(formation.slots(ctx))
+
+  /** Compiled and evaluated; what went wrong, if anything, as text. */
+  private def slotsOf(source: String, ctx: FormationContext): Either[String, List[Point]] =
+    geometry(source).left.map(_.mkString("; ")).flatMap(evaluate(_, ctx).left.map(_.getMessage))
+
+  private def radii(slots: List[Point]): List[Double] = slots.map((x, y) => math.hypot(x, y))
+
+  private def context(count: Int, phase: Double = 0.0, params: Map[String, Double] = Map.empty) =
+    FormationContext(count, phase, params)
 
   test("a geometry snippet becomes a formation with one slot per robot") {
-    val formation = geometry("Formation { ctx => ring(ctx.count, 0.5) }")
-    val slots = formation.map(_.slots(FormationContext(count = 4, phase = 0.0, params = Map.empty)))
+    val slots = slotsOf("Formation { ctx => ring(ctx.count, 0.5) }", context(4))
     assertEquals(slots.map(_.size), Right(4))
     slots.foreach(points => radii(points).foreach(r => assertEqualsDouble(r, 0.5, 1e-9)))
   }
 
   test("a snippet reads the operator's parameters, falling back to its own defaults") {
-    val formation = geometry("""Formation { ctx => ring(ctx.count, ctx.param("radius", 0.3)) }""")
-    val tuned = formation.map(f => radii(f.slots(FormationContext(3, 0.0, Map("radius" -> 0.8)))))
-    val untouched = formation.map(f => radii(f.slots(FormationContext(3, 0.0, Map.empty))))
-    assertEquals(tuned.map(_.distinct.map(r => math.round(r * 100))), Right(List(80L)))
-    assertEquals(untouched.map(_.distinct.map(r => math.round(r * 100))), Right(List(30L)))
+    val source = """Formation { ctx => ring(ctx.count, ctx.param("radius", 0.3)) }"""
+    val centimetres = (slots: List[Point]) => radii(slots).map(r => math.round(r * 100)).distinct
+    assertEquals(slotsOf(source, context(3, params = Map("radius" -> 0.8))).map(centimetres), Right(List(80L)))
+    assertEquals(slotsOf(source, context(3)).map(centimetres), Right(List(30L)))
   }
 
   test("a snippet that uses the shared phase moves with it") {
-    val formation = geometry("Formation { ctx => ring(ctx.count, 0.5).rotated(ctx.phase) }")
-    val atRest = formation.map(_.slots(FormationContext(3, 0.0, Map.empty)))
-    val turned = formation.map(_.slots(FormationContext(3, math.Pi / 2, Map.empty)))
+    val source = "Formation { ctx => ring(ctx.count, 0.5).rotated(ctx.phase) }"
+    val atRest = slotsOf(source, context(3))
+    val turned = slotsOf(source, context(3, phase = math.Pi / 2))
     assert(atRest.isRight && atRest != turned, s"expected the slots to move, got $atRest and $turned")
   }
 
-  test("ordinary Scala a formation legitimately needs gets through the checks") {
+  test("ordinary Scala a formation legitimately needs gets through the checks and the meter") {
     val source =
       """|{
          |  val petals = 5
@@ -62,7 +72,7 @@ class FormationCompilerSuite extends munit.FunSuite:
          |    chosen.collect { case (x, y) if x.isFinite && y.isFinite => (x, y) }.scaled(1.0)
          |  }
          |}""".stripMargin
-    val slots = geometry(source).map(_.slots(FormationContext(8, 1.0, Map.empty)))
+    val slots = slotsOf(source, context(8, phase = 1.0))
     assertEquals(slots.map(_.size), Right(8), s"got $slots")
   }
 
@@ -99,7 +109,18 @@ class FormationCompilerSuite extends munit.FunSuite:
       "escaping the wrapper's braces",
       "Formation(_ => Nil) }; val leak = System.getenv(); def other: Formation = { Formation(_ => Nil)",
       "java.lang.System"
-    )
+    ),
+    // Each of the following could swallow running out of fuel, hide from the meter, or turn a
+    // single number into a collection of that size without calling back into metered code.
+    ("catching exceptions", "Formation(ctx => try ring(ctx.count, 0.5) catch case _: Throwable => Nil)", "try"),
+    ("an inline definition", "{ inline def r = 0.5; Formation(ctx => ring(ctx.count, r)) }", "inline"),
+    ("the standard library's Int ranges", "Formation(ctx => intWrapper(0).until(9).toList.map(_ => (0.0, 1.0)))", "scala.runtime.RichInt.until"),
+    ("a range factory", "Formation(_ => List.range(0, 9).map(_ => (0.0, 1.0)))", "range"),
+    ("padding to a length", "Formation(_ => List.empty[Point].padTo(9, (0.0, 1.0)))", "padTo"),
+    ("permutations", "Formation(ctx => ring(ctx.count, 0.5).permutations.next())", "permutations"),
+    ("flattening", "Formation(ctx => List(ring(ctx.count, 0.5)).flatten)", "flatten"),
+    ("arbitrary-precision numbers", "Formation(ctx => ring(ctx.count, BigInt(2).pow(9).toDouble))", "scala.math.BigInt"),
+    ("long ranges", "Formation(_ => scala.collection.immutable.Range.Long(0, 9, 1).toList.map(_ => (0.0, 1.0)))", "Range.Long")
   )
 
   forbidden.foreach { (what, source, named) =>
@@ -118,17 +139,60 @@ class FormationCompilerSuite extends munit.FunSuite:
     assertEquals(Option(System.getProperty(marker)), None)
   }
 
-  /**
-   * Characterisation of the gap the static checks leave: a tail call compiles to a loop, so a
-   * formation can still spin forever. Only compiled here, never evaluated.
-   */
-  test("the static checks cannot rule out a formation that never terminates") {
-    val source =
+  /** What every runaway below must come to: a clean refusal, never a hang or a crash. */
+  private def assertRunsOut(source: String, mentioning: String): Unit =
+    slotsOf(source, context(4)) match
+      case Left(reason) => assert(reason.contains(mentioning), s"expected a mention of `$mentioning`, got: $reason")
+      case Right(slots) => fail(s"expected the formation to run out, got $slots")
+
+  test("a formation that never terminates runs out of fuel instead") {
+    // A tail call compiles to a loop: no allowlist can see this one coming.
+    assertRunsOut(
       """|{
          |  def spin(k: Long): Long = if k >= 0 then spin(k + 1) else k
          |  Formation { ctx => ring(ctx.count, spin(0).toDouble) }
-         |}""".stripMargin
-    assert(geometry(source).isRight)
+         |}""".stripMargin,
+      "steps"
+    )
+  }
+
+  test("fuel runs out inside a by-name argument too") {
+    assertRunsOut("Formation { ctx => List.fill(Int.MaxValue)((0.0, 1.0)).take(ctx.count) }", "steps")
+  }
+
+  test("a range costs fuel for every number it holds") {
+    assertRunsOut("Formation { ctx => (0 until Int.MaxValue).toList.take(ctx.count).map(_ => (0.0, 1.0)) }", "steps")
+  }
+
+  test("the formation DSL's own builders cost fuel for every slot they lay out") {
+    assertRunsOut("Formation { ctx => ring(Int.MaxValue, 0.5).take(ctx.count) }", "steps")
+  }
+
+  test("a formation that keeps doubling its data runs out of memory") {
+    assume(Fuel.measuresAllocation, "this JVM does not report per-thread allocation")
+    assertRunsOut(
+      """|{
+         |  def grow(xs: List[Point], k: Int): List[Point] = if k == 0 then xs else grow(xs ++ xs, k - 1)
+         |  Formation { ctx => grow(List((0.0, 1.0)), 40).take(ctx.count) }
+         |}""".stripMargin,
+      "bytes"
+    )
+  }
+
+  test("a formation that recurses past the stack fails cleanly") {
+    assertRunsOut(
+      """|{
+         |  def deep(k: Long): Long = if k == 0 then 0 else 1 + deep(k - 1)
+         |  Formation { ctx => ring(ctx.count, deep(Long.MaxValue).toDouble) }
+         |}""".stripMargin,
+      "deep"
+    )
+  }
+
+  test("compiled code refuses to run outside a meter") {
+    geometry("Formation { ctx => ring(ctx.count, 0.5) }") match
+      case Left(problems) => fail(s"expected the formation to compile, got $problems")
+      case Right(formation) => intercept[OutOfFuel](formation.slots(context(4)))
   }
 
   /** A fully connected fleet, as in AggregateFormationSuite. */
@@ -142,9 +206,12 @@ class FormationCompilerSuite extends munit.FunSuite:
   private val fleet = Map(1 -> (0.0, 0.0), 2 -> (0.5, 0.0), 3 -> (0.0, 0.5), 4 -> (0.5, 0.5))
   private val circleConfig: Map[String, Any] = FormationDefaults.All + (CircleFormation.RADIUS_SENSING -> 0.5)
 
+  /** Each round metered as a whole, which is all a compiled-in program needs: it never ticks. */
   private def actuationsAfter(program: BaseDemo, rounds: Int = 30): Map[Int, Actuation] =
     val orchestrator = AggregateOrchestrator[(Double, Double), Actuation](program)
-    (1 to rounds).foldLeft(Map.empty[Int, Actuation])((_, _) => orchestrator.tick(FakeWorld(fleet, circleConfig)))
+    (1 to rounds).foldLeft(Map.empty[Int, Actuation]) { (_, _) =>
+      Fuel.metered(Budget.Default)(orchestrator.tick(FakeWorld(fleet, circleConfig))).getOrElse(Map.empty)
+    }
 
   test("a whole aggregate program compiles against ScaFi and drives the fleet like its built-in twin") {
     val source =

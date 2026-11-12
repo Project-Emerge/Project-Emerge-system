@@ -66,11 +66,21 @@ object FormationCompilerBenchmark:
 
     first.foreach { formation =>
       val ctx = FormationContext(12, 1.0, Map("radius" -> 0.7))
-      (1 to 20_000).foreach(_ => formation.slots(ctx))
+      val evaluate = (phase: Double) => Fuel.metered(Fuel.Budget.Default)(formation.slots(ctx.copy(phase = phase)))
+      (1 to 20_000).foreach(k => evaluate(k * 1e-3))
       val rounds = 100_000
-      val (_, millis) = timed((1 to rounds).foreach(k => formation.slots(ctx.copy(phase = k * 1e-3))))
-      println(f"evaluation, 12 slots                 ${millis * 1000 / rounds}%8.2f us per call")
+      val (_, millis) = timed((1 to rounds).foreach(k => evaluate(k * 1e-3)))
+      println(f"metered evaluation, 12 slots          ${millis * 1000 / rounds}%8.2f us per call")
     }
+    compiler
+      .compile(SnippetKind.Geometry, "{ def spin(k: Long): Long = spin(k + 1); Formation(ctx => ring(ctx.count, spin(0).toDouble)) }")
+      .foreach { endless =>
+        val run = () => Fuel.metered(Fuel.Budget.Default)(endless.slots(FormationContext(12, 0.0, Map.empty)))
+        (1 to 20).foreach(_ => run())
+        val stops = (1 to 20).map(_ => timed(run()))
+        require(stops.forall(_._1.isLeft), "an endless formation must run out")
+        stats(s"endless formation, ${Fuel.Budget.Default.steps} steps", stops.map(_._2))
+      }
 
     println(f"heap: before ${heapBefore}%.0f MB, after ${warmCount + 18} compiles ${heapMb()}%.0f MB")
     val soak = (1 to warmCount).map(k => timed(compiler.compile(SnippetKind.Geometry, geometry(5000 + k)))._2)

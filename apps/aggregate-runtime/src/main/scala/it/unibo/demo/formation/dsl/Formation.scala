@@ -1,5 +1,6 @@
 package it.unibo.demo.formation.dsl
 
+import it.unibo.demo.formation.Fuel
 import it.unibo.demo.scenarios.{CustomSlots, ShapeFormation}
 
 /** A slot offset from the anchor, in metres, in the runtime's frame. */
@@ -23,15 +24,37 @@ trait Formation:
 object Formation:
   def apply(layout: FormationContext => List[Point]): Formation = ctx => layout(ctx)
 
+// Every builder below makes as many elements as a number it is handed, so it pays for all of
+// them before making any: see Fuel.
+
 /** `count` evenly spaced slots on a ring, in [[ShapeFormation.ring]]'s bearing convention. */
-def ring(count: Int, radius: Double): List[Point] = ShapeFormation.ring(count, 0.0)(_ => radius)
+def ring(count: Int, radius: Double): List[Point] =
+  Fuel.charge(math.max(0, count))
+  ShapeFormation.ring(count, 0.0)(_ => radius)
 
 /** `count` slots on a line through the anchor, end to end, skipping the anchor's own spot. */
-def line(count: Int, spacing: Double): List[Point] = ShapeFormation.lineOffsets(count, spacing).map(x => (x, 0.0))
+def line(count: Int, spacing: Double): List[Point] =
+  Fuel.charge(math.max(0, count))
+  ShapeFormation.lineOffsets(count, spacing).map(x => (x, 0.0))
 
 /** `count` slots along a path, a corner on every one of them when there are enough to go round. */
 def outline(count: Int, closed: Boolean)(points: Point*): List[Point] =
+  Fuel.charge(math.max(0, count).toLong + points.size)
   CustomSlots.resample(CustomSlots.dedupeConsecutive(points.toList), closed, count)
+
+/**
+ * `0 until n` and `1 to n` as authors write them, metered. They take precedence over the
+ * standard library's, which [[it.unibo.demo.formation.SandboxPolicy]] refuses: a range is lazy,
+ * but one `toList` on it builds every element without calling back into metered code.
+ */
+extension (start: Int)
+  def until(end: Int): Range =
+    Fuel.charge(math.max(0L, end.toLong - start))
+    Range(start, end)
+
+  def to(end: Int): Range =
+    Fuel.charge(math.max(0L, end.toLong - start + 1))
+    Range.inclusive(start, end)
 
 extension (slots: List[Point])
   def rotated(angle: Double): List[Point] = ShapeFormation.rotated(slots, angle)

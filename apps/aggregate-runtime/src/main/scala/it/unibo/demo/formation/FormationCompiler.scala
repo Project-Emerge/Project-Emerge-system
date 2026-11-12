@@ -19,13 +19,17 @@ import scala.util.control.NonFatal
  * reuses it, which is the difference between seconds and a fraction of one. Compiles are
  * serialised, since that table is not thread-safe.
  *
- * Nothing is written to disk and nothing is loaded unless every check passed. What a loaded
- * snippet then does at run time is not bounded here: see [[SandboxPolicy]].
+ * Nothing is written to disk and nothing is loaded unless every check passed. A loaded snippet
+ * is metered: whoever calls into it must do so inside [[Fuel.metered]], or it refuses to run.
  *
- * @param classpath what snippets compile against; the running JVM's own by default, which is
- *                  the fat jar in production and the forked test classpath under sbt
+ * @param classpath     what snippets compile against; the running JVM's own by default, which
+ *                      is the fat jar in production and the forked test classpath under sbt
+ * @param startupBudget what evaluating the author's top-level expression may spend
  */
-final class FormationCompiler(classpath: String = System.getProperty("java.class.path", "")):
+final class FormationCompiler(
+    classpath: String = System.getProperty("java.class.path", ""),
+    startupBudget: Fuel.Budget = Fuel.Budget.Default
+):
 
   private val driver = SnippetDriver(classpath)
   private var compiled: Long = 0L
@@ -47,18 +51,21 @@ final class FormationCompiler(classpath: String = System.getProperty("java.class
         catch case NonFatal(error) => Left(List(Problem(0, 0, s"the compiler failed: ${error.getMessage}")))
   }
 
-  /** Initialising the wrapper runs the author's expression, so its failures are the author's. */
+  /**
+   * Initialising the wrapper runs the author's expression, so it is metered like any later call
+   * and its failures are the author's.
+   */
   private def load[A](kind: SnippetKind[A], wrapped: Wrapped[A], output: AbstractFile): Either[List[Problem], A] =
     val loader = AbstractFileClassLoader(output, kind.resultClass.getClassLoader)
     try
-      Class.forName(wrapped.moduleClass, true, loader).getField("MODULE$").get(null) match
-        case snippet: Snippet[?] if kind.resultClass.isInstance(snippet.value) =>
+      Fuel.metered(startupBudget)(Class.forName(wrapped.moduleClass, true, loader).getField("MODULE$").get(null)) match
+        case Left(outOfFuel) => Left(List(Problem(0, 0, s"the snippet ran out while starting: ${outOfFuel.getMessage}")))
+        case Right(snippet: Snippet[?]) if kind.resultClass.isInstance(snippet.value) =>
           Right(kind.resultClass.cast(snippet.value))
-        case _ => Left(List(Problem(0, 0, s"the snippet did not produce a ${kind.resultType}")))
+        case Right(_) => Left(List(Problem(0, 0, s"the snippet did not produce a ${kind.resultType}")))
     catch
       case error: ExceptionInInitializerError =>
         Left(List(Problem(0, 0, s"the snippet failed while starting: ${error.getCause}")))
-      case _: StackOverflowError => Left(List(Problem(0, 0, "the snippet recursed without end")))
       case NonFatal(error) => Left(List(Problem(0, 0, s"the snippet could not be loaded: $error")))
 
 /** The author's expression inside the scaffolding that gives it a name and a type. */
