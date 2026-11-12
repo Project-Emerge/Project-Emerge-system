@@ -186,6 +186,10 @@ The dashboard's home page has a **Formation & parameters** panel for choosing a 
 
 For OTA updates, provide a dashboard `host:port` reachable by the robots, the firmware version, and the compiled `.bin` file in **Settings → OTA update**. Use the dashboard's LAN address rather than `localhost`. The gateway stores the image, retains the OTA server on `/config/ota`, and publishes a non-retained `/ota/check/{id}` command to each discovered robot.
 
+## License
+
+This project is licensed under the [Apache License 2.0](LICENSE).
+
 ## Credits
 
 **Contributors:**
