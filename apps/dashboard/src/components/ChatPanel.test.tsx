@@ -36,7 +36,7 @@ const starReply: ChatReply = {
     leaderId: null,
     anchor: "auto",
     params: {},
-    custom: { kind: "polar", r: "0.6", theta: "2*pi*i/n", label: "Stella" },
+    custom: { kind: "formation", source: "Formation(ctx => ring(ctx.count, 0.6))", label: "Stella" },
   },
   commandSummary: "Custom (Stella) around an elected leader",
   requiresConfirmation: true,

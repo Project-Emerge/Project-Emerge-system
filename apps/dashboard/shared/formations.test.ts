@@ -44,7 +44,7 @@ describe("metadati delle formazioni", () => {
         params: defaultParams(definition),
         // Una geometria disegnata e' obbligatoria solo per `custom`.
         custom: definition.value === "custom"
-          ? { kind: "polar" as const, r: "0.5", theta: "2*pi*i/n" }
+          ? { kind: "formation" as const, source: "Formation(ctx => ring(ctx.count, 0.5))" }
           : null,
       };
       expect(FormationCommandSchema.safeParse(command).success).toBe(true);
@@ -113,7 +113,7 @@ describe("metadati delle formazioni", () => {
       leaderId: null,
       anchor: "auto",
       params: {},
-      custom: { kind: "polar", r: "0.5", theta: "2*pi*i/n", label: "Star" },
+      custom: { kind: "formation", source: "Formation(ctx => ring(ctx.count, 0.5))", label: "Star" },
     })).toBe("Custom (Star) around an elected leader");
   });
 

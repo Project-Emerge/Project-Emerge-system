@@ -61,7 +61,7 @@ export const FORMATION_PROGRAMS = [
   "breathingCircle",
   "ringWave",
   "sineLine",
-  // Geometry supplied as data on this same message rather than compiled into the runtime.
+  // Scala carried on this same message and compiled by the runtime on arrival.
   "custom",
   "stop",
 ] as const;
@@ -77,57 +77,36 @@ export const FORMATION_ANCHORS = ["leader", "auto"] as const;
 
 export type FormationAnchor = (typeof FORMATION_ANCHORS)[number];
 
+/** Mirrors `FormationCompiler.MaxSourceLength` in the aggregate runtime. */
+export const CUSTOM_SOURCE_MAX_LENGTH = 8_000;
+
 /**
- * How far from the anchor a designed slot may be asked to sit. Mirrors
- * `CustomSlots.AbsoluteMaxRadius` in the aggregate runtime, which clamps again on arrival --
- * this bound is the operator-facing gate, that one is the ceiling no message can raise.
+ * What a designed source must evaluate to.
+ * - `formation`: a `Formation`, geometry only; the runtime plans, assigns and steers around it.
+ * - `program`: a `BaseDemo`, a whole aggregate program run in place of the formation planner.
  */
-export const CUSTOM_MAX_COORDINATE = 3;
+export const CUSTOM_KINDS = ["formation", "program"] as const;
 
-/** Mirrors `FormulaLimits.MaxSourceLength`, so a formula this accepts is one the runtime parses. */
-export const CUSTOM_FORMULA_MAX_LENGTH = 512;
+export type CustomKind = (typeof CUSTOM_KINDS)[number];
 
-/** Mirrors `CustomSpec.MaxPoints`. */
-export const CUSTOM_MAX_POINTS = 256;
+const customSource = z.string().min(1).max(CUSTOM_SOURCE_MAX_LENGTH);
 
-const customCoordinate = finiteNumber
-  .min(-CUSTOM_MAX_COORDINATE)
-  .max(CUSTOM_MAX_COORDINATE);
-
-const customFormula = z.string().min(1).max(CUSTOM_FORMULA_MAX_LENGTH);
-
-/** A name for the shape, shown on the chat's action chip and the arena toolbar. */
+/** A name for the design, shown on the chat's action chip and the arena toolbar. */
 const customLabel = z.string().min(1).max(60).optional();
 
 /**
- * A formation geometry described as data, so one the runtime has never seen costs no
- * recompilation and no restart.
+ * A formation written as Scala and compiled by the aggregate runtime when it arrives, so one the
+ * runtime has never seen costs no rebuild and no restart.
  *
- * `points` is an explicit path in metres, resampled to however many robots are present: a slot
- * on every corner when there are enough, the rest spread along the longest spans. The two formula modes are evaluated once per slot with `i` (0-based slot index),
- * `n` (slot count) and `t` (shared phase, wrapped to one turn) in scope; `polar` follows the
- * runtime's bearing convention, where `x = r*sin(theta)` and `y = r*cos(theta)`.
+ * The runtime compiles it in a sandbox -- only arithmetic, immutable collections and the formation
+ * DSL are reachable, and every call is metered -- and falls back to a ring when it does not
+ * compile or misbehaves. Check it first on `/formation/compile` to see why before publishing.
  */
-export const CustomFormationSpecSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("points"),
-    points: z.array(z.tuple([customCoordinate, customCoordinate])).min(1).max(CUSTOM_MAX_POINTS),
-    closed: z.boolean().optional(),
-    label: customLabel,
-  }),
-  z.object({
-    kind: z.literal("cartesian"),
-    x: customFormula,
-    y: customFormula,
-    label: customLabel,
-  }),
-  z.object({
-    kind: z.literal("polar"),
-    r: customFormula,
-    theta: customFormula,
-    label: customLabel,
-  }),
-]);
+export const CustomFormationSpecSchema = z.object({
+  kind: z.enum(CUSTOM_KINDS),
+  source: customSource,
+  label: customLabel,
+});
 
 export type CustomFormationSpec = z.infer<typeof CustomFormationSpecSchema>;
 
@@ -144,7 +123,7 @@ export const FormationCommandSchema = z.object({
     context.addIssue({
       code: "custom",
       path: ["custom"],
-      message: "A custom formation must carry the geometry it is built from.",
+      message: "A custom formation must carry the code it is built from.",
     });
   }
 });
@@ -155,6 +134,52 @@ export type MotorCommand = z.infer<typeof MotorCommandSchema>;
 export type ArucoMap = z.infer<typeof ArucoMapSchema>;
 export type Neighbors = z.infer<typeof NeighborsSchema>;
 export type FormationCommand = z.infer<typeof FormationCommandSchema>;
+
+/** Not retained: a request to compile a design, answered on `/formation/compile/<id>`. */
+export const FORMATION_COMPILE_REQUEST_TOPIC = "/formation/compile";
+
+/** Nothing an MQTT topic level could misread: mirrors the runtime's own check. */
+const COMPILE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+export function formationCompileResultTopic(id: string): string {
+  return `${FORMATION_COMPILE_REQUEST_TOPIC}/${id}`;
+}
+
+export function isFormationCompileResultTopic(topic: string): boolean {
+  return topic.startsWith(`${FORMATION_COMPILE_REQUEST_TOPIC}/`)
+    && COMPILE_ID_PATTERN.test(topic.slice(FORMATION_COMPILE_REQUEST_TOPIC.length + 1));
+}
+
+/**
+ * `slots` is how many robots the design is laid out for, the anchor excluded, which is what
+ * `ctx.count` will be on the floor; `params` are the live parameters over the runtime's defaults.
+ */
+export const FormationCompileRequestSchema = z.object({
+  id: z.string().regex(COMPILE_ID_PATTERN),
+  kind: z.enum(CUSTOM_KINDS),
+  source: customSource,
+  slots: z.number().int().min(1).max(64),
+  params: z.record(z.string(), finiteNumber),
+});
+
+/** `line` and `column` are 1-based in the author's source, or 0 when a problem has no position. */
+export const FormationCompileProblemSchema = z.object({
+  line: z.number().int().nonnegative(),
+  column: z.number().int().nonnegative(),
+  message: z.string(),
+});
+
+/** `preview` is the geometry's slots at rest, in metres from the anchor; null for a program. */
+export const FormationCompileResultSchema = z.object({
+  id: z.string(),
+  ok: z.boolean(),
+  problems: z.array(FormationCompileProblemSchema),
+  preview: z.array(z.tuple([finiteNumber, finiteNumber])).nullable(),
+});
+
+export type FormationCompileRequest = z.infer<typeof FormationCompileRequestSchema>;
+export type FormationCompileProblem = z.infer<typeof FormationCompileProblemSchema>;
+export type FormationCompileResult = z.infer<typeof FormationCompileResultSchema>;
 
 export const ClientPublishMessageSchema = z.object({
   type: z.literal("publish"),

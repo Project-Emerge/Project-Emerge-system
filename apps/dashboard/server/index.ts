@@ -6,6 +6,7 @@ import mqtt from "mqtt";
 import { WebSocketServer, WebSocket } from "ws";
 import {
   ClientPublishMessageSchema,
+  formationCompileResultTopic,
   MQTT_SUBSCRIPTIONS,
   type GatewayMqttMessage,
   type GatewayServerMessage,
@@ -23,6 +24,7 @@ import {
 import { createDesignLog } from "./design-log.js";
 import { deriveFleetSnapshot } from "./fleet-snapshot.js";
 import { createFormationAgent, DEFAULT_CHAT_MODEL, type FormationAgent } from "./chat-agent.js";
+import { createFormationChecker } from "./formation-check.js";
 import { createTranscriber, isSupportedAudioType, type Transcriber } from "./transcribe.js";
 
 try {
@@ -73,6 +75,14 @@ const mqttClient = mqtt.connect(mqttUrl, {
   queueQoSZero: false,
 });
 
+// Asks the aggregate runtime to compile a design before the chat hands it back to be published,
+// so an author learns why it would fail rather than watching the fleet fall back to a ring.
+const formationChecker = createFormationChecker({
+  publish: (topic, payload) => {
+    mqttClient.publish(topic, payload, { qos: 1, retain: false });
+  },
+});
+
 const server = createServer((request, response) => {
   void handleHttpRequest(request, response);
 });
@@ -105,6 +115,7 @@ async function handleHttpRequest(request: import("node:http").IncomingMessage, r
         apiKey: geminiApiKey,
         model: geminiModel,
         onDesign: (record) => designLog.record(record),
+        checkDesign: (request) => formationChecker.check(request),
       });
       const reply = await formationAgent.run(parsed.data.messages, deriveFleetSnapshot(snapshots));
       sendJson(response, 200, reply);
@@ -292,6 +303,12 @@ mqttClient.on("connect", () => {
       console.error("Unable to subscribe to MQTT topics", error.message);
     }
   });
+  // QoS 1: a lost answer would leave the chat waiting out the whole timeout.
+  mqttClient.subscribe(formationCompileResultTopic("+"), { qos: 1 }, (error) => {
+    if (error) {
+      console.error("Unable to subscribe to formation compile answers", error.message);
+    }
+  });
 });
 
 mqttClient.on("reconnect", () => setBrokerStatus("connecting"));
@@ -306,6 +323,8 @@ mqttClient.on("message", (topic, rawPayload) => {
   } catch {
     // Keep malformed payloads observable without trusting them as telemetry.
   }
+  // A compile answer belongs to whoever asked for it, not to every browser.
+  if (formationChecker.receive(topic, payload)) return;
   const message: GatewayMqttMessage = { topic, payload, receivedAt: Date.now() };
   snapshots.set(topic, message);
   broadcast({ type: "mqtt", ...message });

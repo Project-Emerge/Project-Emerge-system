@@ -48,7 +48,7 @@ object FormationDefaults:
     "breathingCircle" -> BreathingCircleFormation(),
     "ringWave" -> RingWaveFormation(),
     "sineLine" -> SineLineFormation(),
-    // Geometry supplied as data on /config/formation rather than compiled in.
+    // Scala carried on /config/formation and compiled on arrival, rather than built in.
     "custom" -> CustomFormation(),
     "stop" -> Stop()
   )
