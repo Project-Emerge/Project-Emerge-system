@@ -1,10 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { AIMessage } from "@langchain/core/messages";
+import { AIMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { z } from "zod";
-import { createFormationAgent, formationToolSchemas } from "./chat-agent.js";
+import { createFormationAgent, formationToolSchemas, type FormationCheckRequest } from "./chat-agent.js";
 import type { DesignRecord } from "./design-log.js";
 import type { FleetSnapshot } from "../shared/chat.js";
+import { CUSTOM_SOURCE_MAX_LENGTH, type FormationCompileResult } from "../shared/protocol.js";
+
+const starSource = [
+  "Formation { ctx =>",
+  "  (0 until ctx.count).toList.map { i =>",
+  "    val angle = 2 * math.Pi * i / ctx.count",
+  "    val r = 0.6 + 0.3 * math.cos(5 * angle)",
+  "    (r * math.sin(angle), r * math.cos(angle))",
+  "  }",
+  "}",
+].join("\n");
 
 type ToolCall = { name: string; args: Record<string, unknown> };
 
@@ -142,80 +153,48 @@ describe("agente di chat delle formazioni", () => {
     expect(reply.command?.leaderId).toBe("A1B2C3");
   });
 
-  it("richiede conferma per una geometria inventata", async () => {
+  it("richiede conferma per una formazione scritta in Scala", async () => {
     const agent = agentFor({
       text: "Ho disegnato una stella.",
       toolCall: {
         name: "design_formation",
-        args: {
-          kind: "polar",
-          label: "Stella",
-          r: "0.6 + 0.3*cos(5*2*pi*i/n)",
-          theta: "2*pi*i/n",
-          anchor: "auto",
-          leaderId: null,
-        },
+        args: { kind: "formation", label: "Stella", source: starSource, anchor: "auto", leaderId: null },
       },
     });
     const reply = await agent.run([{ role: "user", content: "disegna una stella" }], fleet);
     expect(reply.command?.program).toBe("custom");
-    expect(reply.command?.custom).toEqual({
-      kind: "polar",
-      r: "0.6 + 0.3*cos(5*2*pi*i/n)",
-      theta: "2*pi*i/n",
-      label: "Stella",
-    });
-    // Il punto dell'intero flusso: una forma nuova aspetta un operatore.
+    expect(reply.command?.custom).toEqual({ kind: "formation", source: starSource, label: "Stella" });
+    // Il punto dell'intero flusso: codice nuovo aspetta un operatore.
     expect(reply.requiresConfirmation).toBe(true);
     expect(reply.commandSummary).toBe("Custom (Stella) around an elected leader");
   });
 
-  it("accetta una geometria a punti e ne conserva l'ordine", async () => {
+  it("accetta anche un programma aggregato intero", async () => {
     const agent = agentFor({
       toolCall: {
         name: "design_formation",
-        args: {
-          kind: "points",
-          label: "Triangolo",
-          points: [[0, 0.6], [0.6, -0.3], [-0.6, -0.3]],
-          closed: true,
-          anchor: "auto",
-          leaderId: null,
-        },
+        args: { kind: "program", label: "Fermi", source: "new Stop()", anchor: "auto", leaderId: null },
       },
     });
-    const reply = await agent.run([{ role: "user", content: "triangolo" }], fleet);
-    expect(reply.command?.custom).toEqual({
-      kind: "points",
-      points: [[0, 0.6], [0.6, -0.3], [-0.6, -0.3]],
-      closed: true,
-      label: "Triangolo",
-    });
+    const reply = await agent.run([{ role: "user", content: "scrivi un programma che li ferma" }], fleet);
+    expect(reply.command?.custom).toEqual({ kind: "program", source: "new Stop()", label: "Fermi" });
+    expect(reply.requiresConfirmation).toBe(true);
   });
 
-  it("rifiuta una geometria a formule incompleta senza pubblicare nulla", async () => {
+  it("rifiuta un disegno senza codice senza pubblicare nulla", async () => {
     const agent = agentFor({
-      toolCall: {
-        name: "design_formation",
-        args: { kind: "cartesian", label: "Mezza", x: "0.3*i", anchor: "auto", leaderId: null },
-      },
+      toolCall: { name: "design_formation", args: { kind: "formation", label: "Vuota", anchor: "auto", leaderId: null } },
     });
     const reply = await agent.run([{ role: "user", content: "forma" }], fleet);
     expect(reply.command).toBeNull();
-    expect(reply.reply).toContain("y");
+    expect(reply.reply).toContain("source");
   });
 
-  it("rifiuta una coordinata oltre il tetto operatore", async () => {
+  it("rifiuta un codice piu lungo di quanto il runtime compili", async () => {
     const agent = agentFor({
       toolCall: {
         name: "design_formation",
-        args: {
-          kind: "points",
-          label: "Enorme",
-          points: [[0, 400]],
-          anchor: "auto",
-          leaderId: null,
-        },
+        args: { kind: "formation", label: "Enorme", source: "x".repeat(CUSTOM_SOURCE_MAX_LENGTH + 1), anchor: "auto", leaderId: null },
       },
     });
     const reply = await agent.run([{ role: "user", content: "forma gigante" }], fleet);
@@ -325,7 +304,7 @@ describe("agente di chat delle formazioni", () => {
     const design = z.toJSONSchema(schemas.design_formation, { io: "input" }) as unknown as ParamsSchema;
     expect(Object.keys(design.properties.params.properties)).toContain("customScale");
     expect(Object.keys(design.properties.params.properties)).toContain("customMaxRadius");
-    // `t` in a designed formula is paced by wavePeriod, so the agent must be able to set it;
+    // `ctx.phase` in a designed shape is paced by wavePeriod, so the agent must be able to set it;
     // without it a moving shape can only spin at the six-second default and smears into a blur.
     expect(Object.keys(design.properties.params.properties)).toContain("wavePeriod");
   });
@@ -341,18 +320,17 @@ describe("registrazione delle geometrie disegnate", () => {
     return { agent, records };
   }
 
-  it("annota la formula grezza accanto al comando limitato", async () => {
+  it("annota il codice grezzo accanto al comando limitato", async () => {
     // Le due meta' insieme sono il punto: se la forma esce sbagliata, il registro dice se e' colpa
-    // della formula o del limite che il gateway le ha imposto.
+    // del codice o del limite che il gateway gli ha imposto.
     const { agent, records } = agentRecording({
       text: "Ecco la spirale.",
       toolCall: {
         name: "design_formation",
         args: {
-          kind: "polar",
+          kind: "formation",
           label: "Spirale",
-          r: "0.3 + 0.1*i",
-          theta: "2*pi*i/n",
+          source: starSource,
           anchor: "auto",
           leaderId: null,
           params: { customScale: 99 },
@@ -376,41 +354,28 @@ describe("registrazione delle geometrie disegnate", () => {
 
   it("annota anche un disegno rifiutato, con il motivo", async () => {
     const { agent, records } = agentRecording({
-      toolCall: {
-        name: "design_formation",
-        args: { kind: "cartesian", label: "Mezza", x: "0.3*i", anchor: "auto", leaderId: null },
-      },
+      toolCall: { name: "design_formation", args: { kind: "formation", label: "Vuota", anchor: "auto", leaderId: null } },
     });
 
     await agent.run([{ role: "user", content: "forma" }], fleet);
 
     expect(records).toHaveLength(1);
     expect(records[0].command).toBeNull();
-    expect(records[0].error).toContain("y");
+    expect(records[0].error).toContain("source");
   });
 
-  describe("con un controllo del disegno", () => {
-    const nine: FleetSnapshot = {
-      robotIds: Array.from({ length: 9 }, (_, k) => `00000${k}`),
-      posedRobotIds: Array.from({ length: 9 }, (_, k) => `00000${k}`),
-      activeFormation: null,
-    };
-    const star = Array.from({ length: 10 }, (_, k) => {
-      const radius = k % 2 === 0 ? 0.9 : 0.45;
-      return [Math.sin((Math.PI * k) / 5) * radius, Math.cos((Math.PI * k) / 5) * radius];
-    });
-    const pentagram = [0, 2, 4, 6, 8].map((k) => star[k]);
-    const design = (points: number[][]) => ({
+  describe("con il controllo del runtime", () => {
+    const design = (source: string): ToolCall => ({
       name: "design_formation",
-      args: { kind: "points", label: "Stella", points, closed: true, anchor: "auto", leaderId: null },
+      args: { kind: "formation", label: "Stella", source, anchor: "auto", leaderId: null, params: { customScale: 1.5 } },
     });
 
     /** Answers each call with the next reply, and remembers what it was shown. */
     function scripted(replies: ToolCall[]) {
-      const seen: unknown[][] = [];
+      const seen: BaseMessage[][] = [];
       const model = {
         bindTools: () => model,
-        invoke: async (history: unknown[]) => {
+        invoke: async (history: BaseMessage[]) => {
           seen.push(history);
           const call = replies[seen.length - 1];
           return new AIMessage({ content: "", tool_calls: [{ ...call, id: `call-${seen.length}` }] });
@@ -419,25 +384,71 @@ describe("registrazione delle geometrie disegnate", () => {
       return { model: model as unknown as BaseChatModel, seen };
     }
 
-    it("annota i difetti di un disegno senza una seconda chiamata al modello", async () => {
-      // La chat e' in tempo reale: il controllo scrive nel registro, non rimanda indietro.
-      const { model, seen } = scripted([design(star)]);
-      const records: DesignRecord[] = [];
-      const agent = createFormationAgent({ chatModel: model, onDesign: (record) => records.push(record) });
+    function answers(results: Array<Pick<FormationCompileResult, "ok" | "problems">>) {
+      const requests: FormationCheckRequest[] = [];
+      const checkDesign = async (request: FormationCheckRequest): Promise<FormationCompileResult> => {
+        requests.push(request);
+        const next = results[requests.length - 1];
+        return { id: `check-${requests.length}`, preview: null, ...next };
+      };
+      return { checkDesign, requests };
+    }
 
-      const reply = await agent.run([{ role: "user", content: "fai una stella" }], nine);
+    const clean = { ok: true, problems: [] };
+    const typeError = { ok: false, problems: [{ line: 2, column: 18, message: "Found: String, Required: Double" }] };
+
+    it("pubblica al primo colpo un disegno che il runtime compila", async () => {
+      const { model, seen } = scripted([design(starSource)]);
+      const { checkDesign, requests } = answers([clean]);
+      const reply = await createFormationAgent({ chatModel: model, checkDesign }).run([{ role: "user", content: "stella" }], fleet);
 
       expect(seen).toHaveLength(1);
-      expect(reply.command?.custom).toMatchObject({ kind: "points", points: star });
-      expect(records).toHaveLength(1);
-      expect(records[0].issues?.[0]).toContain("10 corners");
+      // Il controllo vede la flotta reale: tutti i robot posizionati tranne l'ancora.
+      expect(requests).toEqual([{ kind: "formation", source: starSource, slots: 1, params: { customScale: 1.5 } }]);
+      expect(reply.command?.custom).toMatchObject({ source: starSource });
     });
 
-    it("pubblica al primo colpo un disegno gia a posto", async () => {
-      const { model, seen } = scripted([design(pentagram)]);
-      const reply = await createFormationAgent({ chatModel: model }).run([{ role: "user", content: "stella" }], nine);
-      expect(seen).toHaveLength(1);
-      expect(reply.command?.custom).toMatchObject({ points: pentagram });
+    it("rimanda al modello gli errori del compilatore, una volta sola", async () => {
+      const fixed = "Formation(ctx => ring(ctx.count, 0.5))";
+      const { model, seen } = scripted([design("Formation { ctx =>\n  ring(ctx.count, \"far\")\n}"), design(fixed)]);
+      const { checkDesign } = answers([typeError, clean]);
+      const records: DesignRecord[] = [];
+      const reply = await createFormationAgent({ chatModel: model, checkDesign, onDesign: (record) => records.push(record) })
+        .run([{ role: "user", content: "stella" }], fleet);
+
+      expect(seen).toHaveLength(2);
+      // La seconda chiamata vede la propria richiesta e la risposta del compilatore, con la riga.
+      const feedback = seen[1].at(-1);
+      expect(feedback).toBeInstanceOf(ToolMessage);
+      expect(String(feedback?.content)).toContain("line 2, column 18: Found: String, Required: Double");
+      expect(reply.command?.custom).toMatchObject({ source: fixed });
+      expect(records).toHaveLength(1);
+      expect(records[0].attempts).toBe(2);
+      expect(records[0].issues).toEqual([]);
+    });
+
+    it("non pubblica nulla se anche la correzione non compila", async () => {
+      const { model, seen } = scripted([design("a"), design("b")]);
+      const { checkDesign } = answers([typeError, typeError]);
+      const records: DesignRecord[] = [];
+      const reply = await createFormationAgent({ chatModel: model, checkDesign, onDesign: (record) => records.push(record) })
+        .run([{ role: "user", content: "stella" }], fleet);
+
+      expect(seen).toHaveLength(2);
+      expect(reply.command).toBeNull();
+      expect(reply.reply).toContain("Found: String");
+      expect(records[0].command).toBeNull();
+      expect(records[0].issues).toEqual(["line 2, column 18: Found: String, Required: Double"]);
+    });
+
+    it("non pubblica nulla se il runtime non risponde al controllo", async () => {
+      const { model } = scripted([design(starSource)]);
+      const checkDesign = async (): Promise<FormationCompileResult> => {
+        throw new Error("the aggregate runtime did not answer within 15 s");
+      };
+      const reply = await createFormationAgent({ chatModel: model, checkDesign }).run([{ role: "user", content: "stella" }], fleet);
+      expect(reply.command).toBeNull();
+      expect(reply.reply).toContain("did not answer");
     });
   });
 

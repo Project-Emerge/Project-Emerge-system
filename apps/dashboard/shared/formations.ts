@@ -275,13 +275,13 @@ export const FORMATION_DEFINITIONS: FormationDefinition[] = [
   {
     value: "custom",
     label: "Custom",
-    description: "A geometry supplied as data rather than compiled in, designed in the swarm chat.",
+    description: "Scala code the runtime compiles on arrival, a shape or a whole program, written in the swarm chat.",
     group: "custom",
     anchors: ALL_ANCHORS,
     // WAVE_PERIOD belongs here even though no compiled-in code reads it for this program: it is
-    // what sets the rate of the `t` a designed formula sees, so without it a moving shape can
-    // only ever spin at the default six seconds -- far faster than these robots can track, which
-    // washes a rotating star out into a plain ring.
+    // what sets the rate of the `ctx.phase` a designed shape sees, so without it a moving shape
+    // can only ever spin at the default six seconds -- far faster than these robots can track,
+    // which washes a rotating star out into a plain ring.
     params: [
       CUSTOM_SCALE,
       CUSTOM_MAX_RADIUS,

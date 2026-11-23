@@ -207,7 +207,7 @@ export const it: TranslationDictionary = {
       },
       custom: {
         label: "Personalizzata",
-        description: "Geometria fornita come dati, progettata nella chat dello sciame.",
+        description: "Codice Scala che il runtime compila all'arrivo, una forma o un programma intero, scritto nella chat dello sciame.",
       },
     },
     params: {

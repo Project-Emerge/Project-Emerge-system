@@ -3,8 +3,10 @@ package it.unibo.demo.provider
 import cats.effect.IO
 import cats.effect.Ref
 import cats.effect.std.Dispatcher
+import cats.syntax.all.*
 import it.unibo.core.{Environment, EnvironmentProvider}
 import it.unibo.demo.environment.MqttEnvironment
+import it.unibo.demo.formation.FormationCompiler
 import it.unibo.demo.provider.MqttProtocol.{Formation, Neighborhood, RobotPosition}
 import it.unibo.demo.scenarios.{BaseDemo, CustomFormation, CustomSpec}
 import it.unibo.demo.{ID, Info, Position}
@@ -13,7 +15,9 @@ import org.eclipse.paho.client.mqttv3.*
 import org.slf4j.LoggerFactory
 import upickle.default.{macroRW, ReadWriter as RW, *}
 
+import java.util.concurrent.atomic.AtomicLong
 import scala.concurrent.duration.*
+import scala.util.Try
 
 object MqttProtocol:
   case class RobotPosition(
@@ -32,7 +36,8 @@ object MqttProtocol:
 
   // Retained payload: {"program": String, "leaderId": String (6-hex) | null, "anchor": "leader" | "auto",
   //                     "params": {String: Double},
-  //                     "custom": {"kind": "points" | "cartesian" | "polar", ...} | null}
+  //                     "custom": {"kind": "formation" | "program", "source": String (Scala),
+  //                                "label": String} | null}
   // (see apps/dashboard/shared/protocol.ts). `custom` is optional and only read by the `custom`
   // program; omitting the key leaves whatever spec was published before it in place.
   object Formation:
@@ -47,10 +52,20 @@ class MqttProvider(
     val initialConfigRef: Ref[IO, Map[String, Any]],
     private val worldMapRef: Ref[IO, Map[ID, TimedPose]],
     private val neighborhoodRef: Ref[IO, Map[ID, Set[ID]]],
+    private val compiler: FormationCompiler = FormationCompiler(),
     private val poseTtl: FiniteDuration = MqttProvider.defaultPoseTtl
 )(using dispatcher: Dispatcher[IO], mqttContext: MqttContext) extends EnvironmentProvider[ID, Position, Info, Environment[ID, Position, Info]]:
 
   private val logger = LoggerFactory.getLogger(classOf[MqttProvider])
+
+  /**
+   * Bumped as each `/config/formation` message arrives, on the MQTT callback thread, so in arrival
+   * order. A message is applied only if no later one has arrived by then: compiling takes from
+   * milliseconds to a second, and an older, slower compile must not overwrite a newer command.
+   */
+  private val formationArrivals = AtomicLong(0L)
+
+  private val customSpecs = CustomSpecCache(compiler)
 
   /**
    * A snapshot of every robot seen within [[poseTtl]].
@@ -94,52 +109,15 @@ class MqttProvider(
       }
     })
     client.subscribeWithResponse(Formation.topic, (topic: String, message: MqttMessage) => {
-      dispatcher.unsafeRunAndForget {
-        val applied = for {
-          command <- IO(ujson.read(message.getPayload))
-          // `numOpt`, not `num`: `num` throws on a non-number, and that failure would take the
-          // whole message down with it -- program, leaderId and anchor included. The dashboard's
-          // schema guarantees numbers, but anything else publishing to this broker does not.
-          params = command.obj.get("params")
-            .flatMap(_.objOpt)
-            .map(_.flatMap((key, value) => value.numOpt.map(key -> _)).toMap)
-            .getOrElse(Map.empty[String, Double])
-          // The geometry of a data-driven formation, compiled here rather than in a round.
-          custom = CustomSpecCodec.fromCommand(command)
-          // A null leaderId has to clear the previous choice, not leave it in place: otherwise
-          // the runtime keeps rooting every gradient on a stale device id and the fleet never
-          // gets the chance to elect its own leader.
-          leader = command.obj.get("leaderId").flatMap(_.strOpt)
-            .map(deviceId => Integer.parseInt(deviceId, 16))
-            .getOrElse(BaseDemo.NoLeader)
-          anchor = command.obj.get("anchor").flatMap(_.strOpt).getOrElse(BaseDemo.AnchorLeader)
-          _ <- IO(custom.foreach {
-            // Say so out loud. A rejected geometry replaces the stored one, so the fleet drops to
-            // CustomFormation's ring fallback rather than keeping the shape it was holding -- this
-            // log line is the only account of why the shape an author published never appeared.
-            case CustomSpec.Invalid(reason) =>
-              logger.warn(s"Rejected the published custom formation: $reason")
-            case _ => ()
-          })
-          _ <- initialConfigRef.update { current =>
-            // These three go last so that a shape parameter can never shadow them.
-            val updated = current ++ params
-              ++ custom.map(CustomFormation.SPEC_SENSING -> _).toMap
-              ++ Map(
-                BaseDemo.Leader -> leader,
-                BaseDemo.Anchor -> anchor,
-                BaseDemo.Program -> command("program").str
-              )
-            logger.info(s"Configuration updated via MQTT: $updated")
-            updated
-          }
-        } yield ()
-        // Without this a malformed payload disappears into an unhandled fiber error rather than a
-        // log line, which is exactly the diagnostic whoever published it needs.
-        applied.handleErrorWith { error =>
-          IO(logger.warn("Ignored a malformed /config/formation payload", error))
+      // Parsed here, so a payload that is not even JSON is dropped without claiming a place in
+      // the arrival order and so without cancelling the valid command before it.
+      Try(ujson.read(message.getPayload)).fold(
+        error => logger.warn("Ignored a /config/formation payload that is not JSON", error),
+        command => {
+          val arrival = formationArrivals.incrementAndGet()
+          dispatcher.unsafeRunAndForget(applyFormation(arrival, command))
         }
-      }
+      )
     })
     client.subscribeWithResponse(Neighborhood.topic, (topic: String, message: MqttMessage) => {
       dispatcher.unsafeRunAndForget {
@@ -153,6 +131,52 @@ class MqttProvider(
       }
     })
   }
+
+  /** Compiles the command's `custom` source, if any, then applies the whole command at once. */
+  private def applyFormation(arrival: Long, command: ujson.Value): IO[Unit] =
+    val applied = for {
+      // `numOpt`, not `num`: `num` throws on a non-number, and that failure would take the
+      // whole message down with it -- program, leaderId and anchor included. The dashboard's
+      // schema guarantees numbers, but anything else publishing to this broker does not.
+      params <- IO(command.obj.get("params")
+        .flatMap(_.objOpt)
+        .map(_.flatMap((key, value) => value.numOpt.map(key -> _)).toMap)
+        .getOrElse(Map.empty[String, Double]))
+      // Blocking, on its own pool: a warm compile takes tens of milliseconds, a cold one a second.
+      custom <- CustomSpecCodec.fromCommand(command).traverse(request => IO.blocking(customSpecs.compile(request)))
+      // A null leaderId has to clear the previous choice, not leave it in place: otherwise
+      // the runtime keeps rooting every gradient on a stale device id and the fleet never
+      // gets the chance to elect its own leader.
+      leader <- IO(command.obj.get("leaderId").flatMap(_.strOpt)
+        .map(deviceId => Integer.parseInt(deviceId, 16))
+        .getOrElse(BaseDemo.NoLeader))
+      anchor <- IO(command.obj.get("anchor").flatMap(_.strOpt).getOrElse(BaseDemo.AnchorLeader))
+      program <- IO(command("program").str)
+      _ <- IO(custom.foreach {
+        // Say so out loud. A rejected source replaces the stored spec, so the fleet drops to
+        // CustomFormation's ring fallback rather than keeping the shape it was holding -- this
+        // log line is the only account of why the shape an author published never appeared.
+        case CustomSpec.Invalid(reason) => logger.warn(s"Rejected the published custom formation:\n$reason")
+        case _ => ()
+      })
+      _ <- initialConfigRef.update { current =>
+        // Read inside the update, so that a newer command applied concurrently makes this one
+        // retry, see the newer arrival, and step aside.
+        if arrival != formationArrivals.get() then current
+        else
+          // These three go last so that a shape parameter can never shadow them.
+          val updated = current ++ params
+            ++ custom.map(CustomFormation.SPEC_SENSING -> _).toMap
+            ++ Map(BaseDemo.Leader -> leader, BaseDemo.Anchor -> anchor, BaseDemo.Program -> program)
+          updated
+      }
+      _ <- IO(logger.info(s"Configuration updated via MQTT: program=$program, leader=$leader, anchor=$anchor, params=$params"))
+    } yield ()
+    // Without this a malformed payload disappears into an unhandled fiber error rather than a
+    // log line, which is exactly the diagnostic whoever published it needs.
+    applied.handleErrorWith { error =>
+      IO(logger.warn("Ignored a malformed /config/formation payload", error))
+    }
 
 object MqttProvider:
   /**

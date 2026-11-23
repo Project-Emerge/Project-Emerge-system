@@ -10,7 +10,7 @@ const command: FormationCommand = {
   anchor: "auto",
   leaderId: null,
   params: { customScale: 1 },
-  custom: { kind: "polar", r: "0.6", theta: "2*pi*i/n", label: "Cerchio" },
+  custom: { kind: "formation", source: "Formation(ctx => ring(ctx.count, 0.6))", label: "Cerchio" },
 };
 
 function designed(overrides: Partial<DesignRecord> = {}): DesignRecord {
@@ -18,7 +18,7 @@ function designed(overrides: Partial<DesignRecord> = {}): DesignRecord {
     prompt: "disegna un cerchio",
     reply: "Fatto.",
     posedRobots: 4,
-    raw: { kind: "polar", r: "0.6", theta: "2*pi*i/n", label: "Cerchio" },
+    raw: { kind: "formation", source: "Formation(ctx => ring(ctx.count, 0.6))", label: "Cerchio" },
     command,
     error: null,
     ...overrides,
@@ -61,12 +61,12 @@ describe("registro delle formazioni disegnate", () => {
     const path = await temporaryPath();
     const log = createDesignLog(path);
 
-    log.record(designed({ command: null, error: "custom.r: unknown function wobble" }));
+    log.record(designed({ command: null, error: "line 1, column 20: Not found: wobble" }));
     await log.flush();
 
     const [entry] = await linesOf(path);
     expect(entry.command).toBeNull();
-    expect(entry.error).toBe("custom.r: unknown function wobble");
+    expect(entry.error).toBe("line 1, column 20: Not found: wobble");
   });
 
   it("accoda in ordine senza mescolare le righe", async () => {

@@ -1,13 +1,14 @@
 package it.unibo.demo.scenarios
 
 /**
- * Covers the geometry of a data-driven formation, which like every other shape reduces to a pure
- * function and needs no aggregate round to check -- the same split
+ * Covers the safety envelope every designed layout passes through, which like every other shape
+ * reduces to pure functions and needs no aggregate round to check -- the same split
  * [[FormationGeometrySuite]] relies on.
  *
  * The load-bearing property is the slot count. `AssignmentSolver.solveIndices` returns an empty
- * map on any mismatch between the number of robots and the number of targets, so a `slots` that
- * returns the wrong length freezes the entire fleet without a single log line anywhere.
+ * map on any mismatch between the number of robots and the number of targets, so a layout of the
+ * wrong length must be refused here rather than handed on, where it would freeze the entire fleet
+ * without a single log line anywhere.
  */
 class CustomSlotsSuite extends munit.FunSuite:
 
@@ -17,43 +18,36 @@ class CustomSlotsSuite extends munit.FunSuite:
 
   private def radiusOf(slot: (Double, Double)): Double = math.hypot(slot._1, slot._2)
 
-  private def ctx(count: Int, phase: Double = 0.0) = SlotContext(count, phase, 0.0)
-
-  private def formula(source: String): Formula =
-    Formula.compile(source).getOrElse(fail(s"'$source' should parse"))
-
-  private def cartesianSpec(x: String, y: String) = CustomSpec.Cartesian(formula(x), formula(y))
-  private def polarSpec(r: String, theta: String) = CustomSpec.Polar(formula(r), formula(theta))
+  /** What the DSL's `outline` hands the envelope. */
+  private def outline(points: List[(Double, Double)], closed: Boolean, count: Int): List[(Double, Double)] =
+    CustomSlots.resample(CustomSlots.dedupeConsecutive(points), closed, count)
 
   private def slots(
-      spec: CustomSpec,
-      count: Int,
+      raw: List[(Double, Double)],
       scale: Double = 1.0,
       cap: Double = maxRadius,
-      phase: Double = 0.0,
-      collision: Double = 0.3
+      collision: Double = collisionArea
   ): List[(Double, Double)] =
     CustomSlots
-      .slotsFor(spec, ctx(count, phase), scale, cap, collision)
-      .getOrElse(fail(s"$spec should have produced slots"))
+      .slotsFor(raw, raw.size, scale, cap, collision)
+      .getOrElse(fail(s"$raw should have produced slots"))
 
   private def gap = CustomSlots.minSeparation(collisionArea)
 
   private val square = List((0.5, 0.5), (0.5, -0.5), (-0.5, -0.5), (-0.5, 0.5))
 
-  test("an empty fleet gets no slots") {
-    val specs = List(
-      CustomSpec.Points(square, closed = true),
-      cartesianSpec("i", "0"),
-      polarSpec("0.5", "i")
-    )
-    specs.foreach { spec =>
-      assertEquals(slots(spec, 0), List.empty)
-      assertEquals(slots(spec, -1), List.empty)
+  test("an empty fleet gets no slots, whatever the layout says") {
+    assertEquals(CustomSlots.slotsFor(square, 0, 1.0, maxRadius, collisionArea), Some(List.empty))
+    assertEquals(CustomSlots.slotsFor(square, -1, 1.0, maxRadius, collisionArea), Some(List.empty))
+  }
+
+  test("a layout of the wrong size asks the caller for a fallback instead of freezing the fleet") {
+    (1 to 6).filter(_ != square.size).foreach { count =>
+      assertEquals(CustomSlots.slotsFor(square, count, 1.0, maxRadius, collisionArea), None, s"fleet of $count")
     }
   }
 
-  test("a spec always produces exactly as many slots as there are robots") {
+  test("an outline always resamples to exactly as many slots as there are robots") {
     // The invariant the whole design hangs on; see the class docstring.
     val paths = (1 to 6).map(size => square.take(size).toList ++ List.fill(math.max(0, size - 4))((0.2, 0.2)))
     for
@@ -61,14 +55,7 @@ class CustomSlotsSuite extends munit.FunSuite:
       path <- paths
       closed <- List(false, true)
     do
-      assertEquals(
-        slots(CustomSpec.Points(path, closed), count).size,
-        count,
-        s"points path of ${path.size}, closed=$closed, fleet of $count"
-      )
-    for count <- 1 to 14 do
-      assertEquals(slots(cartesianSpec("0.2*i", "0.1*n"), count).size, count)
-      assertEquals(slots(polarSpec("0.5", "2*pi*i/n"), count).size, count)
+      assertEquals(slots(outline(path, closed, count)).size, count, s"path of ${path.size}, closed=$closed, fleet of $count")
   }
 
   test("an open path keeps a slot on each of its ends") {
@@ -126,7 +113,7 @@ class CustomSlotsSuite extends munit.FunSuite:
   }
 
   test("a single point fans the fleet out around it instead of stacking them") {
-    val placed = slots(CustomSpec.Points(List((0.6, 0.2)), closed = false), 4)
+    val placed = slots(outline(List((0.6, 0.2)), closed = false, count = 4))
     assertEquals(placed.size, 4)
     assertEquals(placed.distinct.size, 4)
     placed.foreach { slot =>
@@ -135,8 +122,8 @@ class CustomSlotsSuite extends munit.FunSuite:
   }
 
   test("two identical points are treated as one") {
-    val doubled = slots(CustomSpec.Points(List((0.3, 0.3), (0.3, 0.3)), closed = false), 3)
-    val single = slots(CustomSpec.Points(List((0.3, 0.3)), closed = false), 3)
+    val doubled = slots(outline(List((0.3, 0.3), (0.3, 0.3)), closed = false, count = 3))
+    val single = slots(outline(List((0.3, 0.3)), closed = false, count = 3))
     assertEquals(doubled, single)
   }
 
@@ -164,19 +151,11 @@ class CustomSlotsSuite extends munit.FunSuite:
     grown.foreach(slot => assert(radiusOf(slot) <= 0.4 + 1e-9, s"$slot breached the cap"))
   }
 
-  test("a corner does not make a roomy path look too small for the fleet") {
-    // Found end to end: a triangle of side 1.44 m sampled every 0.41 m has two slots only 0.19 m
-    // apart in a straight line either side of each vertex. Judging crowding by that shortest
-    // chord read the corner as "too small" and inflated the whole triangle by half again, so the
-    // fleet settled dead on a shape 1.54x the one that was published.
+  test("a roomy outline keeps its size and stays on the outline as written") {
+    // A triangle of side 1.44 m on eleven robots: the corners take a slot each, the spare ones
+    // spread along the sides, and nothing about the corners reads as crowding.
     val triangle = List((0.0, 0.8), (0.8, -0.4), (-0.8, -0.4))
-    val spacing = CustomSlots.pathSpacing(triangle, closed = true, count = 11)
-    // Corners first: the two 1.44 m sides take four gaps and three, the 1.6 m base four.
-    assertEqualsDouble(spacing, math.hypot(0.8, 1.2) / 4, 1e-9)
-    assert(spacing > 0.3, s"the probe path is genuinely crowded at $spacing")
-
-    val placed = slots(CustomSpec.Points(triangle, closed = true), 11)
-    // Every slot stays on the triangle as written, corners and all.
+    val placed = slots(outline(triangle, closed = true, count = 11))
     val vertices = triangle.toIndexedSeq
     def toSegment(p: (Double, Double), a: (Double, Double), b: (Double, Double)): Double =
       val (dx, dy) = (b._1 - a._1, b._2 - a._2)
@@ -186,14 +165,14 @@ class CustomSlotsSuite extends munit.FunSuite:
       val offOutline = (0 until 3).map(i => toSegment(slot, vertices(i), vertices((i + 1) % 3))).min
       assert(offOutline < 1e-6, s"$slot left the requested outline by $offOutline")
     }
-    // And the shape keeps its size: the base corners, its farthest points, are where the author put them.
+    // The base corners, its farthest points, are where the author put them.
     assertEqualsDouble(placed.map(radiusOf).max, math.hypot(0.8, 0.4), 1e-6)
   }
 
   test("a slot on every corner leaves no pinch either side of it") {
     // Equal arc steps used to straddle each vertex with two slots inside the collision radius.
     val triangle = List((0.0, 0.8), (0.8, -0.4), (-0.8, -0.4))
-    val placed = slots(CustomSpec.Points(triangle, closed = true), 11)
+    val placed = slots(outline(triangle, closed = true, count = 11))
     triangle.foreach { corner =>
       assert(placed.exists(slot => math.hypot(slot._1 - corner._1, slot._2 - corner._2) < 1e-9), s"$corner has no slot")
     }
@@ -228,7 +207,13 @@ class CustomSlotsSuite extends munit.FunSuite:
     assertEquals(CustomSlots.cornerIndices(star.toIndexedSeq, closed = true).size, 10)
     val placed = CustomSlots.resample(star, closed = true, count = 8)
     assertEquals(placed.size, 8)
-    assertEqualsDouble(CustomSlots.pathSpacing(star, closed = true, count = 8), CustomSlots.arcLengths(star.toIndexedSeq, closed = true).last / 8, 1e-9)
+    // Ten equal edges in eight equal steps: slot 0 on vertex 0, slot 4 half way round on vertex 5,
+    // and every other slot part way along an edge rather than on a corner.
+    List(0 -> 0, 4 -> 5).foreach { (slot, vertex) =>
+      assertEqualsDouble(placed(slot)._1, star(vertex)._1, 1e-9)
+      assertEqualsDouble(placed(slot)._2, star(vertex)._2, 1e-9)
+    }
+    assertEquals(placed.count(slot => star.exists(v => math.hypot(v._1 - slot._1, v._2 - slot._2) < 1e-9)), 2)
   }
 
   test("a sampled circle has no corners") {
@@ -261,16 +246,13 @@ class CustomSlotsSuite extends munit.FunSuite:
 
   test("one runaway slot does not shrink the rest of the formation") {
     // This is why the cap is applied per slot rather than as a uniform shrink of the whole set:
-    // a uniform shrink would collapse the entire formation to a dot to accommodate exp(15).
+    // a uniform shrink would collapse the entire formation to a dot to accommodate exp(7).
     // Offset clear of the anchor keep-out radius, so this test is about the cap and nothing else.
-    val placed = slots(cartesianSpec("0.2+exp(i)/10", "0"), 8)
-    // The near slots keep the value the formula asked for.
+    val placed = slots((0 until 8).map(i => (0.2 + math.exp(i) / 10, 0.0)).toList)
     assertEqualsDouble(placed.head._1, 0.2 + math.exp(0) / 10, 1e-9)
     assertEqualsDouble(placed(1)._1, 0.2 + math.exp(1) / 10, 1e-9)
     // The far ones all land on the cap, which makes them coincident, so the separation fan then
-    // spreads them around that point -- the documented consequence that a slot may end up within
-    // half a minimum separation either side of the cap. What must hold is that they stay near it
-    // and stay distinct, rather than stacking into one spot.
+    // spreads them around that point: near the cap, and distinct rather than stacked.
     val far = placed.drop(4)
     far.foreach { slot =>
       assert(radiusOf(slot) <= maxRadius + gap / 2 + 1e-9, s"$slot passed the cap")
@@ -292,39 +274,13 @@ class CustomSlotsSuite extends munit.FunSuite:
   }
 
   test("the absolute radius ceiling cannot be raised by a payload") {
-    val placed = slots(cartesianSpec("100*i+1", "100*i+1"), 8, cap = 1e6)
+    val placed = slots((0 until 8).map(i => (100.0 * i + 1, 100.0 * i + 1)).toList, cap = 1e6)
     val ceiling = CustomSlots.AbsoluteMaxRadius + gap / 2 + 1e-9
     placed.foreach(slot => assert(radiusOf(slot) <= ceiling, s"$slot passed the ceiling"))
   }
 
-  test("cartesian formulas are evaluated once per slot with i, n and t in scope") {
-    val raw = CustomSlots.cartesian(formula("i"), formula("n"), ctx(4))
-    assertEquals(raw, List((0.0, 4.0), (1.0, 4.0), (2.0, 4.0), (3.0, 4.0)))
-  }
-
-  test("polar formulas use the same bearing convention as every other shape") {
-    // A constant radius on an evenly divided angle must be indistinguishable from the built-in
-    // ring, which pins the convention for every formula an author will ever write.
-    val designed = CustomSlots.polar(formula("0.5"), formula("2*pi*i/n"), ctx(6))
-    val builtin = ShapeFormation.ring(6, 0.0)(_ => 0.5)
-    designed.zip(builtin).foreach { case (got, expected) =>
-      assertEqualsDouble(got._1, expected._1, 1e-9)
-      assertEqualsDouble(got._2, expected._2, 1e-9)
-    }
-  }
-
-  test("the phase reaches a formula that asks for it") {
-    val spec = polarSpec("0.5", "2*pi*i/n + t")
-    val still = slots(spec, 6, phase = 0.0)
-    val turned = slots(spec, 6, phase = math.Pi / 2)
-    still.zip(turned).foreach { case (before, after) =>
-      assert(math.hypot(after._1 - before._1, after._2 - before._2) > 1e-3, "the ring did not turn")
-      assertEqualsDouble(radiusOf(after), radiusOf(before), 1e-9)
-    }
-  }
-
-  test("a formula that blows up still gives a usable slot") {
-    val placed = slots(cartesianSpec("1/i", "log(0-1)"), 6)
+  test("a layout that blows up still gives usable slots") {
+    val placed = slots((0 until 6).map(i => (1.0 / i, math.log(-1.0))).toList)
     assertEquals(placed.size, 6)
     placed.foreach { slot =>
       assert(slot._1.isFinite && slot._2.isFinite, s"$slot is not finite")
@@ -332,36 +288,26 @@ class CustomSlotsSuite extends munit.FunSuite:
     }
   }
 
-  test("an absent or rejected spec asks the caller for a fallback") {
-    List(CustomSpec.Absent, CustomSpec.Invalid("why")).foreach { spec =>
-      (1 to 5).foreach { count =>
-        assertEquals(CustomSlots.slotsFor(spec, ctx(count), 1.0, maxRadius, collisionArea), None)
-      }
-      // Even an empty fleet: there is nothing to lay out, so the count guard answers first.
-      assertEquals(CustomSlots.slotsFor(spec, ctx(0), 1.0, maxRadius, collisionArea), Some(List.empty))
-    }
-  }
-
-  test("the operator scale resizes a spec without reshaping it") {
+  test("the operator scale resizes a layout without reshaping it") {
     // Roomy enough that growToFit stays out of it at both scales; the interaction between the two
     // has its own test below.
-    val spec = CustomSpec.Points(List((0.4, 0.0), (0.0, 0.4), (-0.4, 0.0)), closed = false)
-    val plain = slots(spec, 3)
-    val doubled = slots(spec, 3, scale = 2.0)
+    val layout = outline(List((0.4, 0.0), (0.0, 0.4), (-0.4, 0.0)), closed = false, count = 3)
+    val plain = slots(layout)
+    val doubled = slots(layout, scale = 2.0)
     plain.zip(doubled).foreach { case (before, after) =>
       assertEqualsDouble(radiusOf(after), radiusOf(before) * 2, 1e-9)
       assertEqualsDouble(math.atan2(after._1, after._2), math.atan2(before._1, before._2), 1e-9)
     }
   }
 
-  test("scaling up a path the fleet had to be grown into stops growing it") {
-    // growToFit only rescues a shape too small to stand on. A path with slots 0.2 apart, under
-    // the 0.3 minimum, is grown; the same path at scale 2 already clears the minimum and is left
-    // exactly as written. Doubling the scale therefore does not quite double the radii -- worth
-    // knowing before reading it as a bug. Off to the side, so the anchor keep-out plays no part.
-    val cramped = CustomSpec.Points(List((0.4, -0.2), (0.4, 0.0), (0.4, 0.2)), closed = false)
-    val plain = slots(cramped, 3)
-    val doubled = slots(cramped, 3, scale = 2.0)
+  test("scaling up a layout the fleet had to be grown into stops growing it") {
+    // growToFit only rescues a shape too small to stand on. Slots 0.2 apart, under the 0.3
+    // minimum, are grown; at scale 2 they already clear it and stay exactly as written. Doubling
+    // the scale therefore does not quite double the radii. Off to the side, so the anchor
+    // keep-out plays no part.
+    val cramped = List((0.4, -0.2), (0.4, 0.0), (0.4, 0.2))
+    val plain = slots(cramped)
+    val doubled = slots(cramped, scale = 2.0)
     val spacingOf = (placed: List[(Double, Double)]) =>
       placed.sliding(2).collect { case List(a, b) => math.hypot(b._1 - a._1, b._2 - a._2) }.min
     assertEqualsDouble(spacingOf(plain), gap, 1e-9)
@@ -371,9 +317,8 @@ class CustomSlotsSuite extends munit.FunSuite:
   }
 
   test("an absurd or non-finite scale is clamped rather than obeyed") {
-    val spec = CustomSpec.Points(square, closed = true)
     List(1e9, 0.0, -3.0, Double.NaN, Double.PositiveInfinity).foreach { scale =>
-      val placed = slots(spec, 4, scale = scale)
+      val placed = slots(square, scale = scale)
       assertEquals(placed.size, 4, s"scale $scale")
       placed.foreach { slot =>
         assert(slot._1.isFinite && slot._2.isFinite, s"scale $scale gave $slot")
@@ -382,47 +327,41 @@ class CustomSlotsSuite extends munit.FunSuite:
     }
   }
 
-  test("the whole pipeline is total") {
-    val hostile = List(
-      CustomSpec.Points(List((0.0, 0.0)), closed = false),
-      CustomSpec.Points(List.fill(4)((0.0, 0.0)), closed = true),
-      CustomSpec.Points(List.fill(CustomSpec.MaxPoints)((0.1, 0.1)), closed = false),
-      CustomSpec.Points(List((1e9, -1e9), (0.0, 0.0)), closed = true),
-      cartesianSpec("1/i", "log(0-1)"),
-      cartesianSpec("exp(exp(i))", "0^0"),
-      polarSpec("0-5", "tan(pi/2)"),
-      polarSpec("sqrt(0-i)", "i%0")
+  test("the whole envelope is total") {
+    val hostile: List[Int => List[(Double, Double)]] = List(
+      count => List.fill(count)((0.0, 0.0)),
+      count => List.fill(count)((0.1, 0.1)),
+      count => (0 until count).map(i => if i % 2 == 0 then (1e9, -1e9) else (0.0, 0.0)).toList,
+      count => (0 until count).map(i => (1.0 / i, math.log(-1.0))).toList,
+      count => (0 until count).map(i => (math.exp(math.exp(i)), math.pow(0, 0))).toList,
+      count => (0 until count).map(i => (math.sqrt(-i), math.tan(math.Pi / 2))).toList
     )
     for
-      spec <- hostile
+      layout <- hostile
       count <- 0 to 16
       scale <- List(1.0, Double.NaN, 1e9)
       collision <- List(0.3, 0.0, Double.NaN)
       cap <- List(maxRadius, 0.0, Double.NaN)
     do
-      val placed = CustomSlots.slotsFor(spec, ctx(count, 1.0), scale, cap, collision)
-        .getOrElse(fail(s"$spec produced no slots"))
-      assertEquals(placed.size, math.max(count, 0), s"$spec at $count")
+      val placed = CustomSlots.slotsFor(layout(count), count, scale, cap, collision)
+        .getOrElse(fail(s"a layout of the right size produced no slots at $count"))
+      assertEquals(placed.size, count)
       placed.foreach { slot =>
-        assert(
-          slot._1.isFinite && slot._2.isFinite,
-          s"$spec at count=$count scale=$scale cap=$cap gave $slot"
-        )
+        assert(slot._1.isFinite && slot._2.isFinite, s"count=$count scale=$scale cap=$cap gave $slot")
       }
   }
 
-  test("a formula ring too tight for the fleet is grown to the clearance") {
-    val placed = slots(polarSpec("0.2", "2*pi*i/n"), 8)
+  test("a ring too tight for the fleet is grown to the clearance") {
+    val placed = slots(ShapeFormation.ring(8, 0.0)(_ => 0.2))
     val closest = placed.combinations(2).map { case List(a, b) => math.hypot(a._1 - b._1, a._2 - b._2) }.min
     assertEqualsDouble(closest, gap, 1e-9)
   }
 
-  test("the travel of a spinning spec is its radius per radian, and a still one does not move") {
-    val layout = (spin: String) => (phase: Double) =>
-      CustomSlots.slotsFor(polarSpec("0.6", spin), ctx(6, phase), 1.0, maxRadius, collisionArea)
+  test("the travel of a spinning layout is its radius per radian, and a still one does not move") {
+    val layout = (spins: Boolean) => (phase: Double) =>
+      CustomSlots.slotsFor(ShapeFormation.ring(6, if spins then phase else 0.0)(_ => 0.6), 6, 1.0, maxRadius, collisionArea)
     val step = 2 * math.Pi / CustomSlots.TravelSamples
     // A chord, not the arc: a hair under the radius.
-    assertEqualsDouble(CustomSlots.travel(layout("2*pi*i/n + t")), 0.6 * 2 * math.sin(step / 2) / step, 1e-9)
-    assertEqualsDouble(CustomSlots.travel(layout("2*pi*i/n")), 0.0, 1e-9)
+    assertEqualsDouble(CustomSlots.travel(layout(true)), 0.6 * 2 * math.sin(step / 2) / step, 1e-9)
+    assertEqualsDouble(CustomSlots.travel(layout(false)), 0.0, 1e-9)
   }
-
